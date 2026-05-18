@@ -250,9 +250,9 @@ function statusLabel(status: LetterLite["status"]) {
 }
 
 function statusClasses(status: LetterLite["status"]) {
-  if (status === "GENERATED") return "bg-emerald-100/80 text-emerald-800 supports-backdrop-filter:bg-emerald-100/60";
-  if (status === "SENT") return "bg-sky-100/80 text-sky-800 supports-backdrop-filter:bg-sky-100/60";
-  return "bg-zinc-100/85 text-zinc-700 supports-backdrop-filter:bg-white/55";
+  if (status === "GENERATED") return "pa-credit-status-pill pa-credit-status-pill--generated bg-emerald-100/80 text-emerald-800 supports-backdrop-filter:bg-emerald-100/60";
+  if (status === "SENT") return "pa-credit-status-pill pa-credit-status-pill--sent bg-sky-100/80 text-sky-800 supports-backdrop-filter:bg-sky-100/60";
+  return "pa-credit-status-pill pa-credit-status-pill--draft bg-zinc-100/85 text-zinc-700 supports-backdrop-filter:bg-white/55";
 }
 
 function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): FixedMenuStyle {

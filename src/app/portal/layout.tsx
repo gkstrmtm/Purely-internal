@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { getPortalUser } from "@/lib/portalAuth";
+import { PortalThemeClient } from "@/app/portal/PortalThemeClient";
 import { PortalTopbarClient } from "@/app/portal/PortalTopbarClient";
 import { PortalTopbarHeightClient } from "@/app/portal/PortalTopbarHeightClient";
 import { getPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
+import { getPortalThemeMode } from "@/lib/portalTheme.server";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
+
+const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
 async function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   let timeoutId: NodeJS.Timeout | null = null;
@@ -45,6 +49,10 @@ export default async function PortalLayout({
 
   const user = await getPortalUser();
   const canOpenPortalApp = user?.role === "CLIENT" || user?.role === "ADMIN";
+  const themePreferenceUserId = user?.memberId ?? user?.id ?? null;
+  const themeModeRaw = await getPortalThemeMode(themePreferenceUserId);
+  const isFullDemo = (user?.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
+  const themeMode = isFullDemo && themeModeRaw === "device" ? "light" : themeModeRaw;
   const businessName = user?.id
     ? await withTimeout(getPortalBusinessProfile({ ownerId: user.id }), 1500, { status: 200, json: { profile: { businessName: "" } } as any })
         .then((result) => {
@@ -55,21 +63,23 @@ export default async function PortalLayout({
     : "";
 
   return (
-    <div className="flex min-h-dvh flex-col overflow-x-hidden bg-brand-mist text-brand-ink">
-      <PortalTopbarClient
-        logoSrc={logoSrc}
-        homeHref={homeHref}
-        signInHref={signInHref}
-        getStartedHref={getStartedHref}
-        businessName={businessName}
-        userEmail={user?.email ?? null}
-        canOpenPortalApp={canOpenPortalApp}
-      />
-      <PortalTopbarHeightClient />
+    <PortalThemeClient preferredMode={themeMode}>
+      <div className="flex min-h-dvh flex-col overflow-x-hidden bg-brand-mist text-brand-ink">
+        <PortalTopbarClient
+          logoSrc={logoSrc}
+          homeHref={homeHref}
+          signInHref={signInHref}
+          getStartedHref={getStartedHref}
+          businessName={businessName}
+          userEmail={user?.email ?? null}
+          canOpenPortalApp={canOpenPortalApp}
+        />
+        <PortalTopbarHeightClient />
 
-      <div className="min-h-0 flex-1">
-        {children}
+        <div className="min-h-0 flex-1">
+          {children}
+        </div>
       </div>
-    </div>
+    </PortalThemeClient>
   );
 }

@@ -7,7 +7,8 @@
     }
   },
   "installCommand": "npm install",
-  "buildCommand": "npm run build",
+  "ignoreCommand": "npm run vercel:ignore-non-main",
+  "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
   "devCommand": "npm run web",
   "rewrites": [

@@ -6,10 +6,8 @@ const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
 export type PortalThemeMode = "device" | "light" | "dark";
 
-function normalizeThemeMode(input: unknown): PortalThemeMode {
-  const mode = typeof input === "string" ? input.trim().toLowerCase() : "";
-  if (mode === "light" || mode === "dark") return mode;
-  return "device";
+function normalizeThemeMode(): PortalThemeMode {
+  return "light";
 }
 
 function asThemeRec(dataJson: unknown): Record<string, unknown> {
@@ -22,7 +20,7 @@ export async function getPortalThemeMode(userId?: string | null): Promise<Portal
   noStore();
 
   const cleanUserId = typeof userId === "string" ? userId.trim() : "";
-  if (!cleanUserId || cleanUserId === "device") return "device";
+  if (!cleanUserId || cleanUserId === "device") return "light";
 
   const row = await prisma.portalServiceSetup
     .findFirst({
@@ -31,6 +29,6 @@ export async function getPortalThemeMode(userId?: string | null): Promise<Portal
     })
     .catch(() => null);
 
-  const rec = asThemeRec(row?.dataJson);
-  return normalizeThemeMode(rec.themeMode);
+  asThemeRec(row?.dataJson);
+  return normalizeThemeMode();
 }

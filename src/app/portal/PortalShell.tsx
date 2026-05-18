@@ -140,8 +140,14 @@ const portalGlassIconSurfaceProps = {
   brightness: 46,
   opacity: 0.985,
   mixBlendMode: "soft-light" as const,
-  style: { background: "rgba(255,255,255,0.46)", boxShadow: "none" },
+  style: { background: "var(--pa-portal-glass-icon-bg, rgba(255,255,255,0.46))", boxShadow: "none" },
 };
+
+const portalShellChromeButtonClass =
+  "pa-portal-shell-chrome-button inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white/95 text-zinc-900 shadow-sm backdrop-blur transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20";
+
+const portalShellChromeButtonSoftClass =
+  "pa-portal-shell-chrome-button inline-flex items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20";
 
 const DESKTOP_SIDEBAR_EXPANDED_WIDTH = "17.5rem";
 const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "4.75rem";
@@ -1479,11 +1485,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const floatingToolsReserve = "6.5rem";
   const portalLightSurfaceNoOutlineCss = `
-    .pa-portal-ui [class*="bg-white/95"][class*="border-zinc-200"],
-    .pa-portal-ui [class*="bg-white/90"][class*="border-zinc-200"],
-    .pa-portal-ui [class*="bg-white/10"][class*="border-white/15"],
-    .pa-portal-ui [class*="bg-white/10"][class*="border-white/35"],
-    .pa-portal-ui [class*="from-brand-blue/10"][class*="border-brand-ink/10"] {
+    [data-portal-theme="light"] .pa-portal-ui [class*="bg-white/95"][class*="border-zinc-200"],
+    [data-portal-theme="light"] .pa-portal-ui [class*="bg-white/90"][class*="border-zinc-200"],
+    [data-portal-theme="light"] .pa-portal-ui [class*="bg-white/10"][class*="border-white/15"],
+    [data-portal-theme="light"] .pa-portal-ui [class*="bg-white/10"][class*="border-white/35"],
+    [data-portal-theme="light"] .pa-portal-ui [class*="from-brand-blue/10"][class*="border-brand-ink/10"] {
       border-color: transparent !important;
     }
   `;
@@ -1563,7 +1569,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <div className="pointer-events-none fixed inset-x-0 top-0 z-90 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
             <button
               type="button"
-              className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white/95 text-zinc-900 shadow-sm backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+              className={classNames("pointer-events-auto h-10 w-10", portalShellChromeButtonClass)}
               aria-label="Open menu"
               onClick={() => setMobileOpen(true)}
             >
@@ -1592,11 +1598,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
             <aside
               className={classNames(
-                "absolute left-0 top-0 z-130041 flex h-full w-72 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+                "pa-portal-shell-drawer absolute left-0 top-0 z-130041 flex h-full w-72 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
                 mobileOpen ? "translate-x-0" : "-translate-x-full",
               )}
             >
-              <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white p-3">
+              <div className="pa-portal-shell-drawer-header shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white p-3">
                 <PortalNavLink href={`${basePath}/app`} className="flex items-center gap-3" onClick={() => setMobileOpen(false)}>
                   <Image
                     src={sidebarLogoSrc}
@@ -1663,7 +1669,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         href={toPurelyHostedUrl("/book-a-call")}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                        className={portalShellChromeButtonSoftClass}
                         aria-label="Book a call"
                         title="Book a call"
                       >
@@ -1673,7 +1679,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
                       <PortalNavLink
                         href={`${basePath}/tutorials/getting-started?embed=1`}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                        className={portalShellChromeButtonSoftClass}
                         aria-label="Help"
                         title="Help"
                       >
@@ -1786,7 +1792,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               href={toPurelyHostedUrl("/book-a-call")}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
+              className={classNames("h-11 w-11", portalShellChromeButtonSoftClass)}
               aria-label="Book a call"
               title="Book a call"
             >
@@ -1796,7 +1802,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <GlassSurface {...portalGlassIconSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl">
             <PortalNavLink
               href={`${basePath}/tutorials/getting-started`}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
+              className={classNames("h-11 w-11", portalShellChromeButtonSoftClass)}
               aria-label="Help"
               title="Help"
             >
@@ -1867,14 +1873,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <aside
             className={classNames(
-              "absolute left-0 top-0 z-130041 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+              "pa-portal-shell-drawer absolute left-0 top-0 z-130041 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
             role="dialog"
             aria-modal="true"
             aria-label="Portal navigation"
           >
-            <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white/90 px-3 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur">
+            <div className="pa-portal-shell-drawer-header shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white/90 px-3 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur">
               <div className="min-w-0 flex-1 px-1">
                 <div className="truncate text-base font-semibold tracking-tight text-brand-ink">{mobileHeaderTitle}</div>
               </div>
@@ -1882,7 +1888,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={() => setMobileOpen(false)}
                 className={classNames(
-                  "ml-auto inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700",
+                  "pa-portal-shell-chrome-button ml-auto inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700",
                   portalIconActionClass,
                 )}
                 aria-label="Close menu"
@@ -2290,7 +2296,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={toPurelyHostedUrl("/book-a-call")}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                    className={portalShellChromeButtonSoftClass}
                     aria-label="Book a call"
                     title="Book a call"
                   >
@@ -2300,7 +2306,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
                   <PortalNavLink
                     href={`${basePath}/tutorials/getting-started`}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                    className={portalShellChromeButtonSoftClass}
                     aria-label="Help"
                     title="Help"
                   >
@@ -2313,9 +2319,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </aside>
         </div>
 
-        <aside
+          <aside
           className={classNames(
-            "hidden shrink-0 overflow-hidden border-r border-zinc-200 bg-white transition-[width] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)] sm:sticky sm:top-0 sm:flex sm:h-dvh sm:flex-col",
+              "pa-portal-shell-sidebar hidden shrink-0 overflow-hidden border-r border-zinc-200 bg-white transition-[width] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)] sm:sticky sm:top-0 sm:flex sm:h-dvh sm:flex-col",
             collapsed ? "w-19" : "w-70",
             activeTopKey === "pura" && "shadow-[2px_0_12px_rgba(0,0,0,0.06)]",
           )}
@@ -3019,7 +3025,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               onClick={() => setMobileOpen(true)}
-              className="pointer-events-auto inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white/95 p-2 text-zinc-700 shadow-sm backdrop-blur hover:bg-zinc-50"
+              className="pa-portal-shell-chrome-button pointer-events-auto inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white/95 p-2 text-zinc-700 shadow-sm backdrop-blur hover:bg-zinc-50"
               aria-label="Open menu"
             >
               <IconChevron />

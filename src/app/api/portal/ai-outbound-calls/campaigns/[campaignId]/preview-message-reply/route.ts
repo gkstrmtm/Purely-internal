@@ -6,8 +6,6 @@ import { generateText } from "@/lib/ai";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
-import { consumeCredits } from "@/lib/credits";
-import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { buildOutboundMessagingSystemPrompt, tryBuildOutboundMessagingDeterministicReply } from "@/lib/portalAiOutboundIntelligence";
 
 export const runtime = "nodejs";
@@ -113,10 +111,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   let reply = "";
   try {
-    const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
-    if (!charged.ok) {
-      return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
-    }
     reply = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "AI request failed";

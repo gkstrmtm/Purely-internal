@@ -99,17 +99,18 @@ export async function POST(req: Request) {
 
   const base = process.env.NODE_ENV === "production" ? "https://purelyautomation.com" : baseUrlFromRequest(req);
   const link = `${base}/portalinvite/${invite.token}`;
+  let warning: string | null = null;
 
-  // Best-effort invite email.
   try {
     await sendEmail({
       to: email,
       subject: "You’ve been invited to Purely Automation",
       text: `You’ve been invited to access a Purely Automation client portal.\n\nAccept invite: ${link}\n\nThis invite expires on ${new Date(invite.expiresAt).toLocaleString()}.`,
     });
-  } catch {
-    // ignore
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invite email could not be sent";
+    warning = `Invite link created, but the email was not sent. ${message}`;
   }
 
-  return NextResponse.json({ ok: true, invite, link });
+  return NextResponse.json({ ok: true, invite, link, emailDelivered: !warning, warning });
 }

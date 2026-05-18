@@ -46,6 +46,12 @@ import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portal
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { IconEdit, IconEyeGlyph, IconFunnel, IconGlobeGlyph, IconSearch } from "@/app/portal/PortalIcons";
 
+const bookingActionButtonClass =
+  "pa-booking-action-button inline-flex items-center gap-2 rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2.5 text-sm font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]";
+
+const bookingActionButtonCompactClass =
+  "pa-booking-action-button rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60";
+
 type BookingFormConfig = {
   version: 1;
   thankYouMessage?: string;
@@ -1244,7 +1250,7 @@ export function PortalBookingClient({
               </a>
               <a
                 href={selectedCalendarId ? `${appBase}/services/booking/page-editor?calendarId=${encodeURIComponent(selectedCalendarId)}` : `${appBase}/services/booking/page-editor`}
-                className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2.5 text-sm font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]"
+                className={bookingActionButtonClass}
               >
                 <span className="flex items-center gap-2">
                   <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-95"><IconEdit size={18} /></span>
@@ -2063,7 +2069,7 @@ export function PortalBookingClient({
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+              className={bookingActionButtonCompactClass}
               onClick={async () => {
                 const ok = await (dayAvailabilityEditorRef.current?.save() ?? Promise.resolve(true));
                 if (ok) closeWeekDayModal();
@@ -2149,13 +2155,13 @@ export function PortalBookingClient({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex rounded-full bg-blue-50/80 p-1">
+                <div className="pa-booking-view-toggle inline-flex rounded-full bg-blue-50/80 p-1">
                   <button
                     type="button"
                     className={
                       appointmentsView === "week"
-                        ? "rounded-full bg-blue-100 px-3 py-2 text-sm font-semibold text-brand-blue"
-                        : "rounded-full px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/70"
+                        ? "pa-booking-view-toggle-button pa-booking-view-toggle-button--active rounded-full bg-blue-100 px-3 py-2 text-sm font-semibold text-brand-blue"
+                        : "pa-booking-view-toggle-button rounded-full px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/70"
                     }
                     onClick={() => setAppointmentsView("week")}
                   >
@@ -2165,8 +2171,8 @@ export function PortalBookingClient({
                     type="button"
                     className={
                       appointmentsView === "month"
-                        ? "rounded-full bg-blue-100 px-3 py-2 text-sm font-semibold text-brand-blue"
-                        : "rounded-full px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/70"
+                        ? "pa-booking-view-toggle-button pa-booking-view-toggle-button--active rounded-full bg-blue-100 px-3 py-2 text-sm font-semibold text-brand-blue"
+                        : "pa-booking-view-toggle-button rounded-full px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/70"
                     }
                     onClick={() => {
                       setAppointmentsView("month");
@@ -2236,7 +2242,7 @@ export function PortalBookingClient({
 
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2.5 text-sm font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
+                  className={bookingActionButtonClass}
                   onClick={openAvailability}
                 >
                   <IconEdit className="h-4 w-4" />
@@ -2285,7 +2291,7 @@ export function PortalBookingClient({
                         </div>
 
                         {isToday ? (
-                          <div className={selected ? "shrink-0 rounded-full bg-(--color-brand-blue) px-2.5 py-1 text-[10px] font-semibold text-white shadow-[0_10px_20px_rgba(29,78,216,0.18)]" : "shrink-0 rounded-full border border-blue-200 bg-blue-100/80 px-2.5 py-1 text-[10px] font-semibold text-brand-blue"}>Today</div>
+                          <div className={selected ? "pa-booking-day-pill--selected shrink-0 rounded-full bg-(--color-brand-blue) px-2.5 py-1 text-[10px] font-semibold text-white shadow-[0_10px_20px_rgba(29,78,216,0.18)]" : "shrink-0 rounded-full border border-blue-200 bg-blue-100/80 px-2.5 py-1 text-[10px] font-semibold text-brand-blue"}>Today</div>
                         ) : null}
                       </div>
 
@@ -2402,7 +2408,7 @@ export function PortalBookingClient({
 
                           <div className="flex items-center gap-1.5">
                             {today ? (
-                              <div className={selected ? "rounded-full bg-white/85 px-2 py-0.5 text-[10px] font-semibold text-brand-blue" : "rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-700"}>
+                              <div className={selected ? "pa-booking-day-pill--selected rounded-full bg-white/85 px-2 py-0.5 text-[10px] font-semibold text-brand-blue" : "rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-700"}>
                                 Today
                               </div>
                             ) : null}
@@ -2426,7 +2432,7 @@ export function PortalBookingClient({
                             <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
                               {hasCoverage ? formatAvailabilityDuration(availableMinutes) : "No availability"}
                             </div>
-                            <div className={selected ? "text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-blue" : "text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400"}>
+                            <div className={selected ? "pa-booking-selected-label text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-blue" : "text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400"}>
                               {selected ? "Selected" : inMonth ? "Open" : ""}
                             </div>
                           </div>
@@ -2467,7 +2473,7 @@ export function PortalBookingClient({
 
                     <button
                       type="button"
-                      className="inline-flex items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2.5 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
+                      className="pa-booking-action-button inline-flex items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2.5 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
                       onClick={() => openWeekDayModal(focusYmd)}
                     >
                       Open day editor
@@ -3630,32 +3636,43 @@ export function PortalBookingClient({
                         }
                       }}
                       className={
-                        "w-full cursor-pointer rounded-3xl border p-4 text-left transition-colors duration-100 focus:outline-none " +
-                        (selected ? "border-(--color-brand-blue) bg-blue-50/80 shadow-sm" : "border-zinc-200 bg-white hover:bg-zinc-50")
+                        "pa-booking-calendar-card w-full cursor-pointer rounded-3xl border p-4 text-left transition-colors duration-100 focus:outline-none " +
+                        (selected ? "pa-booking-calendar-card--selected border-zinc-900 bg-zinc-950 text-white shadow-[0_16px_36px_rgba(15,23,42,0.18)]" : "border-zinc-200 bg-white hover:bg-zinc-50")
                       }
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <div className={"text-sm font-semibold " + (selected ? "text-(--color-brand-blue)" : "text-zinc-900")}>
+                            <div className={"pa-booking-calendar-card-title text-sm font-semibold " + (selected ? "text-white" : "text-zinc-900")}>
                               {c.title}
                             </div>
-                            <span className="rounded-full bg-zinc-100/90 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
+                            <span
+                              className={
+                                "rounded-full px-2.5 py-1 text-[11px] font-semibold " +
+                                (selected ? "border border-white/12 bg-white/10 text-slate-100" : "bg-zinc-100/90 text-zinc-700")
+                              }
+                            >
                               {c.durationMinutes ?? site?.durationMinutes ?? 30} min
                             </span>
                             <span
                               className={
                                 "rounded-full px-2.5 py-1 text-[11px] font-semibold " +
-                                (c.enabled ? "bg-emerald-100/80 text-emerald-700" : "bg-zinc-100/90 text-zinc-600")
+                                (selected
+                                  ? c.enabled
+                                    ? "border border-emerald-300/18 bg-emerald-400/18 text-emerald-100"
+                                    : "border border-white/12 bg-white/10 text-slate-200"
+                                  : c.enabled
+                                    ? "bg-emerald-100/80 text-emerald-700"
+                                    : "bg-zinc-100/90 text-zinc-600")
                               }
                             >
                               {c.enabled ? "On" : "Off"}
                             </span>
                           </div>
-                          <div className="mt-2 text-xs text-zinc-600">
+                          <div className={"mt-2 text-xs " + (selected ? "text-slate-300" : "text-zinc-600")}>
                             {c.meetingLocation?.trim() ? c.meetingLocation : "Meeting details are configured in the popup editor."}
                           </div>
-                          <div className="mt-2 space-y-1 text-xs text-zinc-500">
+                          <div className={"mt-2 space-y-1 text-xs " + (selected ? "text-slate-400" : "text-zinc-500")}>
                             {previewUrl ? <div className="truncate">Preview: {previewUrl}</div> : null}
                             {liveUrl ? <div className="truncate">Live: {liveUrl}</div> : null}
                           </div>
@@ -3991,7 +4008,7 @@ export function PortalBookingClient({
                       </div>
                       <button
                         type="button"
-                        className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
+                        className={bookingActionButtonCompactClass}
                         onClick={() =>
                           void saveFormConfig({
                             questions: [
@@ -4140,7 +4157,7 @@ export function PortalBookingClient({
           <div className="flex justify-end">
             <button
               type="button"
-              className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+              className={bookingActionButtonCompactClass}
               disabled={calSaving || !newCalTitle.trim()}
               onClick={() => void createCalendar()}
             >
@@ -4362,7 +4379,7 @@ export function PortalBookingClient({
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+              className={bookingActionButtonCompactClass}
               onClick={async () => {
                 const ok = await (modalAvailabilityEditorRef.current?.save() ?? Promise.resolve(true));
                 if (ok) closeAvailability();

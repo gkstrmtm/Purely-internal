@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
 
-import { authOptions } from "@/lib/auth";
+import { requirePlatformAdminSession } from "@/lib/apiAuth";
 import { deriveCreditReportItemAudit } from "@/lib/creditReports";
 import { prisma } from "@/lib/db";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
+import { platformAdminAuthError } from "@/lib/platformAdminGrants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,14 +58,6 @@ function toErrorMessage(err: unknown) {
   } catch {
     return "Unknown error";
   }
-}
-
-function requireManager(session: any) {
-  const userId = session?.user?.id;
-  const role = session?.user?.role;
-  if (!userId) return { ok: false as const, status: 401 as const, userId: null as any };
-  if (role !== "MANAGER" && role !== "ADMIN") return { ok: false as const, status: 403 as const, userId };
-  return { ok: true as const, status: 200 as const, userId };
 }
 
 async function upsertDemoContact(ownerId: string, seed: DemoContactSeed) {
@@ -320,11 +312,10 @@ function seededLetterBody(contactName: string, recipientName: string, disputeLin
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    const auth = requireManager(session);
+    const auth = await requirePlatformAdminSession();
     if (!auth.ok) {
       return NextResponse.json(
-        { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+        { error: platformAdminAuthError(auth.status) },
         { status: auth.status, headers: { "cache-control": "no-store" } },
       );
     }

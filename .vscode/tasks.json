@@ -2650,6 +2650,46 @@
 				"tmp/verify_credit_signature_bottom_type.mjs"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Debug: lead map CSS rules",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/debug_lead_map_css_rules.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: lead map CSS rules to file",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/portal-qa/debug_lead_map_css_rules.mjs > tmp/portal-qa/debug_lead_map_css_rules_output.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Dev: next direct clean",
+			"type": "shell",
+			"command": "./node_modules/.bin/next",
+			"args": [
+				"dev",
+				"--hostname",
+				"127.0.0.1"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Debug: lead map CSS rules to file clean",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/portal-qa/debug_lead_map_css_rules.mjs > tmp/portal-qa/debug_lead_map_css_rules_output.json"
+			],
+			"isBackground": false
 		}
 	]
 }

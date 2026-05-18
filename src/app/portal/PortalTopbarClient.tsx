@@ -149,8 +149,8 @@ export function PortalTopbarClient(props: {
       className={classNames(
         portalAppDesktopChrome
           ? effectiveHidden
-            ? "pa-portal-topbar fixed top-0 z-40 overflow-hidden border-b border-transparent bg-transparent transition-[left,width]"
-            : "pa-portal-topbar fixed top-0 z-40 overflow-hidden border-b border-transparent bg-transparent transition-[left,width]"
+            ? "pa-portal-topbar pa-portal-topbar--desktop fixed top-0 z-40 overflow-hidden border-b border-transparent bg-transparent transition-[left,width]"
+            : "pa-portal-topbar pa-portal-topbar--desktop fixed top-0 z-40 overflow-hidden border-b border-transparent bg-transparent transition-[left,width]"
           : "pa-portal-topbar sticky top-0 z-20 overflow-hidden bg-white/80 backdrop-blur transition-[height,border-color]",
         isPortalAppRoute && "max-sm:hidden",
         hidden ? "pointer-events-none border-b border-transparent" : portalAppDesktopChrome ? "" : "border-b border-zinc-200",
@@ -174,10 +174,10 @@ export function PortalTopbarClient(props: {
             brightness={46}
             opacity={0.985}
             mixBlendMode="soft-light"
-            className="h-full w-full"
-            style={{ background: "rgba(255,255,255,0.46)", boxShadow: "none" }}
+            className="pa-portal-topbar-glass h-full w-full"
+            style={{ background: "var(--pa-portal-glass-icon-bg, rgba(255,255,255,0.46))", boxShadow: "none" }}
           >
-            <div className="h-full w-full bg-[rgba(255,255,255,0.62)] backdrop-blur-[2px]" />
+            <div className="pa-portal-topbar-glass-fill h-full w-full bg-[rgba(255,255,255,0.62)] backdrop-blur-[2px]" />
           </GlassSurface>
         </div>
       ) : null}

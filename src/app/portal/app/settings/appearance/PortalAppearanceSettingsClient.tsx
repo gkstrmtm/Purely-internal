@@ -42,6 +42,10 @@ function dispatchPortalThemePreview(mode: "device" | "light" | "dark") {
   window.dispatchEvent(new CustomEvent("pa.portal.theme-preview", { detail: { mode } }));
 }
 
+function normalizeThemeMode(): "light" {
+  return "light";
+}
+
 export function PortalAppearanceSettingsClient() {
   const pathname = usePathname() || "";
   const toast = useToast();
@@ -70,16 +74,13 @@ export function PortalAppearanceSettingsClient() {
   const [savedVoiceId, setSavedVoiceId] = useState("");
   const [defaultLoginPath, setDefaultLoginPath] = useState(defaultLandingPath);
   const [savedDefaultLoginPath, setSavedDefaultLoginPath] = useState(defaultLandingPath);
-  const [themeMode, setThemeMode] = useState<"device" | "light" | "dark" | null>(null);
-  const [savedThemeMode, setSavedThemeMode] = useState<"device" | "light" | "dark" | null>(null);
-  const [themeSaving, setThemeSaving] = useState(false);
-  const [devicePreference, setDevicePreference] = useState<"light" | "dark">("light");
+  const [themeMode, setThemeMode] = useState<"light" | null>(null);
+  const [savedThemeMode, setSavedThemeMode] = useState<"light" | null>(null);
   const [hideFloatingTools, setHideFloatingTools] = useState(false);
   const [savedHideFloatingTools, setSavedHideFloatingTools] = useState(false);
 
   const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const voicePreviewUrlRef = useRef<string | null>(null);
-  const themeRequestIdRef = useRef(0);
   const toastRef = useRef(toast);
 
   useEffect(() => {
@@ -88,9 +89,7 @@ export function PortalAppearanceSettingsClient() {
 
   const themeOptions = useMemo(
     () => [
-      { value: "device", label: "Use device setting" },
       { value: "light", label: "Light" },
-      { value: "dark", label: "Dark" },
     ],
     [],
   );
@@ -139,7 +138,7 @@ export function PortalAppearanceSettingsClient() {
     setSavedVoiceId(nextVoiceId);
     setDefaultLoginPath(nextDefaultLoginPath);
     setSavedDefaultLoginPath(nextDefaultLoginPath);
-    const nextThemeMode = json.user.themeMode === "light" || json.user.themeMode === "dark" ? json.user.themeMode : "device";
+    const nextThemeMode = normalizeThemeMode();
     const nextHideFloatingTools = Boolean(json.user.hideFloatingTools);
     setThemeMode(nextThemeMode);
     setSavedThemeMode(nextThemeMode);
@@ -176,18 +175,6 @@ export function PortalAppearanceSettingsClient() {
   }, [voiceAgentApiKeyConfigured]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => setDevicePreference(media.matches ? "dark" : "light");
-    apply();
-
-    const onChange = () => apply();
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
-
-  useEffect(() => {
     void loadProfile();
   }, [loadProfile]);
 
@@ -220,39 +207,6 @@ export function PortalAppearanceSettingsClient() {
     selectedVoiceId !== savedVoiceId ||
     defaultLoginPath !== savedDefaultLoginPath ||
     hideFloatingTools !== savedHideFloatingTools;
-
-  const saveThemePreference = useCallback(
-    async (nextThemeMode: "device" | "light" | "dark") => {
-      setThemeMode(nextThemeMode);
-      const requestId = themeRequestIdRef.current + 1;
-      themeRequestIdRef.current = requestId;
-      const previousSavedThemeMode = savedThemeMode ?? "device";
-      setThemeSaving(true);
-
-      const res = await fetch("/api/portal/profile", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ themeMode: nextThemeMode }),
-      }).catch(() => null as any);
-
-      const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
-
-      if (requestId !== themeRequestIdRef.current) return;
-
-      setThemeSaving(false);
-      if (!res?.ok || json?.ok !== true || !json.user) {
-        setThemeMode(previousSavedThemeMode);
-        toast.error(json?.error || "Unable to update theme");
-        return;
-      }
-
-      const persistedThemeMode =
-        json.user.themeMode === "light" || json.user.themeMode === "dark" ? json.user.themeMode : "device";
-      setThemeMode(persistedThemeMode);
-      setSavedThemeMode(persistedThemeMode);
-    },
-    [savedThemeMode, toast],
-  );
 
   async function savePreferences() {
     if (saving || !dirty) return;
@@ -343,17 +297,17 @@ export function PortalAppearanceSettingsClient() {
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-brand-ink">Theme</h2>
         <p className="mt-1 text-sm text-zinc-600">
-          Choose how the portal should look on this account. Device mode currently resolves to {devicePreference} mode.
+          Light mode is locked on for users so the portal always stays readable and consistent.
         </p>
         <div className="mt-4 w-full max-w-xs">
           <PortalListboxDropdown
-            value={themeMode ?? savedThemeMode ?? "device"}
+            value={themeMode ?? savedThemeMode ?? "light"}
             options={themeOptions}
-            onChange={(value) => void saveThemePreference(value as "device" | "light" | "dark")}
-            disabled={loading || themeMode === null || themeSaving}
+            onChange={() => undefined}
+            disabled={true}
           />
         </div>
-        <div className="mt-3 text-xs text-zinc-500">Theme changes apply and save immediately.</div>
+        <div className="mt-3 text-xs text-zinc-500">Dark mode has been turned off for users.</div>
       </div>
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">

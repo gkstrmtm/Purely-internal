@@ -337,16 +337,21 @@ export function PortalPeopleUsersClient() {
       setInviteModalOpen(false);
 
       const link = String(json.link || "");
+      const warning = typeof json.warning === "string" ? json.warning.trim() : "";
       if (link) {
         try {
           await navigator.clipboard.writeText(link);
-          toast.success("Invite created. Link copied to clipboard.");
+          toast.success(
+            warning ? "Invite created. Email could not be sent, so the link was copied instead." : "Invite created. Link copied to clipboard.",
+          );
         } catch {
-          toast.success("Invite created.");
+          toast.success(warning ? "Invite created, but email delivery needs attention." : "Invite created.");
         }
       } else {
-        toast.success("Invite created.");
+        toast.success(warning ? "Invite created, but email delivery needs attention." : "Invite created.");
       }
+
+      if (warning) toast.info(warning);
 
       await load();
     } catch (e: any) {

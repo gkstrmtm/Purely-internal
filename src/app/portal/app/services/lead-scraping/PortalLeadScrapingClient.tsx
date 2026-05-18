@@ -53,7 +53,7 @@ const TAG_COLORS = [
 ] as const;
 
 const leadActionBlueSoftClass =
-  "inline-flex items-center justify-center gap-2.5 rounded-2xl bg-[rgba(29,78,216,0.12)] px-5 py-3 text-sm font-semibold text-brand-blue shadow-[0_8px_18px_rgba(29,78,216,0.09)] transition-all duration-150 enabled:hover:bg-[rgba(29,78,216,0.18)] disabled:cursor-default disabled:opacity-60 disabled:shadow-none";
+  "pa-lead-scraping-action inline-flex items-center justify-center gap-2.5 rounded-2xl bg-[rgba(29,78,216,0.12)] px-5 py-3 text-sm font-semibold text-brand-blue shadow-[0_8px_18px_rgba(29,78,216,0.09)] transition-all duration-150 enabled:hover:bg-[rgba(29,78,216,0.18)] disabled:cursor-default disabled:opacity-60 disabled:shadow-none";
 
 const leadActionGreenSoftClass =
   "inline-flex items-center justify-center gap-2.5 rounded-2xl bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-700 shadow-[0_8px_18px_rgba(16,185,129,0.08)] transition-all duration-150 enabled:hover:bg-emerald-100 disabled:cursor-default disabled:opacity-60 disabled:shadow-none";
@@ -68,10 +68,10 @@ const leadActionRoseSoftClass =
   "inline-flex items-center justify-center gap-2.5 rounded-2xl bg-rose-50 px-5 py-3 text-sm font-semibold text-rose-700 shadow-[0_8px_18px_rgba(244,63,94,0.08)] transition-all duration-150 enabled:hover:bg-rose-100 disabled:cursor-default disabled:opacity-60 disabled:shadow-none";
 
 const leadActionExportClass =
-  "inline-flex items-center justify-center gap-2.5 rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) shadow-[0_8px_18px_rgba(29,78,216,0.09)] transition-all duration-150 enabled:hover:bg-[rgba(29,78,216,0.18)] disabled:cursor-default disabled:opacity-60 disabled:shadow-none";
+  "pa-lead-scraping-action inline-flex items-center justify-center gap-2.5 rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) shadow-[0_8px_18px_rgba(29,78,216,0.09)] transition-all duration-150 enabled:hover:bg-[rgba(29,78,216,0.18)] disabled:cursor-default disabled:opacity-60 disabled:shadow-none";
 
 const leadActionExportCompactClass =
-  "inline-flex items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] px-3 py-1.5 text-xs font-semibold text-brand-blue shadow-[0_8px_18px_rgba(29,78,216,0.09)] transition-all duration-150 enabled:hover:bg-[rgba(29,78,216,0.18)] disabled:cursor-default disabled:opacity-60 disabled:shadow-none";
+  "pa-lead-scraping-action inline-flex items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] px-3 py-1.5 text-xs font-semibold text-brand-blue shadow-[0_8px_18px_rgba(29,78,216,0.09)] transition-all duration-150 enabled:hover:bg-[rgba(29,78,216,0.18)] disabled:cursor-default disabled:opacity-60 disabled:shadow-none";
 
 const leadComposeSendButtonClass =
   "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white transition-opacity duration-100 hover:opacity-95 disabled:cursor-default disabled:opacity-60";

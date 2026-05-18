@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { archiveEntity, isEntityArchived, RECOVERABILITY_ENTITY_TYPES } from "@/lib/recoverability";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -268,19 +269,29 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ contactId: 
 
   const ownerId = auth.session.user.id;
 
+  if (await isEntityArchived({ ownerId, entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT, entityId: contactId.data })) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
+
   const existing = await prisma.portalContact
-    .findFirst({ where: { ownerId, id: contactId.data }, select: { id: true } })
+    .findFirst({ where: { ownerId, id: contactId.data }, select: { id: true, name: true, email: true, phone: true } })
     .catch(() => null);
 
   if (!existing?.id) {
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
 
-  try {
-    await prisma.portalContact.delete({ where: { id: existing.id } });
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    const msg = e instanceof Error ? e.message : String(e ?? "Failed to delete");
-    return NextResponse.json({ ok: false, error: "Could not delete contact", details: msg }, { status: 409 });
-  }
+  await archiveEntity({
+    ownerId,
+    entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT,
+    entityId: existing.id,
+    actorUserId: ownerId,
+    metadata: {
+      name: existing.name,
+      email: existing.email,
+      phone: existing.phone,
+    },
+  });
+
+  return NextResponse.json({ ok: true, archived: true });
 }

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
-import { prisma } from "@/lib/db";
 import {
   exportHostedPageDocumentCustomHtml,
   getDefaultHostedPagePrompt,
+  getHostedPageDocumentAccessMeta,
   portalServiceKeyForHostedPageService,
 } from "@/lib/hostedPageDocuments";
 import { requireClientSessionForService } from "@/lib/portalAccess";
@@ -24,10 +24,7 @@ async function requireHostedPageEditAccess(documentId: string) {
   if (!auth.ok) return auth;
 
   const ownerId = auth.session.user.id;
-  const row = await (prisma as any).hostedPageDocument.findFirst({
-    where: { id: documentId, ownerId },
-    select: { id: true, service: true },
-  });
+  const row = await getHostedPageDocumentAccessMeta(ownerId, documentId);
   if (!row) {
     return {
       ok: false as const,

@@ -296,7 +296,7 @@ function ReportingPendingState({
   links: ReportingPendingLink[];
 }) {
   return (
-    <div className="mt-4 rounded-[28px] border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-[0_18px_48px_rgba(15,23,42,0.08)]">
+    <div className="pa-reporting-pending mt-4 rounded-[28px] border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-[0_18px_48px_rgba(15,23,42,0.08)]">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
           <div className="text-sm font-semibold text-brand-ink">{title}</div>
@@ -306,14 +306,14 @@ function ReportingPendingState({
               <Link
                 key={link.href}
                 href={link.href}
-                className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors duration-100 hover:bg-zinc-100"
+                className="pa-reporting-pending-link inline-flex items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors duration-100 hover:bg-zinc-100"
               >
                 {link.label}
               </Link>
             ))}
           </div>
         </div>
-        <div className="grid min-w-55 gap-3 rounded-3xl bg-zinc-50 p-4 text-xs text-zinc-500">
+        <div className="pa-reporting-pending-aside grid min-w-55 gap-3 rounded-3xl bg-zinc-50 p-4 text-xs text-zinc-500">
           <div>
             <div className="font-semibold uppercase tracking-[0.18em] text-zinc-400">What you should expect</div>
             <div className="mt-2 text-sm text-zinc-600">Credits, activity, and sales widgets appear here once reporting data finishes loading.</div>
@@ -476,20 +476,20 @@ function StatCard({
 }) {
   const t = toneClasses(tone);
   return (
-    <div className={classNames("rounded-3xl border border-zinc-200 p-6", t.surface, t.ring)}>
+    <div className={classNames("pa-reporting-stat-card rounded-3xl border border-zinc-200 p-6", t.surface, t.ring)} data-reporting-tone={tone}>
       {!t.filled ? <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} /> : null}
       <div className="flex items-center justify-between gap-3">
-        <div className={classNames("text-xs font-semibold", t.label)}>{label}</div>
+        <div className={classNames("pa-reporting-stat-label text-xs font-semibold", t.label)}>{label}</div>
         {icon ? (
-          <div className={classNames("inline-flex items-center justify-center rounded-xl p-2", t.icon)} aria-hidden="true">
+          <div className={classNames("pa-reporting-stat-icon inline-flex items-center justify-center rounded-xl p-2", t.icon)} aria-hidden="true">
             {icon}
           </div>
         ) : (
-          <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
+          <div className={classNames("pa-reporting-stat-pill h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
         )}
       </div>
       <div className="mt-2 text-3xl font-bold text-brand-ink">{value}</div>
-      {sub ? <div className={classNames("mt-1 text-xs", t.sub)}>{sub}</div> : null}
+      {sub ? <div className={classNames("pa-reporting-stat-sub mt-1 text-xs", t.sub)}>{sub}</div> : null}
     </div>
   );
 }
@@ -510,10 +510,10 @@ function MiniCard({
   const t = tone ? toneClasses(tone) : null;
   const surfaceClass = filled && t ? t.softPanel : t?.surface ?? "bg-white";
   return (
-    <div className={classNames("rounded-3xl border border-zinc-200 p-5", surfaceClass, t?.ring)}>
-      <div className={classNames("text-xs font-semibold", t?.label ?? "text-zinc-500")}>{label}</div>
+    <div className={classNames("pa-reporting-mini-card rounded-3xl border border-zinc-200 p-5", surfaceClass, t?.ring)} data-reporting-tone={tone ?? "ink"}>
+      <div className={classNames("pa-reporting-stat-label text-xs font-semibold", t?.label ?? "text-zinc-500")}>{label}</div>
       <div className="mt-2 text-2xl font-bold text-brand-ink">{value}</div>
-      {sub ? <div className={classNames("mt-1 text-xs", t?.sub ?? "text-zinc-500")}>{sub}</div> : null}
+      {sub ? <div className={classNames("pa-reporting-stat-sub mt-1 text-xs", t?.sub ?? "text-zinc-500")}>{sub}</div> : null}
     </div>
   );
 }
@@ -533,7 +533,7 @@ function ServicePerfCard({
 }) {
   const t = toneClasses(tone ?? "slate");
   return (
-    <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
+    <div className={classNames("pa-reporting-service-card rounded-3xl border border-zinc-200 bg-white p-6", t.ring)} data-reporting-tone={tone ?? "slate"}>
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
         <div className="flex items-center gap-2">
@@ -547,10 +547,10 @@ function ServicePerfCard({
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {stats.slice(0, 6).map((s) => (
-          <div key={s.label} className={classNames("rounded-2xl p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]", t.softPanel)}>
+          <div key={s.label} className={classNames("pa-reporting-service-stat rounded-2xl p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]", t.softPanel)}>
             <div className="flex items-center justify-between gap-2">
               <div className="text-[11px] font-semibold text-zinc-600">{s.label}</div>
-              <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
+              <div className={classNames("pa-reporting-stat-pill h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
             </div>
             <div className="mt-1 text-sm font-bold text-brand-ink">{s.value}</div>
           </div>
@@ -1069,8 +1069,8 @@ export function PortalReportingClient() {
               <>
                 <div className="fixed inset-0 z-30" onMouseDown={() => setFiltersOpen(false)} onTouchStart={() => setFiltersOpen(false)} aria-hidden />
                 <LiquidGlassPopupSurface
-                  className="fixed z-140000 w-80 overflow-hidden border border-[rgba(96,165,250,0.24)] p-1.5 shadow-[0_22px_54px_rgba(37,99,235,0.16),0_14px_36px_rgba(15,23,42,0.16)]"
-                  contentClassName="rounded-[26px] bg-[linear-gradient(180deg,rgba(239,246,255,0.28),rgba(255,255,255,0.14))]"
+                  className="pa-reporting-filters-popover fixed z-140000 w-80 overflow-hidden border border-[rgba(96,165,250,0.24)] p-1.5 shadow-[0_22px_54px_rgba(37,99,235,0.16),0_14px_36px_rgba(15,23,42,0.16)]"
+                  contentClassName="pa-reporting-filters-popover-content rounded-[26px] bg-[linear-gradient(180deg,rgba(239,246,255,0.28),rgba(255,255,255,0.14))]"
                   style={filtersMenuStyle}
                   onMouseDown={(e) => e.stopPropagation()}
                   onTouchStart={(e) => e.stopPropagation()}
@@ -1078,7 +1078,7 @@ export function PortalReportingClient() {
                   <div className="flex flex-col" style={{ maxHeight: filtersMenuStyle.maxHeight }}>
                     <div className="space-y-5 overflow-y-auto px-4 pb-3 pt-4">
                       <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Range</div>
+                        <div className="pa-reporting-filters-heading text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Range</div>
                         <div className="mt-2 space-y-1">
                         {([
                           ["today", "Today"],
@@ -1093,8 +1093,8 @@ export function PortalReportingClient() {
                             className={classNames(
                               "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors",
                               range === key
-                                ? "bg-[rgba(96,165,250,0.16)] font-semibold text-[rgb(29,78,216)]"
-                                : "text-zinc-700 hover:bg-[rgba(255,255,255,0.42)]",
+                                ? "pa-reporting-filter-option pa-reporting-filter-option--active font-semibold"
+                                : "pa-reporting-filter-option text-zinc-700 hover:bg-[rgba(255,255,255,0.42)]",
                             )}
                             onClick={() => {
                               setRange(key);
@@ -1102,16 +1102,16 @@ export function PortalReportingClient() {
                             }}
                           >
                             <span>{label}</span>
-                            {range === key ? <span className="text-xs text-[rgba(29,78,216,0.78)]">Selected</span> : null}
+                            {range === key ? <span className="pa-reporting-filter-selected-badge text-xs">Selected</span> : null}
                           </button>
                         ))}
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-[rgba(148,163,184,0.22)] bg-[rgba(255,255,255,0.20)] px-3 py-2.5 backdrop-blur-[6px]">
+                    <div className="pa-reporting-filter-toggle-card flex items-center justify-between gap-3 rounded-2xl border border-[rgba(148,163,184,0.22)] bg-[rgba(255,255,255,0.20)] px-3 py-2.5 backdrop-blur-[6px]">
                       <div className="pr-2">
-                        <div className="text-xs font-semibold text-zinc-900">Active only</div>
-                        <div className="text-[11px] text-zinc-500">Keep the list focused on services already showing activity.</div>
+                        <div className="pa-reporting-filter-toggle-title text-xs font-semibold text-zinc-900">Active only</div>
+                        <div className="pa-reporting-filter-toggle-copy text-[11px] text-zinc-500">Keep the list focused on services already showing activity.</div>
                       </div>
                       <button
                         type="button"
@@ -1121,22 +1121,22 @@ export function PortalReportingClient() {
                         className={classNames(
                           "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition",
                           activeOnly
-                            ? "border-[rgba(96,165,250,0.42)] bg-[rgba(96,165,250,0.38)]"
-                            : "border-[rgba(148,163,184,0.35)] bg-[rgba(148,163,184,0.22)]",
+                            ? "pa-reporting-filter-switch pa-reporting-filter-switch--active border-[rgba(96,165,250,0.42)] bg-[rgba(96,165,250,0.38)]"
+                            : "pa-reporting-filter-switch border-[rgba(148,163,184,0.35)] bg-[rgba(148,163,184,0.22)]",
                         )}
                         onClick={() => setActiveOnly((value) => !value)}
                       >
                         <span
                           className={classNames(
                             "pointer-events-none absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.16)] transition",
-                            activeOnly ? "left-[calc(100%-1.375rem)] bg-[rgba(239,246,255,0.98)]" : "left-0.5",
+                            activeOnly ? "pa-reporting-filter-switch-thumb left-[calc(100%-1.375rem)] bg-[rgba(239,246,255,0.98)]" : "pa-reporting-filter-switch-thumb left-0.5",
                           )}
                         />
                       </button>
                     </div>
 
                     <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Service</div>
+                      <div className="pa-reporting-filters-heading text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Service</div>
                       <div className="mt-2 space-y-1">
                         {SERVICE_INFOS.map((service) => (
                           <button
@@ -1145,13 +1145,13 @@ export function PortalReportingClient() {
                             className={classNames(
                               "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors",
                               serviceFilter === service.key
-                                ? "bg-[rgba(96,165,250,0.16)] font-semibold text-[rgb(29,78,216)]"
-                                : "text-zinc-700 hover:bg-[rgba(255,255,255,0.42)]",
+                                ? "pa-reporting-filter-option pa-reporting-filter-option--active font-semibold"
+                                : "pa-reporting-filter-option text-zinc-700 hover:bg-[rgba(255,255,255,0.42)]",
                             )}
                             onClick={() => setServiceFilter(service.key)}
                           >
                             <span>{service.name}</span>
-                            {serviceFilter === service.key ? <span className="text-xs text-[rgba(29,78,216,0.78)]">Selected</span> : null}
+                            {serviceFilter === service.key ? <span className="pa-reporting-filter-selected-badge text-xs">Selected</span> : null}
                           </button>
                         ))}
                       </div>
@@ -1162,7 +1162,7 @@ export function PortalReportingClient() {
                     <div className="border-t border-white/35 px-4 pb-4 pt-3">
                     <button
                       type="button"
-                      className="w-full rounded-xl border border-[rgba(148,163,184,0.26)] bg-[rgba(255,255,255,0.26)] px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:bg-[rgba(255,255,255,0.42)]"
+                      className="pa-reporting-filter-reset w-full rounded-xl border border-[rgba(148,163,184,0.26)] bg-[rgba(255,255,255,0.26)] px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:bg-[rgba(255,255,255,0.42)]"
                       onClick={() => {
                         setRange("30d");
                         void load("30d");
@@ -1182,7 +1182,7 @@ export function PortalReportingClient() {
               ref={filterButtonRef}
               type="button"
               className={classNames(
-                "inline-flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-100 hover:bg-zinc-50",
+                "pa-reporting-filters-trigger inline-flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-100 hover:bg-zinc-50",
                 activeFilterCount > 0 && "text-brand-blue",
               )}
               onClick={(e) => {

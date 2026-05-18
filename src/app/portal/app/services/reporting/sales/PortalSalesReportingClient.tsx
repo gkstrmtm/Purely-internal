@@ -72,6 +72,7 @@ export function PortalSalesReportingClient() {
   const from = String(searchParams?.get("from") || "").toLowerCase();
   const backHref = from === "dashboard" ? `${portalBase}/app` : `${portalBase}/app/services/reporting`;
   const backLabel = from === "dashboard" ? "Back to Dashboard" : "Back to Reporting";
+  const stripeSetupHref = `${portalBase}/app/services/reporting/stripe`;
 
   const [status, setStatus] = useState<SalesStatusPayload | null>(null);
   const [range, setRange] = useState<RangeKey>("30d");
@@ -158,10 +159,10 @@ export function PortalSalesReportingClient() {
             {backLabel}
           </Link>
           <Link
-            href={`${portalBase}/app/profile`}
+            href={stripeSetupHref}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
-            Sales settings
+            Stripe setup
           </Link>
         </div>
       </div>
@@ -283,13 +284,13 @@ export function PortalSalesReportingClient() {
       ) : (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">No provider connected</div>
-          <div className="mt-2 text-sm text-zinc-600">Connect a payment processor in Profile to enable sales reporting.</div>
+          <div className="mt-2 text-sm text-zinc-600">Open Stripe setup to connect a payment provider and enable sales reporting.</div>
           <div className="mt-4">
             <Link
-              href={`${portalBase}/app/profile`}
+              href={stripeSetupHref}
               className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
-              Connect a provider
+              Connect Stripe
             </Link>
           </div>
         </div>

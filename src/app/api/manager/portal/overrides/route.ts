@@ -1,25 +1,17 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
 
-import { authOptions } from "@/lib/auth";
+import { requirePlatformAdminSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
-import { MODULE_KEYS, type ModuleKey } from "@/lib/entitlements.shared";
+import { MODULE_KEYS, MODULE_LABELS, type ModuleKey } from "@/lib/entitlements.shared";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
+import { platformAdminAuthError } from "@/lib/platformAdminGrants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function requireManager(session: any) {
-  const userId = session?.user?.id;
-  const role = session?.user?.role;
-  if (!userId) return { ok: false as const, status: 401 as const };
-  if (role !== "MANAGER" && role !== "ADMIN") return { ok: false as const, status: 403 as const };
-  return { ok: true as const, userId };
-}
 
 const moduleSchema = z.enum(MODULE_KEYS);
 
@@ -135,21 +127,39 @@ function parseTwilioFromNumberE164(dataJson: unknown): string | null {
   return fromNumberE164;
 }
 
+function normalizeSearchToken(value: string) {
+  return value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+function normalizeSearchDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function searchLooksEnabled(value: string) {
+  return ["enabled", "enable", "on", "yes", "true", "active"].includes(value);
+}
+
+function searchLooksDisabled(value: string) {
+  return ["disabled", "disable", "off", "no", "false", "inactive"].includes(value);
+}
+
 const upsertSchema = z.object({
   ownerId: z.string().trim().min(1).max(64),
   module: moduleSchema,
 });
 
 export async function GET(req: Request) {
-  const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
-  if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  const auth = await requirePlatformAdminSession();
+  if (!auth.ok) return NextResponse.json({ error: platformAdminAuthError(auth.status) }, { status: auth.status });
 
   const url = new URL(req.url);
   const q = (url.searchParams.get("q") ?? "").trim();
+  const qLower = q.toLowerCase();
+  const qToken = normalizeSearchToken(q);
+  const qDigits = normalizeSearchDigits(q);
   const takeRaw = url.searchParams.get("take");
   const takeParsed = takeRaw ? Number(takeRaw) : undefined;
-  const take = Math.max(1, Math.min(200, Number.isFinite(takeParsed as number) ? (takeParsed as number) : 100));
+  const take = Math.max(1, Math.min(500, Number.isFinite(takeParsed as number) ? (takeParsed as number) : 100));
 
   const safeFindMany = async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
     try {
@@ -183,6 +193,103 @@ export async function GET(req: Request) {
     : [];
   const matchedOwnerIds = new Set<string>(matchedOwnerIdsFromBusinessName.map((r) => r.ownerId));
 
+  const canUseMailbox = q ? await safeHasTable("PortalMailboxAddress") : false;
+  if (q && canUseMailbox) {
+    const mailboxRows = await safeFindMany(
+      async () =>
+        prisma.portalMailboxAddress.findMany({
+          where: { emailAddress: { contains: q, mode: "insensitive" } },
+          select: { ownerId: true },
+          take: 500,
+        }),
+      [],
+    );
+    for (const row of mailboxRows) matchedOwnerIds.add(row.ownerId);
+  }
+
+  if (q) {
+    const profileRows = await safeFindMany(
+      async () =>
+        prisma.portalServiceSetup.findMany({
+          where: { serviceSlug: PROFILE_SETUP_SLUG },
+          select: { ownerId: true, dataJson: true },
+          take: 5000,
+        }),
+      [],
+    );
+
+    for (const row of profileRows) {
+      const phone = parseProfilePhoneE164(row.dataJson) ?? "";
+      if (!phone) continue;
+      if ((qDigits && normalizeSearchDigits(phone).includes(qDigits)) || phone.toLowerCase().includes(qLower)) {
+        matchedOwnerIds.add(row.ownerId);
+      }
+    }
+
+    const integrationRows = await safeFindMany(
+      async () =>
+        prisma.portalServiceSetup.findMany({
+          where: { serviceSlug: INTEGRATIONS_SETUP_SLUG },
+          select: { ownerId: true, dataJson: true },
+          take: 5000,
+        }),
+      [],
+    );
+
+    for (const row of integrationRows) {
+      const twilioNumber = parseTwilioFromNumberE164(row.dataJson) ?? "";
+      const twilioConfigured = Boolean(twilioNumber);
+      if ((qDigits && normalizeSearchDigits(twilioNumber).includes(qDigits)) || twilioNumber.toLowerCase().includes(qLower)) {
+        matchedOwnerIds.add(row.ownerId);
+        continue;
+      }
+      if ((qToken === "twilio" || qToken === "twilio-on") && twilioConfigured) matchedOwnerIds.add(row.ownerId);
+      if ((qToken === "twilio-off" || qToken === "no-twilio") && !twilioConfigured) matchedOwnerIds.add(row.ownerId);
+    }
+
+    const billingRows = await safeFindMany(
+      async () =>
+        prisma.portalServiceSetup.findMany({
+          where: { serviceSlug: BILLING_MODEL_SETUP_SLUG },
+          select: { ownerId: true, dataJson: true },
+          take: 5000,
+        }),
+      [],
+    );
+
+    for (const row of billingRows) {
+      const creditsOnly = parseCreditsOnlyOverride(row.dataJson);
+      if ((qToken === "credits-only" || qToken === "credit-only" || qToken === "credits" || qToken === "credit") && creditsOnly) {
+        matchedOwnerIds.add(row.ownerId);
+      }
+      if ((qToken === "subscription" || qToken === "stripe" || qToken === "billing") && !creditsOnly) {
+        matchedOwnerIds.add(row.ownerId);
+      }
+    }
+
+    const overrideRows = await safeFindMany(
+      async () =>
+        prisma.portalServiceSetup.findMany({
+          where: { serviceSlug: OVERRIDES_SETUP_SLUG },
+          select: { ownerId: true, dataJson: true },
+          take: 5000,
+        }),
+      [],
+    );
+
+    for (const row of overrideRows) {
+      const overrides = parseOverrides(row.dataJson);
+      if (!overrides.size) continue;
+      if (qToken === "override" || qToken === "overrides" || qToken === "enabled-overrides") {
+        matchedOwnerIds.add(row.ownerId);
+        continue;
+      }
+      if (MODULE_KEYS.some((key) => key === qToken || MODULE_LABELS[key].toLowerCase().includes(qLower)) && Array.from(overrides).some((key) => key === qToken || MODULE_LABELS[key].toLowerCase().includes(qLower))) {
+        matchedOwnerIds.add(row.ownerId);
+      }
+    }
+  }
+
   // If searching, also try to match deleted accounts by their original email/name stored in a tombstone setup.
   if (q) {
     try {
@@ -191,7 +298,6 @@ export async function GET(req: Request) {
         select: { ownerId: true, dataJson: true },
         take: 5000,
       });
-      const qLower = q.toLowerCase();
       for (const r of rows) {
         const t = parseDeletedAccountTombstone(r.dataJson);
         const email = (t.originalEmail ?? "").toLowerCase();
@@ -211,8 +317,18 @@ export async function GET(req: Request) {
           ...(q
             ? {
                 OR: [
-                  { email: { contains: q, mode: "insensitive" } },
-                  { name: { contains: q, mode: "insensitive" } },
+                  { email: { contains: q, mode: "insensitive" as const } },
+                  { name: { contains: q, mode: "insensitive" as const } },
+                  ...(qToken === "active" || searchLooksEnabled(qToken) ? [{ active: true }] : []),
+                  ...(qToken === "inactive" || searchLooksDisabled(qToken) ? [{ active: false }] : []),
+                  ...(qToken === "test" || qToken === "demo"
+                    ? [
+                        { email: { contains: "test", mode: "insensitive" as const } },
+                        { email: { contains: "demo", mode: "insensitive" as const } },
+                        { name: { contains: "test", mode: "insensitive" as const } },
+                        { name: { contains: "demo", mode: "insensitive" as const } },
+                      ]
+                    : []),
                   ...(matchedOwnerIds.size ? [{ id: { in: Array.from(matchedOwnerIds) } }] : []),
                 ],
               }
@@ -479,9 +595,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
-  if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  const auth = await requirePlatformAdminSession();
+  if (!auth.ok) return NextResponse.json({ error: platformAdminAuthError(auth.status) }, { status: auth.status });
 
   const json = await req.json().catch(() => null);
   const parsed = upsertSchema.safeParse(json);
@@ -518,9 +633,8 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
-  if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  const auth = await requirePlatformAdminSession();
+  if (!auth.ok) return NextResponse.json({ error: platformAdminAuthError(auth.status) }, { status: auth.status });
 
   const json = await req.json().catch(() => null);
   const parsed = upsertSchema.safeParse(json);

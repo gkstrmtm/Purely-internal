@@ -39,10 +39,8 @@ function normalizeDefaultLoginPath(input: unknown): string | null {
   return path;
 }
 
-function normalizeThemeMode(input: unknown): "device" | "light" | "dark" {
-  const mode = typeof input === "string" ? input.trim().toLowerCase() : "";
-  if (mode === "light" || mode === "dark") return mode;
-  return "device";
+function normalizeThemeMode(): "device" | "light" | "dark" {
+  return "light";
 }
 
 function normalizeHideFloatingTools(input: unknown): boolean {
@@ -64,7 +62,7 @@ async function getProfilePreferences(userId: string): Promise<{
   return {
     voiceId: normalizeVoiceId(rec.voiceId),
     defaultLoginPath: normalizeDefaultLoginPath(rec.defaultLoginPath),
-    themeMode: normalizeThemeMode(rec.themeMode),
+    themeMode: normalizeThemeMode(),
     hideFloatingTools: normalizeHideFloatingTools(rec.hideFloatingTools),
   };
 }
@@ -99,7 +97,7 @@ async function setProfilePreferences(
   }
 
   if (input.themeMode !== undefined) {
-    next.themeMode = normalizeThemeMode(input.themeMode);
+    next.themeMode = normalizeThemeMode();
   }
 
   if (input.hideFloatingTools !== undefined) {
@@ -412,7 +410,7 @@ export async function GET() {
     getProfileVoiceAgentId(ownerId).catch(() => null),
     getProfileVoiceAgentApiKey(ownerId).catch(() => null),
     getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" })),
-    getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "device", hideFloatingTools: false })),
+    getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "light", hideFloatingTools: false })),
   ]);
 
   return NextResponse.json({
@@ -516,7 +514,7 @@ export async function PUT(req: Request) {
         hideFloatingTools: parsed.data.hideFloatingTools,
       }).catch(() => null);
     }
-    const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "device", hideFloatingTools: false }));
+    const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "light", hideFloatingTools: false }));
     const cityState = await getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" }));
     return NextResponse.json({
       ok: true,
@@ -611,7 +609,7 @@ export async function PUT(req: Request) {
     }).catch(() => null);
   }
 
-  const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "device", hideFloatingTools: false }));
+  const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "light", hideFloatingTools: false }));
 
   const user = await prisma.user.findUnique({
     where: { id: userId },

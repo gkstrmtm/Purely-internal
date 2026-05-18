@@ -10,6 +10,8 @@
     "prebuild": "node scripts/prisma-prebuild.mjs",
     "build": "next build --webpack",
     "start": "next start",
+    "vercel:ignore-non-main": "node scripts/vercel-deploy-gate.mjs ignore",
+    "vercel:require-main": "node scripts/vercel-deploy-gate.mjs enforce",
     "check:copy": "node scripts/check-no-em-dash.mjs",
     "portal:inventory": "node scripts/generate-portal-api-inventory.mjs",
     "portal:master-checklist": "node scripts/generate-portal-ai-master-checklist.mjs",
@@ -24,7 +26,7 @@
     "funnel:scorecard": "node scripts/funnel-business-scorecard.js",
     "db:patch:hr": "node scripts/apply-hr-db-patch.mjs",
     "db:patch:blogs": "node scripts/apply-blogs-db-patch.mjs",
-    "vercel-build": "node scripts/prisma-prebuild.mjs && next build --webpack",
+    "vercel-build": "npm run vercel:require-main && node scripts/prisma-prebuild.mjs && next build --webpack",
     "blogs:cleanup-asterisks": "node prisma/cleanup-blog-asterisks.js",
     "pura:intent-smoke": "node scripts/pura-intent-smoke.cjs"
   },

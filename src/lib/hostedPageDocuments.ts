@@ -1883,6 +1883,183 @@ const documentSelect = {
   updatedAt: true,
 } as const;
 
+const HOSTED_PAGE_COMPAT_KEY = "hostedPageDocumentsCompat";
+
+type HostedPageCompatStoredDocument = {
+  id: string;
+  service: HostedPageService;
+  pageKey: string;
+  title: string;
+  slug: string | null;
+  status: HostedPageDocumentStatus;
+  contentMarkdown: string;
+  editorMode: HostedPageEditorMode;
+  blocksJson: unknown;
+  customHtml: string;
+  customChatJson: unknown;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  themeJson: unknown;
+  dataBindingsJson: unknown;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function compatDocumentId(service: HostedPageService, pageKey: string) {
+  const normalizedPageKey = String(pageKey || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `hpd_${hostedPageServiceLabel(service)}_${normalizedPageKey || "page"}`;
+}
+
+function compatStoredDocumentFromSeed(ownerId: string, service: HostedPageService, seed: HostedPageDefaultSeed): HostedPageCompatStoredDocument {
+  const nowIso = new Date().toISOString();
+  return {
+    id: compatDocumentId(service, seed.pageKey),
+    service,
+    pageKey: seed.pageKey,
+    title: seed.title,
+    slug: seed.slug,
+    status: "DRAFT",
+    contentMarkdown: seed.contentMarkdown,
+    editorMode: seed.editorMode,
+    blocksJson: seed.blocksJson,
+    customHtml: seed.customHtml,
+    customChatJson: seed.customChatJson ?? null,
+    seoTitle: seed.seoTitle ?? null,
+    seoDescription: seed.seoDescription ?? null,
+    themeJson: seed.themeJson ?? null,
+    dataBindingsJson: seed.dataBindingsJson ?? null,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+}
+
+function compatDate(value: unknown, fallback: Date) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return fallback;
+}
+
+function compatDocumentToDto(ownerId: string, row: HostedPageCompatStoredDocument): HostedPageDocumentDto {
+  const createdAt = compatDate(row.createdAt, new Date(0));
+  const updatedAt = compatDate(row.updatedAt, createdAt);
+  return toDto({
+    id: row.id,
+    ownerId,
+    service: row.service,
+    pageKey: row.pageKey,
+    title: row.title,
+    slug: row.slug,
+    status: row.status,
+    contentMarkdown: row.contentMarkdown,
+    editorMode: row.editorMode,
+    blocksJson: row.blocksJson,
+    customHtml: row.customHtml,
+    customChatJson: row.customChatJson,
+    seoTitle: row.seoTitle,
+    seoDescription: row.seoDescription,
+    themeJson: row.themeJson,
+    dataBindingsJson: row.dataBindingsJson,
+    createdAt,
+    updatedAt,
+  });
+}
+
+function readCompatStoredDocuments(service: HostedPageService, dataJson: unknown): HostedPageCompatStoredDocument[] {
+  if (!isRecord(dataJson)) return [];
+  const compat = dataJson[HOSTED_PAGE_COMPAT_KEY];
+  if (!isRecord(compat) || !Array.isArray(compat.documents)) return [];
+
+  const documents: HostedPageCompatStoredDocument[] = [];
+  for (const entry of compat.documents) {
+    if (!isRecord(entry)) continue;
+    const entryService = parseHostedPageService(entry.service);
+    const pageKey = typeof entry.pageKey === "string" ? entry.pageKey.trim() : "";
+    const title = typeof entry.title === "string" ? entry.title.trim() : "";
+    if (entryService !== service || !pageKey || !title) continue;
+
+    const statusRaw = typeof entry.status === "string" ? entry.status.trim().toUpperCase() : "DRAFT";
+    const editorModeRaw = typeof entry.editorMode === "string" ? entry.editorMode.trim().toUpperCase() : "MARKDOWN";
+    documents.push({
+      id: typeof entry.id === "string" && entry.id.trim() ? entry.id.trim() : compatDocumentId(service, pageKey),
+      service,
+      pageKey,
+      title,
+      slug: normalizeSlug(entry.slug),
+      status: statusRaw === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
+      contentMarkdown: typeof entry.contentMarkdown === "string" ? entry.contentMarkdown : "",
+      editorMode:
+        editorModeRaw === "BLOCKS" || editorModeRaw === "CUSTOM_HTML" || editorModeRaw === "MARKDOWN"
+          ? (editorModeRaw as HostedPageEditorMode)
+          : "MARKDOWN",
+      blocksJson: entry.blocksJson,
+      customHtml: typeof entry.customHtml === "string" ? entry.customHtml : "",
+      customChatJson: (entry.customChatJson ?? null) as unknown,
+      seoTitle: normalizeSeoText(entry.seoTitle, 160),
+      seoDescription: normalizeSeoText(entry.seoDescription, 320),
+      themeJson: entry.themeJson ?? null,
+      dataBindingsJson: entry.dataBindingsJson ?? null,
+      createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date(0).toISOString(),
+      updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : typeof entry.createdAt === "string" ? entry.createdAt : new Date(0).toISOString(),
+    });
+  }
+
+  return documents;
+}
+
+async function getHostedPageSetupRow(ownerId: string, service: HostedPageService) {
+  return prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: portalServiceKeyForHostedPageService(service) } },
+    select: { id: true, status: true, dataJson: true },
+  });
+}
+
+async function listHostedPageDocumentsCompat(ownerId: string, service: HostedPageService) {
+  const row = await getHostedPageSetupRow(ownerId, service);
+  return readCompatStoredDocuments(service, row?.dataJson)
+    .map((entry) => compatDocumentToDto(ownerId, entry))
+    .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id));
+}
+
+async function writeHostedPageDocumentsCompat(ownerId: string, service: HostedPageService, documents: HostedPageCompatStoredDocument[]) {
+  const serviceSlug = portalServiceKeyForHostedPageService(service);
+  const existing = await getHostedPageSetupRow(ownerId, service);
+  const baseJson = isRecord(existing?.dataJson) ? existing.dataJson : {};
+  const nextJson = {
+    ...baseJson,
+    [HOSTED_PAGE_COMPAT_KEY]: {
+      version: 1,
+      documents,
+    },
+  } satisfies Record<string, unknown>;
+
+  await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug } },
+    create: {
+      ownerId,
+      serviceSlug,
+      status: existing?.status ?? "IN_PROGRESS",
+      dataJson: nextJson as Prisma.InputJsonValue,
+    },
+    update: {
+      dataJson: nextJson as Prisma.InputJsonValue,
+    },
+  });
+
+  return documents.map((entry) => compatDocumentToDto(ownerId, entry));
+}
+
 function createInputFromSeed(ownerId: string, service: HostedPageService, seed: HostedPageDefaultSeed) {
   return {
     owner: { connect: { id: ownerId } },
@@ -1909,7 +2086,11 @@ export async function bootstrapHostedPageDocuments(ownerId: string, service: Hos
 
   const delegate = getHostedPageDocumentDelegate();
   if (!delegate || typeof delegate.upsert !== "function") {
-    return [] as HostedPageDocumentDto[];
+    const existing = await listHostedPageDocumentsCompat(cleanOwnerId, service);
+    if (existing.length) return existing;
+
+    const compatDocuments = defaultSeedsForService(service).map((seed) => compatStoredDocumentFromSeed(cleanOwnerId, service, seed));
+    return writeHostedPageDocumentsCompat(cleanOwnerId, service, compatDocuments);
   }
 
   const seeds = defaultSeedsForService(service);
@@ -1933,7 +2114,7 @@ export async function bootstrapHostedPageDocuments(ownerId: string, service: Hos
 
 export async function listHostedPageDocuments(ownerId: string, service: HostedPageService) {
   const delegate = getHostedPageDocumentDelegate();
-  if (!delegate) return [] as HostedPageDocumentDto[];
+  if (!delegate) return listHostedPageDocumentsCompat(ownerId, service);
 
   const rows = await delegate.findMany({
     where: { ownerId, service },
@@ -1945,7 +2126,18 @@ export async function listHostedPageDocuments(ownerId: string, service: HostedPa
 
 export async function listAllHostedPageDocuments(ownerId: string) {
   const delegate = getHostedPageDocumentDelegate();
-  if (!delegate) return [] as HostedPageDocumentDto[];
+  if (!delegate) {
+    const lists = await Promise.all(([
+      "BOOKING",
+      "NEWSLETTER",
+      "REVIEWS",
+      "BLOGS",
+    ] as HostedPageService[]).map((service) => listHostedPageDocumentsCompat(ownerId, service)));
+    return lists.flat().sort((left, right) => {
+      if (left.service !== right.service) return left.service.localeCompare(right.service);
+      return left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id);
+    });
+  }
 
   const rows = await delegate.findMany({
     where: { ownerId },
@@ -1957,7 +2149,10 @@ export async function listAllHostedPageDocuments(ownerId: string) {
 
 export async function getHostedPageDocument(ownerId: string, documentId: string) {
   const delegate = getHostedPageDocumentDelegate();
-  if (!delegate) return null;
+  if (!delegate) {
+    const documents: HostedPageDocumentDto[] = await listAllHostedPageDocuments(ownerId);
+    return documents.find((entry: HostedPageDocumentDto) => entry.id === documentId) ?? null;
+  }
 
   const row = await delegate.findFirst({
     where: { id: documentId, ownerId },
@@ -1971,7 +2166,10 @@ export async function getHostedPageDocumentByPageKey(ownerId: string, service: H
   if (!cleanPageKey) return null;
 
   const delegate = getHostedPageDocumentDelegate();
-  if (!delegate) return null;
+  if (!delegate) {
+    const documents = await listHostedPageDocumentsCompat(ownerId, service);
+    return documents.find((entry) => entry.pageKey === cleanPageKey) ?? null;
+  }
 
   const row = await delegate.findFirst({
     where: { ownerId, service, pageKey: cleanPageKey },
@@ -1998,7 +2196,67 @@ export async function updateHostedPageDocument(
   },
 ) {
   const delegate = getHostedPageDocumentDelegate();
-  if (!delegate || typeof delegate.update !== "function") return null;
+  if (!delegate || typeof delegate.update !== "function") {
+    const existing = await getHostedPageDocument(ownerId, documentId);
+    if (!existing) return null;
+
+    const compatDocuments = (await listHostedPageDocumentsCompat(ownerId, existing.service)).map((entry) => ({
+      id: entry.id,
+      service: entry.service,
+      pageKey: entry.pageKey,
+      title: entry.title,
+      slug: entry.slug,
+      status: entry.status,
+      contentMarkdown: entry.contentMarkdown,
+      editorMode: entry.editorMode,
+      blocksJson: entry.blocksJson,
+      customHtml: entry.customHtml,
+      customChatJson: entry.customChatJson,
+      seoTitle: entry.seo.title,
+      seoDescription: entry.seo.description,
+      themeJson: entry.themeJson,
+      dataBindingsJson: entry.dataBindingsJson,
+      createdAt: entry.createdAt.toISOString(),
+      updatedAt: entry.updatedAt.toISOString(),
+    } satisfies HostedPageCompatStoredDocument));
+    const index = compatDocuments.findIndex((entry) => entry.id === documentId);
+    if (index < 0) return null;
+
+    const next = { ...compatDocuments[index] };
+
+    if (patch.title !== undefined) next.title = normalizeTitle(patch.title, next.title);
+    if (patch.slug !== undefined) next.slug = normalizeSlug(patch.slug);
+    if (patch.contentMarkdown !== undefined && typeof patch.contentMarkdown === "string") next.contentMarkdown = patch.contentMarkdown;
+    if (patch.customHtml !== undefined && typeof patch.customHtml === "string") next.customHtml = patch.customHtml;
+    if (patch.blocksJson !== undefined) next.blocksJson = coerceBlocksJson(patch.blocksJson);
+    if (patch.customChatJson !== undefined) next.customChatJson = patch.customChatJson;
+    if (patch.themeJson !== undefined) next.themeJson = patch.themeJson;
+    if (patch.dataBindingsJson !== undefined) next.dataBindingsJson = patch.dataBindingsJson;
+
+    if (patch.editorMode !== undefined && typeof patch.editorMode === "string") {
+      const mode = patch.editorMode.trim().toUpperCase();
+      if (mode === "MARKDOWN" || mode === "BLOCKS" || mode === "CUSTOM_HTML") {
+        next.editorMode = mode as HostedPageEditorMode;
+      }
+    }
+
+    if (patch.status !== undefined && typeof patch.status === "string") {
+      const status = patch.status.trim().toUpperCase();
+      if (status === "DRAFT" || status === "PUBLISHED") {
+        next.status = status as HostedPageDocumentStatus;
+      }
+    }
+
+    if (patch.seo !== undefined) {
+      next.seoTitle = patch.seo ? normalizeSeoText(patch.seo.title, 160) : null;
+      next.seoDescription = patch.seo ? normalizeSeoText(patch.seo.description, 320) : null;
+    }
+
+    next.updatedAt = new Date().toISOString();
+    compatDocuments[index] = next;
+    const saved = await writeHostedPageDocumentsCompat(ownerId, existing.service, compatDocuments);
+    return saved.find((entry) => entry.id === documentId) ?? null;
+  }
 
   const existing = await delegate.findFirst({
     where: { id: documentId, ownerId },
@@ -2054,7 +2312,29 @@ export async function exportHostedPageDocumentCustomHtml(opts: {
   basePath?: string;
 }) {
   const delegate = getHostedPageDocumentDelegate();
-  if (!delegate || typeof delegate.update !== "function") return null;
+  if (!delegate || typeof delegate.update !== "function") {
+    const existing = await getHostedPageDocument(opts.ownerId, opts.documentId);
+    if (!existing) return null;
+
+    const blocksFromClient = coerceBlocksJson(opts.blocksJson);
+    const blocks = blocksFromClient.length ? blocksFromClient : coerceBlocksJson(existing.blocksJson);
+    const html = blocksToCustomHtmlDocument({
+      blocks,
+      pageId: existing.id,
+      ownerId: opts.ownerId,
+      basePath: opts.basePath || "",
+      title: opts.title || existing.title || "Hosted page",
+    });
+
+    const updated = await updateHostedPageDocument(opts.ownerId, opts.documentId, {
+      ...(blocksFromClient.length ? { blocksJson: blocksFromClient } : null),
+      customHtml: html,
+      ...(opts.setEditorMode ? { editorMode: opts.setEditorMode } : null),
+    });
+    if (!updated) return null;
+
+    return { html, document: updated };
+  }
 
   const existing = await delegate.findFirst({
     where: { id: opts.documentId, ownerId: opts.ownerId },
@@ -2092,7 +2372,30 @@ export async function setHostedPageDocumentStatus(ownerId: string, documentId: s
 
 export async function resetHostedPageDocumentToDefault(ownerId: string, documentId: string) {
   const delegate = getHostedPageDocumentDelegate();
-  if (!delegate || typeof delegate.update !== "function") return null;
+  if (!delegate || typeof delegate.update !== "function") {
+    const existing = await getHostedPageDocument(ownerId, documentId);
+    if (!existing) return null;
+
+    const seed = defaultSeedForPage(existing.service, existing.pageKey);
+    if (!seed) return null;
+
+    return updateHostedPageDocument(ownerId, documentId, {
+      title: seed.title,
+      slug: seed.slug,
+      contentMarkdown: seed.contentMarkdown,
+      editorMode: seed.editorMode,
+      blocksJson: seed.blocksJson,
+      customHtml: seed.customHtml,
+      customChatJson: seed.customChatJson ?? [],
+      themeJson: seed.themeJson ?? null,
+      dataBindingsJson: seed.dataBindingsJson ?? null,
+      seo: {
+        title: seed.seoTitle ?? null,
+        description: seed.seoDescription ?? null,
+      },
+      status: "DRAFT",
+    });
+  }
 
   const existing = await delegate.findFirst({
     where: { id: documentId, ownerId },
@@ -2309,6 +2612,12 @@ export async function getHostedPagePreviewData(ownerId: string, documentId: stri
       previewPost,
     },
   };
+}
+
+export async function getHostedPageDocumentAccessMeta(ownerId: string, documentId: string) {
+  const document = await getHostedPageDocument(ownerId, documentId);
+  if (!document) return null;
+  return { id: document.id, service: document.service };
 }
 
 export function getDefaultHostedPagePrompt(service: HostedPageService, currentDocument?: HostedPageDocumentDto | null) {

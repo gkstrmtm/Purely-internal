@@ -8,6 +8,7 @@
     }
   },
   "installCommand": "npm ci",
+  "ignoreCommand": "npm run vercel:ignore-non-main",
   "buildCommand": "npm run vercel-build",
   "crons": [
     {

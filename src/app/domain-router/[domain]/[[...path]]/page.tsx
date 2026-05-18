@@ -3,19 +3,26 @@ import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
+import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { parseCreditFormContent, parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
-import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
+import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
+import { resolveFunnelBookingCalendarId } from "@/lib/funnelBookingRouting";
+import { readFunnelOffers } from "@/lib/funnelOffers";
+import { resolveFunnelBookingSurfaceContext } from "@/lib/funnelBookingSurface";
+import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
-import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
-import { buildCustomDomainDirectoryMetadata, buildCustomDomainMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
+import { toCustomDomainUrl } from "@/lib/publicHostedOrigin";
+import { renderTextTemplate } from "@/lib/textTemplate";
 
 import { CreditHostedFormClient } from "@/app/credit/forms/[slug]/CreditHostedFormClient";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
+import { FunnelCustomHtmlRuntimeSurface } from "@/components/funnel/FunnelCustomHtmlRuntimeSurface";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -216,110 +223,6 @@ function normalizeSegments(raw: unknown): string[] {
     .slice(0, 10);
 }
 
-type DomainRootLink = {
-  href: string;
-  title: string;
-  subtitle: string;
-};
-
-async function resolveDomainRootLinks(opts: {
-  ownerId: string;
-  host: string;
-  matchedDomain: string;
-  funnelDomains: Record<string, string>;
-  allowedDomains: Set<string>;
-}): Promise<DomainRootLink[]> {
-  const { ownerId, funnelDomains, allowedDomains } = opts;
-
-  const [profile, reviewData, bookingSite, blogSite, publishedBlogCount, externalNewsletterCount, internalNewsletterCount, funnels] = await Promise.all([
-    prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }).catch(() => null),
-    getReviewRequestsServiceData(ownerId).catch(() => null),
-    prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { slug: true, title: true, enabled: true } }).catch(() => null),
-    prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, name: true } }).catch(() => null),
-    prisma.clientBlogSite
-      .findUnique({ where: { ownerId }, select: { id: true } })
-      .then((site) =>
-        site?.id ? prisma.clientBlogPost.count({ where: { siteId: site.id, status: "PUBLISHED", archivedAt: null } }).catch(() => 0) : 0,
-      )
-      .catch(() => 0),
-    prisma.clientBlogSite
-      .findUnique({ where: { ownerId }, select: { id: true } })
-      .then((site) => (site?.id ? prisma.clientNewsletter.count({ where: { siteId: site.id, kind: "EXTERNAL", status: "SENT" } }).catch(() => 0) : 0))
-      .catch(() => 0),
-    prisma.clientBlogSite
-      .findUnique({ where: { ownerId }, select: { id: true } })
-      .then((site) => (site?.id ? prisma.clientNewsletter.count({ where: { siteId: site.id, kind: "INTERNAL", status: "SENT" } }).catch(() => 0) : 0))
-      .catch(() => 0),
-    prisma.creditFunnel
-      .findMany({
-        where: { ownerId, status: "ACTIVE" },
-        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-        select: { id: true, name: true, slug: true },
-        take: 100,
-      })
-      .catch(() => []),
-  ]);
-
-  const businessName = profile?.businessName?.trim() || blogSite?.name?.trim() || "Hosted pages";
-  const links: DomainRootLink[] = [];
-
-  if (reviewData?.settings?.publicPage?.enabled) {
-    links.push({
-      href: "/reviews",
-      title: "Reviews",
-      subtitle: `${businessName} reviews page`,
-    });
-  }
-
-  if (publishedBlogCount > 0) {
-    links.push({
-      href: "/blogs",
-      title: "Blogs",
-      subtitle: `${publishedBlogCount} published post${publishedBlogCount === 1 ? "" : "s"}`,
-    });
-  }
-
-  if (externalNewsletterCount > 0) {
-    links.push({
-      href: "/newsletters",
-      title: "Newsletters",
-      subtitle: `${externalNewsletterCount} published newsletter${externalNewsletterCount === 1 ? "" : "s"}`,
-    });
-  }
-
-  if (internalNewsletterCount > 0) {
-    links.push({
-      href: "/internal-newsletters",
-      title: "Internal newsletters",
-      subtitle: `${internalNewsletterCount} internal newsletter${internalNewsletterCount === 1 ? "" : "s"}`,
-    });
-  }
-
-  if (bookingSite?.enabled && bookingSite.slug) {
-    links.push({
-      href: `/book/${encodeURIComponent(String(bookingSite.slug))}`,
-      title: bookingSite.title?.trim() || "Booking",
-      subtitle: "Public booking page",
-    });
-  }
-
-  const visibleFunnels = funnels.filter((f) => {
-    const assigned = funnelDomains[f.id] ?? null;
-    if (!assigned) return true;
-    return allowedDomains.has(assigned);
-  });
-
-  for (const funnel of visibleFunnels) {
-    links.push({
-      href: `/${encodeURIComponent(funnel.slug)}`,
-      title: funnel.name,
-      subtitle: `Funnel · /${funnel.slug}`,
-    });
-  }
-
-  return links;
-}
-
 function FunnelMarkdown({ blocks }: { blocks: any[] }) {
   return (
     <div className="prose prose-zinc max-w-none">
@@ -421,14 +324,27 @@ async function renderFunnel(
     ? await getPortalBillingModelForOwner({ ownerId: funnel.ownerId, portalVariant: "portal" }).catch(() => "subscription" as const)
     : "subscription";
   const showWatermark = isCreditsOnlyBilling(billingModel);
+  const settingsRow = await prisma.creditFunnelBuilderSettings
+    .findUnique({ where: { ownerId: funnel.ownerId }, select: { dataJson: true } })
+    .catch(() => null);
 
   const assignedDomain = funnelDomains[funnel.id] ?? null;
   if (assignedDomain && !allowedDomains.has(assignedDomain)) notFound();
 
   const page = funnel.pages[0] || null;
   if (pageSlug && !page) notFound();
-  const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
-  const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
+  const renderState = resolveFunnelPageRenderState(page, "published");
+  const bookingCalendars = funnel.ownerId
+    ? await getBookingCalendarsConfig(funnel.ownerId).catch(() => ({ version: 1 as const, calendars: [] }))
+    : { version: 1 as const, calendars: [] };
+  const defaultBookingCalendarId = resolveFunnelBookingCalendarId(settingsRow?.dataJson ?? null, funnel.id, bookingCalendars.calendars) || null;
+  const offers = readFunnelOffers(settingsRow?.dataJson ?? null, funnel.id);
+  const markdownBlocks = renderState.kind === "markdown" ? parseBlogContent(renderState.markdown) : [];
+  const templateVars = funnel.ownerId ? await getBusinessProfileTemplateVars(funnel.ownerId).catch(() => ({})) : {};
+  const renderedCustomHtml =
+    page && renderState.kind === "html"
+      ? renderTextTemplate(renderState.html || "", templateVars)
+      : "";
 
   const [hasBrandFontFamily, hasBrandFontGoogleFamily] = await Promise.all([
     hasPublicColumn("BusinessProfile", "brandFontFamily"),
@@ -451,8 +367,8 @@ async function renderFunnel(
   const brandFontStyle = brandFontFamily ? ({ fontFamily: brandFontFamily } as const) : undefined;
 
   const customHtmlSrcDoc = (() => {
-    if (!page || page.editorMode !== "CUSTOM_HTML") return null;
-    if (!brandGoogleCss && !brandFontFamily) return page.customHtml || "";
+    if (!page || renderState.kind !== "html") return null;
+    if (!brandGoogleCss && !brandFontFamily) return renderedCustomHtml;
 
     const cssLines = [
       brandGoogleCss,
@@ -462,7 +378,7 @@ async function renderFunnel(
       .join("\n");
 
     const injection = cssLines ? `<style>${cssLines}</style>` : "";
-    const html = String(page.customHtml || "");
+    const html = String(renderedCustomHtml || "");
     if (!injection) return html;
 
     const headClose = html.match(/<\/head\s*>/i);
@@ -479,24 +395,45 @@ async function renderFunnel(
       {brandGoogleCss ? <style>{brandGoogleCss}</style> : null}
       {page ? (
         <>
-          {page.editorMode === "CUSTOM_HTML" ? (
-            <iframe
-              title={page.title}
-              sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
-              allow="microphone"
-              srcDoc={customHtmlSrcDoc ?? (page.customHtml || "")}
-              className="h-screen w-full bg-white"
+          {renderState.kind === "html" ? (
+            <FunnelCustomHtmlRuntimeSurface
+              html={customHtmlSrcDoc ?? ""}
+              bookingTarget={defaultBookingCalendarId
+                ? {
+                    kind: "calendar",
+                    ownerId: funnel.ownerId,
+                    calendarId: defaultBookingCalendarId,
+                    funnelId: funnel.id,
+                    pageId: page.id,
+                    themeStage: "published",
+                  }
+                : null}
+              surfaceContext={resolveFunnelBookingSurfaceContext({
+                posture: "published",
+                routeKind: defaultBookingCalendarId ? "funnel-default" : "placeholder",
+                pageTitle: page.title,
+                calendarTitle: defaultBookingCalendarId || null,
+                pageIntent: "brief" in page ? page.brief || null : null,
+              })}
+              injectImplicitBooking={Boolean(defaultBookingCalendarId)}
+              className="min-h-screen w-full bg-white"
             />
-          ) : page.editorMode === "BLOCKS" ? (
+          ) : renderState.kind === "blocks" ? (
             <div>
               {renderCreditFunnelBlocks({
-                blocks: blockBlocks,
+                blocks: renderState.blocks,
                 basePath: "",
                 context: {
                   bookingOwnerId: funnel.ownerId,
+                  defaultBookingCalendarId: defaultBookingCalendarId || undefined,
+                  funnelId: funnel.id,
                   funnelPageId: page.id,
+                  bookingThemeStage: "published",
                   funnelSlug: slug,
+                  bookingSurfacePageTitle: page.title,
+                  bookingSurfacePageIntent: "brief" in page ? page.brief || null : null,
                   funnelPathBase,
+                  offers,
                 },
               })}
             </div>
@@ -547,13 +484,41 @@ export async function generateMetadata({
   const first = segments[0] || "";
   const second = segments[1] || "";
   const third = segments[2] || "";
+  const canonicalDomain = normalizeDomain(mapping.matchedDomain) || host;
 
-  if (segments.length === 0) {
-    return buildCustomDomainDirectoryMetadata(host);
+  if (!first || first === "api") return { title: host };
+
+  if (first === "forms") {
+    const formSlug = safeSlug(second);
+    if (!formSlug || segments.length > 2) return { title: host };
+
+    const form = await prisma.creditForm
+      .findFirst({ where: { ownerId: mapping.ownerId, slug: formSlug }, select: { name: true, slug: true, schemaJson: true } })
+      .catch(() => null);
+
+    if (!form) return { title: host };
+
+    const content = parseCreditFormContent(form.schemaJson);
+    const title = content?.displayTitle?.trim() || form.name || "";
+    const description = content?.description?.trim() || "";
+    const canonicalUrl = toCustomDomainUrl(`/forms/${encodeURIComponent(form.slug)}`, canonicalDomain);
+
+    return {
+      title: title || undefined,
+      description: description || undefined,
+      alternates: canonicalUrl ? { canonical: canonicalUrl } : undefined,
+      openGraph: canonicalUrl
+        ? {
+            title: title || undefined,
+            description: description || undefined,
+            url: canonicalUrl,
+          }
+        : undefined,
+    };
   }
 
   // Only handle funnel metadata for /{slug} and /f/{slug}.
-  if (!first || first === "forms" || first === "form" || first === "api") return { title: host };
+  if (first === "form") return { title: host };
   const funnelSlug = first === "f" && second ? second : first;
   if (!funnelSlug) return { title: host };
 
@@ -595,20 +560,31 @@ export async function generateMetadata({
   const pageId = (page as any)?.id ? String((page as any).id) : "";
   const pageSeo = pageId ? readFunnelPageSeo(settingsJson, pageId) : null;
   const faviconUrl = typeof pageSeo?.faviconUrl === "string" ? pageSeo.faviconUrl : "";
-  const branding = await resolveCustomDomainBranding(host);
 
   const title = seo?.title || page?.title || "";
   const description = seo?.description || "";
+  const canonicalPath = first === "f"
+    ? `/f/${encodeURIComponent(funnelSlug)}${funnelPageSlug ? `/${encodeURIComponent(funnelPageSlug)}` : ""}`
+    : `/${encodeURIComponent(funnelSlug)}${funnelPageSlug ? `/${encodeURIComponent(funnelPageSlug)}` : ""}`;
+  const canonicalHost = normalizeDomain(assignedDomain) || canonicalDomain;
+  const canonicalUrl = toCustomDomainUrl(canonicalPath, canonicalHost);
 
-  return buildCustomDomainMetadata({
-    host,
-    siteName: branding.siteName,
-    title: title || branding.siteName,
+  return {
+    title: title || undefined,
     description: description || undefined,
-    imageUrl: seo?.imageUrl || branding.logoUrl,
-    iconUrl: faviconUrl || branding.logoUrl,
-    noIndex: seo?.noIndex,
-  });
+    alternates: canonicalUrl ? { canonical: canonicalUrl } : undefined,
+    openGraph:
+      seo?.imageUrl || canonicalUrl
+        ? {
+            title: title || undefined,
+            description: description || undefined,
+            ...(canonicalUrl ? { url: canonicalUrl } : {}),
+            ...(seo?.imageUrl ? { images: [{ url: seo.imageUrl }] } : {}),
+          }
+        : undefined,
+    icons: faviconUrl ? { icon: faviconUrl, shortcut: faviconUrl } : undefined,
+    robots: seo?.noIndex ? { index: false, follow: true } : undefined,
+  };
 }
 
 export default async function CustomDomainCatchallPage({
@@ -665,38 +641,38 @@ export default async function CustomDomainCatchallPage({
       redirect(`/${settings.rootFunnelSlug}`);
     }
 
-    const [profile, rootLinks] = await Promise.all([
-      prisma.businessProfile.findUnique({ where: { ownerId: mapping.ownerId }, select: { businessName: true } }).catch(() => null),
-      resolveDomainRootLinks({
-        ownerId: mapping.ownerId,
-        host,
-        matchedDomain: mapping.matchedDomain,
-        funnelDomains,
-        allowedDomains,
-      }),
-    ]);
+    const funnels = await prisma.creditFunnel.findMany({
+      where: { ownerId: mapping.ownerId, status: "ACTIVE" },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      select: { id: true, name: true, slug: true },
+      take: 100,
+    });
 
-    const businessName = profile?.businessName?.trim() || host;
+    const visibleFunnels = funnels.filter((f) => {
+      const assigned = funnelDomains[f.id] ?? null;
+      if (!assigned) return true;
+      return allowedDomains.has(assigned);
+    });
 
     return (
       <main className="mx-auto w-full max-w-3xl p-8">
-        <h1 className="text-2xl font-bold text-zinc-900">{businessName}</h1>
-        <p className="mt-2 text-sm text-zinc-600">Only hosted pages for this custom domain are available here.</p>
+        <h1 className="text-2xl font-bold text-zinc-900">Funnels</h1>
+        <p className="mt-2 text-sm text-zinc-600">Choose a page to visit.</p>
 
         <div className="mt-6 space-y-3">
-          {rootLinks.length ? (
-            rootLinks.map((link) => (
+          {visibleFunnels.length ? (
+            visibleFunnels.map((f) => (
               <Link
-                key={`${link.href}:${link.title}`}
-                href={link.href}
+                key={f.id}
+                href={`/${encodeURIComponent(f.slug)}`}
                 className="block rounded-2xl border border-zinc-200 bg-white p-4 hover:bg-zinc-50"
               >
-                <div className="text-sm font-semibold text-zinc-900">{link.title}</div>
-                <div className="mt-1 text-xs text-zinc-600">{link.subtitle}</div>
+                <div className="text-sm font-semibold text-zinc-900">{f.name}</div>
+                <div className="mt-1 text-xs font-mono text-zinc-600">/{f.slug}</div>
               </Link>
             ))
           ) : (
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No hosted pages are live on this domain yet.</div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No active funnels yet.</div>
           )}
         </div>
       </main>

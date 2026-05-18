@@ -432,7 +432,11 @@ export function PortalBillingClient({
   useEffect(() => {
     if (typeof document === "undefined") return;
 
-    const root = document.querySelector("[data-portal-theme-scope='root']") as HTMLElement | null;
+    const root =
+      (document.querySelector("[data-portal-theme-scope='root']") as HTMLElement | null) ||
+      (document.querySelector("[data-portal-theme]") as HTMLElement | null) ||
+      document.documentElement ||
+      document.body;
     if (!root) return;
     const syncTheme = () => setPortalTheme(root.getAttribute("data-portal-theme") === "dark" ? "dark" : "light");
 
@@ -544,14 +548,49 @@ export function PortalBillingClient({
               theme: "night" as const,
               variables: {
                 colorPrimary: "#60a5fa",
-                colorBackground: "#111418",
+                colorBackground: "#141a23",
                 colorText: "#f3f6fb",
                 colorDanger: "#f87171",
                 colorSuccess: "#34d399",
                 colorWarning: "#fbbf24",
-                colorTextSecondary: "#9aa5b4",
-                colorBorder: "#2c3440",
+                colorTextSecondary: "#b1bccd",
+                colorBorder: "#394454",
                 borderRadius: "16px",
+              },
+              rules: {
+                ".Input": {
+                  backgroundColor: "#1a2230",
+                  color: "#f3f6fb",
+                  border: "1px solid #394454",
+                  boxShadow: "0 1px 0 rgba(255,255,255,0.04)",
+                },
+                ".Input:focus": {
+                  border: "1px solid #60a5fa",
+                  boxShadow: "0 0 0 1px rgba(96,165,250,0.35)",
+                },
+                ".Tab": {
+                  backgroundColor: "#18212e",
+                  color: "#cbd5e1",
+                  border: "1px solid #394454",
+                },
+                ".Tab:hover": {
+                  color: "#f8fafc",
+                },
+                ".Tab--selected": {
+                  backgroundColor: "#213047",
+                  color: "#eff6ff",
+                  borderColor: "#60a5fa",
+                },
+                ".Block": {
+                  backgroundColor: "#141a23",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+                },
+                ".Label": {
+                  color: "#cbd5e1",
+                },
+                ".Error": {
+                  color: "#fca5a5",
+                },
               },
             }
           : {
@@ -1487,7 +1526,7 @@ export function PortalBillingClient({
             {creditsOnly ? (
               <button
                 type="button"
-                className="mt-1 text-left text-lg font-bold text-(--color-brand-blue) hover:underline"
+                className="pa-billing-link-action mt-1 text-left text-lg font-bold text-brand-ink hover:underline"
                 onClick={() => router.push(upgradeHref, { scroll: false })}
               >
                 Upgrade
@@ -1549,7 +1588,7 @@ export function PortalBillingClient({
                         <button
                           type="button"
                           onClick={() => void openUpdateCard()}
-                          className="ml-2 font-semibold text-(--color-brand-blue) hover:underline"
+                          className="pa-billing-link-action ml-2 font-semibold text-brand-ink hover:underline"
                         >
                           Try again
                         </button>
@@ -1574,7 +1613,7 @@ export function PortalBillingClient({
                         <button
                           type="button"
                           onClick={() => void openUpdateCard()}
-                          className="ml-2 font-semibold text-(--color-brand-blue) hover:underline"
+                          className="pa-billing-link-action ml-2 font-semibold text-brand-ink hover:underline"
                         >
                           Try again
                         </button>

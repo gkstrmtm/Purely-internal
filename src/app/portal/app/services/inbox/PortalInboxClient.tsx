@@ -2238,7 +2238,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     if (e.key === "Escape") setEmailSearchMenu(null);
                   }}
                   placeholder={tab === "email" ? "Search mail" : "Search messages"}
-                  className="h-12 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none transition-colors focus:border-zinc-300"
+                  className="pa-portal-inbox-search-input h-12 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none transition-colors focus:border-zinc-300"
                 />
 
                 {tab === "email" && emailSearchMenu ? (
@@ -2657,7 +2657,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         {tab === "email" ? (
           <div
             className={classNames(
-              "overflow-hidden rounded-none border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0 lg:border-x lg:border-b lg:border-t-0",
+              "pa-portal-inbox-thread-panel overflow-hidden rounded-none border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0 lg:border-x lg:border-b lg:border-t-0",
               !activeThreadId ? "hidden lg:block" : "",
             )}
           >
@@ -2944,7 +2944,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
         {!emailComposerOpen && tab === "sms" ? (
           isDesktop ? (
-            <div className="overflow-hidden rounded-none border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0 lg:border-x lg:border-b lg:border-t-0">
+            <div className="pa-portal-inbox-thread-panel overflow-hidden rounded-none border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0 lg:border-x lg:border-b lg:border-t-0">
               <div className="flex h-full min-h-[68vh] flex-col lg:min-h-0">
                 <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
                   <div className="min-w-0 flex-1">
@@ -3004,20 +3004,22 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       {toSuggestionsMenu ? (
                         <LiquidGlassPopupSurface data-inline-menu-root="true" className="fixed z-12045 overflow-hidden" style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
                           {contactsLoading ? (
-                            <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
+                            <div className="pa-portal-menu-empty">Loading contacts…</div>
                           ) : (
                             (() => {
                               const suggestions = findContactSuggestions(composeTo);
-                              if (!suggestions.length) return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                              if (!suggestions.length) return <div className="pa-portal-menu-empty">No matching contacts.</div>;
                               return (
-                                <div className="py-1">
+                                <div className="pa-portal-menu-panel">
                                   {suggestions.map((c) => (
-                                    <button key={c.id} type="button" className="w-full rounded-2xl px-3 py-2 text-left transition hover:bg-white/55" onMouseDown={(e) => {
+                                    <button key={c.id} type="button" className="pa-portal-menu-item" onMouseDown={(e) => {
                                       e.preventDefault();
                                       applyContactToCompose(c);
                                     }}>
-                                      <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
-                                      <div className="mt-0.5 truncate text-xs text-zinc-600">{c.phone || "No phone"}</div>
+                                      <div className="min-w-0">
+                                        <div className="truncate pa-portal-menu-item-title">{c.name}</div>
+                                        <div className="truncate pa-portal-menu-item-subtitle">{c.phone || "No phone"}</div>
+                                      </div>
                                     </button>
                                   ))}
                                 </div>
@@ -3058,33 +3060,33 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           >
                             <button
                               type="button"
-                              className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                              className="pa-portal-menu-item"
                               onClick={() => {
                                 setSmsMoreMenu(null);
                                 openVariablePicker("sms_body");
                               }}
                             >
-                              Insert variable
+                              <span className="pa-portal-menu-item-title">Insert variable</span>
                             </button>
                             <button
                               type="button"
-                              className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                              className="pa-portal-menu-item"
                               onClick={() => {
                                 setSmsMoreMenu(null);
                                 smsFileRef.current?.click();
                               }}
                             >
-                              Upload from device
+                              <span className="pa-portal-menu-item-title">Upload from device</span>
                             </button>
                             <button
                               type="button"
-                              className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                              className="pa-portal-menu-item"
                               onClick={() => {
                                 setSmsMoreMenu(null);
                                 setMediaPickerOpen(true);
                               }}
                             >
-                              Add from media library
+                              <span className="pa-portal-menu-item-title">Add from media library</span>
                             </button>
                           </LiquidGlassPopupSurface>
                         </>
@@ -3430,28 +3432,30 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         onTouchStart={(e) => e.stopPropagation()}
                       >
                         {contactsLoading ? (
-                          <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
+                          <div className="pa-portal-menu-empty">Loading contacts…</div>
                         ) : (
                           (() => {
                             const suggestions = findContactSuggestions(composeTo);
                             if (!suggestions.length) {
-                              return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                              return <div className="pa-portal-menu-empty">No matching contacts.</div>;
                             }
 
                             return (
-                              <div className="py-1">
+                              <div className="pa-portal-menu-panel">
                                 {suggestions.map((c) => (
                                   <button
                                     key={c.id}
                                     type="button"
-                                    className="w-full rounded-2xl px-3 py-2 text-left transition hover:bg-white/16"
+                                    className="pa-portal-menu-item"
                                     onMouseDown={(e) => {
                                       e.preventDefault();
                                       applyContactToCompose(c);
                                     }}
                                   >
-                                    <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
-                                    <div className="mt-0.5 truncate text-xs text-zinc-600">{c.phone || "No phone"}</div>
+                                    <div className="min-w-0">
+                                      <div className="truncate pa-portal-menu-item-title">{c.name}</div>
+                                      <div className="truncate pa-portal-menu-item-subtitle">{c.phone || "No phone"}</div>
+                                    </div>
                                   </button>
                                 ))}
                               </div>
@@ -3524,33 +3528,33 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         >
                           <button
                             type="button"
-                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                            className="pa-portal-menu-item"
                             onClick={() => {
                               setSmsMoreMenu(null);
                               openVariablePicker("sms_body");
                             }}
                           >
-                            Insert variable
+                            <span className="pa-portal-menu-item-title">Insert variable</span>
                           </button>
                           <button
                             type="button"
-                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                            className="pa-portal-menu-item"
                             onClick={() => {
                               setSmsMoreMenu(null);
                               smsFileRef.current?.click();
                             }}
                           >
-                            Upload from device
+                            <span className="pa-portal-menu-item-title">Upload from device</span>
                           </button>
                           <button
                             type="button"
-                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                            className="pa-portal-menu-item"
                             onClick={() => {
                               setSmsMoreMenu(null);
                               setMediaPickerOpen(true);
                             }}
                           >
-                            Add from media library
+                            <span className="pa-portal-menu-item-title">Add from media library</span>
                           </button>
                         </LiquidGlassPopupSurface>
                       </>
@@ -3683,7 +3687,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               <div className={classNames("flex items-center gap-3 border-b border-zinc-200 px-4 py-3", isDesktop ? "cursor-move select-none" : "")} onMouseDown={isDesktop ? (e) => beginComposerInteraction("move", e) : undefined}>
                 <button
                   type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-zinc-700 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white"
+                  className="pa-inbox-composer-close inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-zinc-700 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white"
                   onClick={() => {
                     setEmailComposerOpen(false);
                     setEmailAttachMenu(null);
@@ -3748,28 +3752,30 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         onTouchStart={(e) => e.stopPropagation()}
                       >
                         {contactsLoading ? (
-                          <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
+                          <div className="pa-portal-menu-empty">Loading contacts…</div>
                         ) : (
                           (() => {
                             const suggestions = findContactSuggestions(composeTo);
                             if (!suggestions.length) {
-                              return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                              return <div className="pa-portal-menu-empty">No matching contacts.</div>;
                             }
 
                             return (
-                              <div className="py-1">
+                              <div className="pa-portal-menu-panel">
                                 {suggestions.map((c) => (
                                   <button
                                     key={c.id}
                                     type="button"
-                                    className="w-full rounded-2xl px-3 py-2 text-left transition hover:bg-white/16"
+                                    className="pa-portal-menu-item"
                                     onMouseDown={(e) => {
                                       e.preventDefault();
                                       applyContactToCompose(c);
                                     }}
                                   >
-                                    <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
-                                    <div className="mt-0.5 truncate text-xs text-zinc-600">{c.email || "No email"}</div>
+                                    <div className="min-w-0">
+                                      <div className="truncate pa-portal-menu-item-title">{c.name}</div>
+                                      <div className="truncate pa-portal-menu-item-subtitle">{c.email || "No email"}</div>
+                                    </div>
                                   </button>
                                 ))}
                               </div>
@@ -3794,7 +3800,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   />
                   <button
                     type="button"
-                    className="shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    className="pa-inbox-composer-action shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                     onClick={() => openVariablePicker("email_subject")}
                   >
                     Insert variable
@@ -3806,7 +3812,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    className="pa-inbox-composer-action rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                     onClick={() => openVariablePicker("email_body")}
                   >
                     Insert variable
@@ -3830,23 +3836,23 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         >
                           <button
                             type="button"
-                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                            className="pa-portal-menu-item"
                             onClick={() => {
                               setEmailAttachMenu(null);
                               emailComposerFileRef.current?.click();
                             }}
                           >
-                            Upload
+                            <span className="pa-portal-menu-item-title">Upload</span>
                           </button>
                           <button
                             type="button"
-                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                            className="pa-portal-menu-item"
                             onClick={() => {
                               setEmailAttachMenu(null);
                               setMediaPickerOpen(true);
                             }}
                           >
-                            Add from media library
+                            <span className="pa-portal-menu-item-title">Add from media library</span>
                           </button>
                         </LiquidGlassPopupSurface>
                       </>
@@ -3854,7 +3860,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
                     <button
                       type="button"
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50"
+                      className="pa-inbox-composer-action inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50"
                       onClick={(e) => {
                         if (emailAttachMenu) {
                           setEmailAttachMenu(null);
@@ -3877,7 +3883,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <button
                     type="button"
                     className={classNames(
-                      "inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                      "pa-inbox-composer-action inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                       (sending || uploading) && "opacity-60",
                     )}
                     onClick={openSchedule}
@@ -3922,12 +3928,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 {composeAttachments.length ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {composeAttachments.map((a) => (
-                      <div key={a.id} className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5">
+                      <div key={a.id} className="pa-inbox-attachment-chip flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5">
                         <div className="max-w-60 truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
                         <button
                           type="button"
                           onClick={() => removeAttachment(a.id)}
-                          className="rounded-full px-2 py-0.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
+                          className="pa-inbox-attachment-remove rounded-full px-2 py-0.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
                           aria-label="Remove attachment"
                         >
                           ×

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { createQuickBookingCalendar, getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { consumeCredits } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
@@ -27,6 +27,24 @@ const putSchema = z.object({
     .max(25),
 });
 
+const postSchema = z
+  .object({
+    title: z.string().trim().min(1).max(80).optional(),
+    description: z.string().trim().max(400).optional(),
+    durationMinutes: z.number().int().min(10).max(180).optional(),
+    minimumNoticeMinutes: z.number().int().min(0).max(60 * 24 * 14).optional(),
+    availabilityBlocks: z
+      .array(
+        z.object({
+          startAt: z.string().trim().min(1),
+          endAt: z.string().trim().min(1),
+        }),
+      )
+      .max(1000)
+      .optional(),
+  })
+  .passthrough();
+
 export async function GET() {
   const auth = await requireClientSessionForService("booking");
   if (!auth.ok) {
@@ -39,6 +57,43 @@ export async function GET() {
   const ownerId = auth.session.user.id;
   const config = await getBookingCalendarsConfig(ownerId);
   return NextResponse.json({ ok: true, config });
+}
+
+export async function POST(req: Request) {
+  const auth = await requireClientSessionForService("booking");
+  if (!auth.ok) {
+    return NextResponse.json(
+      { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+
+  const json = await req.json().catch(() => null);
+  const parsed = postSchema.safeParse(json ?? {});
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
+  }
+
+  const ownerId = auth.session.user.id;
+  const created = await createQuickBookingCalendar(ownerId, {
+    title: parsed.data.title,
+    description: parsed.data.description,
+    durationMinutes: parsed.data.durationMinutes,
+    minimumNoticeMinutes: parsed.data.minimumNoticeMinutes,
+    availabilityBlocks: parsed.data.availabilityBlocks,
+  });
+
+  if (!created.ok) {
+    return NextResponse.json({ ok: false, error: created.error }, { status: created.status });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    created: created.created,
+    bookingCalendarId: created.calendar.id,
+    calendar: created.calendar,
+    config: created.config,
+  });
 }
 
 export async function PUT(req: Request) {

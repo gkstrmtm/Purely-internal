@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { requireClientSession } from "@/lib/apiAuth";
-import { prisma } from "@/lib/db";
 import {
   getDefaultHostedPagePrompt,
+  getHostedPageDocumentAccessMeta,
   getHostedPageDocument,
   portalServiceKeyForHostedPageService,
   updateHostedPageDocument,
@@ -18,10 +18,7 @@ async function requireHostedPageAccess(documentId: string, capability: "view" | 
   if (!auth.ok) return auth;
 
   const ownerId = auth.session.user.id;
-  const row = await (prisma as any).hostedPageDocument.findFirst({
-    where: { id: documentId, ownerId },
-    select: { id: true, service: true },
-  });
+  const row = await getHostedPageDocumentAccessMeta(ownerId, documentId);
   if (!row) {
     return {
       ok: false as const,

@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
+import { PortalSelectDropdown, type PortalSelectOption } from "@/components/PortalSelectDropdown";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
-import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
+import { type FeedbackTriagePriority as FeedbackPriority, type FeedbackTriageStatus as FeedbackStatus } from "@/lib/betaFeedback";
 import { MODULE_KEYS, MODULE_LABELS, type ModuleKey } from "@/lib/entitlements.shared";
 
 type UserRow = {
@@ -67,7 +69,6 @@ type OwnerDetails = {
           websiteUrl?: string | null;
           industry?: string | null;
           businessModel?: string | null;
-          primaryGoals?: unknown;
           targetCustomer?: string | null;
           brandVoice?: string | null;
           logoUrl?: string | null;
@@ -76,51 +77,353 @@ type OwnerDetails = {
           brandTextHex?: string | null;
           brandFontFamily?: string | null;
           brandFontGoogleFamily?: string | null;
-          updatedAt?: string | null;
         };
-    content: {
-      blogSite:
-        | null
-        | {
-            name: string;
-            slug: string | null;
-            primaryDomain: string | null;
-            verifiedAt: string | null;
-            posts: { total: number; published: number; draft: number };
-          };
-    };
     usage: {
-      since30: string;
       lastActivityAt: string | null;
       mostUsedServices: Array<{ key: string; count: number }>;
       portalEngagement?: {
-        lastSeenAt: string | null;
-        lastSeenPath: string | null;
-        lastSeenPageKey: string | null;
         topPages: Array<{ key: string; seconds: number }>;
-        topServicesByTime: Array<{ key: string; seconds: number }>;
         recentActivity: Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }>;
       };
-      newsletter: { failedLast30: number; sentLast30: number; requestedLast30: number; sendEventsLast30: number };
-      leadScraping: { runsLast30: number; createdLast30: number; chargedCreditsLast30: number; errorsLast30: number };
-      booking: { site: { enabled: boolean; slug: string; title: string } | null; bookingsCreatedLast30: number; bookingsUpcoming: number };
-      hoursSaved: { secondsLast30: number; eventsLast30: number };
-      reviews: { receivedLast30: number };
+      portalDiagnostics?: {
+        lastSeenAt: string | null;
+        actionFailureCount: number;
+        runtimeErrorCount: number;
+        unhandledRejectionCount: number;
+        resourceErrorCount: number;
+        recentEvents: Array<{
+          id: string;
+          kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure";
+          createdAtIso: string;
+          lastSeenAtIso: string;
+          count: number;
+          message: string;
+          path?: string;
+          source?: string;
+          file?: string;
+          area?: string | null;
+          action?: string | null;
+          status?: number | null;
+        }>;
+        bugReports: { count: number; lastReportedAt: string | null };
+        betaFeedback: {
+          count: number;
+          lastSubmittedAt: string | null;
+          recentItems: Array<{
+            id: string;
+            createdAtIso: string;
+            updatedAtIso: string | null;
+            title: string;
+            message: string;
+            expected: string | null;
+            category: string;
+            severity: string;
+            area: string | null;
+            path: string | null;
+            serviceSlug: string | null;
+            portalVariant: string | null;
+            reporterEmail: string | null;
+            triage: {
+              status: string;
+              priority: string;
+              backlogRef: string | null;
+              promptRef: string | null;
+              exportBucket: string | null;
+              notes: string | null;
+              reviewerEmail: string | null;
+              lastReviewedAtIso: string | null;
+            };
+          }>;
+        };
+      };
+      newsletter: { failedLast30: number; sentLast30: number };
+      leadScraping: { runsLast30: number };
+      booking: { bookingsCreatedLast30: number; bookingsUpcoming: number };
+      hoursSaved: { secondsLast30: number };
       blog: { generationEventsLast30: number };
     };
   };
   hostedLinks?: {
-    funnels: Array<{ name: string; slug: string; url: string; pages: Array<{ title: string; slug: string; url: string }> }>;
-    blog: null | { indexUrl: string; posts: Array<{ title: string; slug: string; url: string }> };
-    newsletters: null | { indexUrl: string; items: Array<{ title: string; slug: string; url: string }> };
+    funnels: Array<{ name: string; slug: string; url: string }>;
+    blog: null | { indexUrl: string };
+    newsletters: null | { indexUrl: string };
     reviews: null | { indexUrl: string };
     booking: null | { url: string; slug: string };
   };
 };
 
+type PortalDiagnosticsDetails = NonNullable<OwnerDetails["owner"]["usage"]["portalDiagnostics"]>;
+type PortalFeedbackItem = PortalDiagnosticsDetails["betaFeedback"]["recentItems"][number];
+type DetailTab = "overview" | "billing" | "overrides" | "access" | "activity" | "diagnostics";
+type CreditsFilter = "all" | "credits-only" | "subscription";
+type TwilioFilter = "all" | "on" | "off";
+type OverrideFilter = "all" | "enabled" | "none";
+type BalanceFilter = "all" | "zero" | "low" | "mid" | "high";
+type LifecycleFilter = "all" | "active" | "inactive" | "deleted" | "test";
+
+const CREDITS_FILTER_OPTIONS: Array<PortalSelectOption<CreditsFilter>> = [
+  { value: "all", label: "All billing modes" },
+  { value: "credits-only", label: "Credits-only" },
+  { value: "subscription", label: "Env default" },
+];
+
+const TWILIO_FILTER_OPTIONS: Array<PortalSelectOption<TwilioFilter>> = [
+  { value: "all", label: "Twilio any" },
+  { value: "on", label: "Twilio on" },
+  { value: "off", label: "Twilio off" },
+];
+
+const OVERRIDE_FILTER_OPTIONS: Array<PortalSelectOption<OverrideFilter>> = [
+  { value: "all", label: "Any override state" },
+  { value: "enabled", label: "Overrides enabled" },
+  { value: "none", label: "No overrides" },
+];
+
+const BALANCE_FILTER_OPTIONS: Array<PortalSelectOption<BalanceFilter>> = [
+  { value: "all", label: "Any balance" },
+  { value: "zero", label: "0 credits" },
+  { value: "low", label: "1-49 credits" },
+  { value: "mid", label: "50-199 credits" },
+  { value: "high", label: "200+ credits" },
+];
+
+const LIFECYCLE_FILTER_OPTIONS: Array<PortalSelectOption<LifecycleFilter>> = [
+  { value: "all", label: "All accounts" },
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+  { value: "deleted", label: "Deleted" },
+  { value: "test", label: "Test / demo" },
+];
+
+const FEEDBACK_STATUS_OPTIONS: Array<PortalSelectOption<FeedbackStatus>> = [
+  { value: "new", label: "New" },
+  { value: "reviewing", label: "Reviewing" },
+  { value: "planned", label: "Planned" },
+  { value: "shipped", label: "Shipped" },
+  { value: "closed", label: "Closed" },
+];
+
+const FEEDBACK_PRIORITY_OPTIONS: Array<PortalSelectOption<FeedbackPriority>> = [
+  { value: "p1", label: "P1" },
+  { value: "p2", label: "P2" },
+  { value: "p3", label: "P3" },
+  { value: "p4", label: "P4" },
+];
+
+type FeedbackDraft = {
+  status: string;
+  priority: string;
+  backlogRef: string;
+  promptRef: string;
+  exportBucket: string;
+  notes: string;
+};
+
+const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
+  { key: "overview", label: "Overview" },
+  { key: "billing", label: "Billing / Credits" },
+  { key: "overrides", label: "Service Overrides" },
+  { key: "access", label: "Credentials / Access" },
+  { key: "activity", label: "Activity / Audit" },
+  { key: "diagnostics", label: "Diagnostics" },
+];
+
+function cn(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
+
+function LoadingLine({ className = "" }: { className?: string }) {
+  return <div className={`h-3 rounded-full bg-zinc-200/80 ${className}`.trim()} />;
+}
+
+function LoadingChip({ className = "" }: { className?: string }) {
+  return <div className={`h-7 rounded-full bg-zinc-200/80 ${className}`.trim()} />;
+}
+
+function LoadingToggleCard() {
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3.5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-2.5 pr-2">
+          <LoadingLine className="h-4 w-24 max-w-full" />
+          <LoadingLine className="w-28 max-w-[85%]" />
+        </div>
+        <div className="mt-0.5 h-6 w-11 shrink-0 rounded-full bg-zinc-200/80" />
+      </div>
+    </div>
+  );
+}
+
+function LoadingConsoleRow() {
+  return (
+    <div className="rounded-[26px] border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1 space-y-4">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-0 flex-1 space-y-2"><LoadingLine className="h-5 w-60 max-w-full" /><LoadingLine className="w-40 max-w-[70%]" /></div>
+            <LoadingChip className="w-20" />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 space-y-2"><LoadingLine className="w-20" /><LoadingLine className="w-32" /><LoadingLine className="w-24" /></div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 space-y-2"><LoadingLine className="w-16" /><LoadingChip className="w-24" /><LoadingChip className="w-20" /></div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 space-y-2"><LoadingLine className="w-16" /><LoadingLine className="h-6 w-12" /><LoadingLine className="w-24" /></div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 space-y-2"><LoadingLine className="w-20" /><LoadingLine className="w-28" /><LoadingLine className="w-24" /></div>
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2 xl:ml-4"><div className="h-10 w-28 rounded-xl bg-zinc-200/80" /><div className="h-10 w-24 rounded-xl bg-zinc-200/80" /></div>
+      </div>
+    </div>
+  );
+}
+
+function LoadingDetailPanel() {
+  return (
+    <div className="animate-pulse rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-3"><LoadingLine className="h-5 w-40" /><LoadingLine className="w-56" /></div>
+        <LoadingChip className="w-20" />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2"><LoadingChip className="w-24" /><LoadingChip className="w-24" /><LoadingChip className="w-28" /></div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 space-y-2"><LoadingLine className="w-14" /><LoadingLine className="h-6 w-16" /></div>
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 space-y-2"><LoadingLine className="w-18" /><LoadingLine className="h-6 w-20" /></div>
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 space-y-2"><LoadingLine className="w-18" /><LoadingLine className="h-6 w-14" /></div>
+      </div>
+      <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 space-y-3"><LoadingLine className="w-32" /><LoadingLine className="w-full" /><LoadingLine className="w-4/5" /><LoadingLine className="w-3/5" /></div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">{Array.from({ length: 6 }).map((_, index) => <LoadingToggleCard key={index} />)}</div>
+    </div>
+  );
+}
+
+function isTestAccount(user: Pick<UserRow, "email" | "name" | "businessName">) {
+  const haystack = [user.email, user.name, user.businessName].filter(Boolean).join(" ").toLowerCase();
+  return haystack.includes("test") || haystack.includes("demo") || haystack.includes("example.invalid");
+}
+
+function getLifecycleValue(user: Pick<UserRow, "active" | "deletedAt" | "email" | "name" | "businessName">): Exclude<LifecycleFilter, "all"> {
+  if (user.deletedAt) return "deleted";
+  if (!user.active) return "inactive";
+  if (isTestAccount(user)) return "test";
+  return "active";
+}
+
+function lifecycleBadgeClassName(value: Exclude<LifecycleFilter, "all">) {
+  if (value === "deleted") return "bg-red-100 text-red-800";
+  if (value === "inactive") return "bg-zinc-200 text-zinc-700";
+  if (value === "test") return "bg-amber-100 text-amber-900";
+  return "bg-emerald-100 text-emerald-800";
+}
+
+function billingModeLabel(user: Pick<UserRow, "creditsOnlyOverride">) {
+  return user.creditsOnlyOverride ? "Credits-only" : "Env default";
+}
+
+function balanceFilterMatches(value: number, filter: BalanceFilter) {
+  if (filter === "all") return true;
+  if (filter === "zero") return value <= 0;
+  if (filter === "low") return value > 0 && value < 50;
+  if (filter === "mid") return value >= 50 && value < 200;
+  return value >= 200;
+}
+
+function formatIso(value: string | null | undefined) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return "";
+  return parsed.toLocaleString();
+}
+
+function formatHours(seconds: number | null | undefined) {
+  const safeSeconds = typeof seconds === "number" && Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const hours = safeSeconds / 3600;
+  return hours >= 10 ? `${Math.round(hours)}h` : `${hours.toFixed(1)}h`;
+}
+
+function formatDurationShort(secondsRaw: number | null | undefined) {
+  const seconds = typeof secondsRaw === "number" && Number.isFinite(secondsRaw) ? Math.max(0, Math.floor(secondsRaw)) : 0;
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainderMinutes = minutes % 60;
+  return remainderMinutes ? `${hours}h ${remainderMinutes}m` : `${hours}h`;
+}
+
+function groupRecentActivity(activity: Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }>, opts?: { maxGapMs?: number; take?: number }) {
+  const maxGapMs = Math.max(0, Math.floor(opts?.maxGapMs ?? 2500));
+  const take = Math.max(1, Math.floor(opts?.take ?? 200));
+  const normalized = activity
+    .map((item) => {
+      const endMs = Math.max(0, Math.floor(item.atMs));
+      const dtSec = Math.max(1, Math.min(60, Math.floor(item.dtSec)));
+      const startMs = Math.max(0, endMs - dtSec * 1000);
+      const key = (item.pageKey || item.path || "").trim().slice(0, 512);
+      return { key, startMs, endMs };
+    })
+    .filter((item) => Boolean(item.key) && item.endMs > 0)
+    .sort((left, right) => left.startMs - right.startMs);
+
+  const sessions: Array<{ key: string; startMs: number; endMs: number; seconds: number }> = [];
+  for (const item of normalized) {
+    const previous = sessions.length ? sessions[sessions.length - 1] : null;
+    if (previous && previous.key === item.key && item.startMs <= previous.endMs + maxGapMs) {
+      previous.endMs = Math.max(previous.endMs, item.endMs);
+      previous.seconds = Math.max(1, Math.floor((previous.endMs - previous.startMs) / 1000));
+      continue;
+    }
+    sessions.push({ key: item.key, startMs: item.startMs, endMs: item.endMs, seconds: Math.max(1, Math.floor((item.endMs - item.startMs) / 1000)) });
+  }
+
+  sessions.sort((left, right) => right.endMs - left.endMs);
+  return sessions.slice(0, take);
+}
+
+function ColorSwatch({ hex }: { hex: string | null | undefined }) {
+  const value = String(hex || "").trim();
+  const isValid = /^#?[0-9a-fA-F]{3,8}$/.test(value);
+  const cssValue = isValid ? (value.startsWith("#") ? value : `#${value}`) : "#e4e4e7";
+  return <span className="inline-flex h-3 w-3 rounded-full border border-zinc-200" style={{ backgroundColor: cssValue }} />;
+}
+
+function portalDiagnosticKindLabel(kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure") {
+  if (kind === "action_failure") return "Action";
+  if (kind === "runtime_error") return "Runtime";
+  if (kind === "unhandled_rejection") return "Promise";
+  return "Resource";
+}
+
+function portalDiagnosticKindClassName(kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure") {
+  if (kind === "action_failure") return "bg-amber-100 text-amber-900";
+  if (kind === "runtime_error") return "bg-red-100 text-red-900";
+  if (kind === "unhandled_rejection") return "bg-orange-100 text-orange-900";
+  return "bg-sky-100 text-sky-900";
+}
+
+function feedbackCategoryLabel(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Feedback";
+  return raw.slice(0, 1).toUpperCase() + raw.slice(1);
+}
+
+function feedbackSeverityClassName(value: string | null | undefined) {
+  if (value === "critical") return "bg-red-100 text-red-900";
+  if (value === "high") return "bg-amber-100 text-amber-900";
+  if (value === "medium") return "bg-sky-100 text-sky-900";
+  return "bg-zinc-100 text-zinc-700";
+}
+
+function feedbackStatusClassName(value: string | null | undefined) {
+  if (value === "planned") return "bg-violet-100 text-violet-900";
+  if (value === "shipped") return "bg-emerald-100 text-emerald-900";
+  if (value === "closed") return "bg-zinc-200 text-zinc-800";
+  if (value === "reviewing") return "bg-amber-100 text-amber-900";
+  return "bg-sky-100 text-sky-900";
+}
+
 async function fetchOverrides(q: string): Promise<OverridesResponse> {
   const url = new URL("/api/manager/portal/overrides", window.location.origin);
   if (q.trim()) url.searchParams.set("q", q.trim());
+  url.searchParams.set("take", "500");
   const res = await fetch(url.toString(), { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to load overrides (HTTP ${res.status})`);
   return (await res.json()) as OverridesResponse;
@@ -132,73 +435,33 @@ async function fetchOwnerDetails(ownerId: string): Promise<OwnerDetails> {
   const res = await fetch(url.toString(), { cache: "no-store" });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = typeof body?.error === "string" && body.error ? body.error : `Failed to load details (HTTP ${res.status})`;
-    throw new Error(msg);
+    const message = typeof body?.error === "string" && body.error ? body.error : `Failed to load details (HTTP ${res.status})`;
+    throw new Error(message);
   }
   return body as OwnerDetails;
 }
 
-function formatIso(value: string | null | undefined) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return "";
-  return d.toLocaleString();
-}
-
-function formatHours(seconds: number | null | undefined) {
-  const s = typeof seconds === "number" && Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
-  const hrs = s / 3600;
-  return hrs >= 10 ? `${Math.round(hrs)}h` : `${hrs.toFixed(1)}h`;
-}
-
-function formatDurationShort(secondsRaw: number | null | undefined) {
-  const seconds = typeof secondsRaw === "number" && Number.isFinite(secondsRaw) ? Math.max(0, Math.floor(secondsRaw)) : 0;
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remMin = minutes % 60;
-  return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
-}
-
-function groupRecentActivity(
-  activity: Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }>,
-  opts?: { maxGapMs?: number; take?: number },
-) {
-  const maxGapMs = Math.max(0, Math.floor(opts?.maxGapMs ?? 2500));
-  const take = Math.max(1, Math.floor(opts?.take ?? 200));
-
-  const normalized = activity
-    .map((a) => {
-      const endMs = Math.max(0, Math.floor(a.atMs));
-      const dtSec = Math.max(1, Math.min(60, Math.floor(a.dtSec)));
-      const startMs = Math.max(0, endMs - dtSec * 1000);
-      const key = (a.pageKey || a.path || "").trim().slice(0, 512);
-      return { key, path: a.path, pageKey: a.pageKey, startMs, endMs };
-    })
-    .filter((a) => Boolean(a.key) && a.endMs > 0)
-    .sort((a, b) => a.startMs - b.startMs);
-
-  const sessions: Array<{ key: string; startMs: number; endMs: number; seconds: number }> = [];
-  for (const a of normalized) {
-    const prev = sessions.length ? sessions[sessions.length - 1] : null;
-    if (prev && prev.key === a.key && a.startMs <= prev.endMs + maxGapMs) {
-      prev.endMs = Math.max(prev.endMs, a.endMs);
-      prev.seconds = Math.max(1, Math.floor((prev.endMs - prev.startMs) / 1000));
-      continue;
-    }
-    sessions.push({ key: a.key, startMs: a.startMs, endMs: a.endMs, seconds: Math.max(1, Math.floor((a.endMs - a.startMs) / 1000)) });
+async function saveBetaFeedbackTriage(opts: {
+  ownerId: string;
+  itemId: string;
+  status: string;
+  priority: string;
+  backlogRef: string;
+  promptRef: string;
+  exportBucket: string;
+  notes: string;
+}) {
+  const res = await fetch("/api/manager/portal/beta-feedback", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(opts),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
+    throw new Error(message);
   }
-
-  sessions.sort((a, b) => b.endMs - a.endMs);
-  return sessions.slice(0, take);
-}
-
-function ColorSwatch({ hex }: { hex: string | null | undefined }) {
-  const h = String(hex || "").trim();
-  const ok = /^#?[0-9a-fA-F]{3,8}$/.test(h);
-  const css = ok ? (h.startsWith("#") ? h : `#${h}`) : "#e4e4e7";
-  return <span className="inline-flex h-3 w-3 rounded-full border border-zinc-200" style={{ backgroundColor: css }} />;
+  return body as { ok: true };
 }
 
 async function setOverride(opts: { ownerId: string; module: ModuleKey; enabled: boolean }) {
@@ -221,8 +484,8 @@ async function giftCredits(opts: { ownerId: string; amount: number }) {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
-    throw new Error(msg);
+    const message = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
+    throw new Error(message);
   }
   return body as { ok: true; balance: number };
 }
@@ -235,8 +498,8 @@ async function setCreditsOnlyOverride(opts: { ownerIds: string[]; creditsOnly: b
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
-    throw new Error(msg);
+    const message = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
+    throw new Error(message);
   }
   return body as { ok: true; creditsOnly: boolean };
 }
@@ -245,8 +508,8 @@ async function deletePortalUser(ownerId: string) {
   const res = await fetch(`/api/manager/portal/users/${encodeURIComponent(ownerId)}`, { method: "DELETE" });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
-    throw new Error(msg);
+    const message = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
+    throw new Error(message);
   }
   return body as { ok: true };
 }
@@ -260,61 +523,114 @@ async function seedCreditDemo(opts: { email: string; force?: boolean }) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const details = typeof body?.details === "string" && body.details ? ` ${body.details}` : "";
-    const msg = typeof body?.error === "string" && body.error ? `${body.error}${details}` : `Request failed (HTTP ${res.status})`;
-    throw new Error(msg);
+    const message = typeof body?.error === "string" && body.error ? `${body.error}${details}` : `Request failed (HTTP ${res.status})`;
+    throw new Error(message);
   }
-  return body as { ok: true; skipped?: boolean; forced?: boolean; email?: string };
+  return body as { ok: true; skipped?: boolean };
 }
 
 export default function PortalOverridesClient() {
   const toast = useToast();
-
   const [q, setQ] = useState("");
+  const [creditsFilter, setCreditsFilter] = useState<CreditsFilter>("all");
+  const [twilioFilter, setTwilioFilter] = useState<TwilioFilter>("all");
+  const [overrideFilter, setOverrideFilter] = useState<OverrideFilter>("all");
+  const [balanceFilter, setBalanceFilter] = useState<BalanceFilter>("all");
+  const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [giftingOwnerId, setGiftingOwnerId] = useState<string | null>(null);
   const [giftAmountByOwner, setGiftAmountByOwner] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
-
   const [testingOwnerId, setTestingOwnerId] = useState<string | null>(null);
-
   const [detailsOwnerId, setDetailsOwnerId] = useState<string | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailsByOwnerId, setDetailsByOwnerId] = useState<Record<string, OwnerDetails>>({});
+  const [detailsTab, setDetailsTab] = useState<DetailTab>("overview");
   const [creditSeedingOwnerId, setCreditSeedingOwnerId] = useState<string | null>(null);
+  const [feedbackSavingKey, setFeedbackSavingKey] = useState<string | null>(null);
+  const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, FeedbackDraft>>({});
 
+  const moduleList = useMemo(() => MODULE_KEYS, []);
   const testingUser = useMemo(() => {
     const id = (testingOwnerId || "").trim();
     if (!id) return null;
-    return users.find((u) => u.id === id) ?? null;
+    return users.find((user) => user.id === id) ?? null;
   }, [testingOwnerId, users]);
-
   const details = useMemo(() => {
     const id = (detailsOwnerId || "").trim();
     if (!id) return null;
     return detailsByOwnerId[id] ?? null;
   }, [detailsByOwnerId, detailsOwnerId]);
 
-  const testingAiReceptionistAgentId =
-    testingUser?.voiceAgentIds?.aiReceptionist ?? testingUser?.voiceAgentIds?.profile ?? null;
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) => {
+      const balance = Math.max(0, Math.floor(user.creditsBalance ?? 0));
+      const lifecycle = getLifecycleValue(user);
+      if (creditsFilter === "credits-only" && !user.creditsOnlyOverride) return false;
+      if (creditsFilter === "subscription" && user.creditsOnlyOverride) return false;
+      if (twilioFilter === "on" && !user.twilio?.configured) return false;
+      if (twilioFilter === "off" && user.twilio?.configured) return false;
+      if (overrideFilter === "enabled" && user.overrides.length === 0) return false;
+      if (overrideFilter === "none" && user.overrides.length > 0) return false;
+      if (lifecycleFilter !== "all" && lifecycle !== lifecycleFilter) return false;
+      if (!balanceFilterMatches(balance, balanceFilter)) return false;
+      return true;
+    });
+  }, [balanceFilter, creditsFilter, lifecycleFilter, overrideFilter, twilioFilter, users]);
+
+  const selectedUser = useMemo(() => {
+    const id = (detailsOwnerId || "").trim();
+    if (!id) return null;
+    return users.find((user) => user.id === id) ?? null;
+  }, [detailsOwnerId, users]);
+
+  const selectedOverrides = useMemo(() => {
+    if (!selectedUser) return moduleList;
+    return [...moduleList].sort((left, right) => {
+      const leftEnabled = selectedUser.overrides.includes(left) ? 1 : 0;
+      const rightEnabled = selectedUser.overrides.includes(right) ? 1 : 0;
+      if (leftEnabled !== rightEnabled) return rightEnabled - leftEnabled;
+      return MODULE_LABELS[left].localeCompare(MODULE_LABELS[right]);
+    });
+  }, [moduleList, selectedUser]);
+
+  const showLoadingShell = loading && users.length === 0 && !error;
+  const statusLabel = showLoadingShell ? "Loading accounts" : loading ? "Refreshing…" : `${filteredUsers.length}${filteredUsers.length === users.length ? "" : ` / ${users.length}`} account${filteredUsers.length === 1 ? "" : "s"}`;
+  const hasActiveFilters = creditsFilter !== "all" || twilioFilter !== "all" || overrideFilter !== "all" || balanceFilter !== "all" || lifecycleFilter !== "all";
+  const filterSelectButtonClassName = "flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400";
+  const compactSelectButtonClassName = "flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400";
+  const testingAiReceptionistAgentId = testingUser?.voiceAgentIds?.aiReceptionist ?? testingUser?.voiceAgentIds?.profile ?? null;
   const testingOutboundAgentId = testingUser?.voiceAgentIds?.profile ?? null;
 
-  const moduleList = useMemo(() => MODULE_KEYS, []);
+  async function copyValue(label: string, value: string | null | undefined) {
+    const safeValue = String(value || "").trim();
+    if (!safeValue) {
+      toast.error(`No ${label.toLowerCase()} to copy`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(safeValue);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error(`Unable to copy ${label.toLowerCase()}`);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
-    const t = setTimeout(async () => {
+    const timeoutId = setTimeout(async () => {
       setLoading(true);
       setError(null);
       try {
         const json = await fetchOverrides(q);
         if (cancelled) return;
         setUsers(json.users);
-      } catch (e) {
+      } catch (cause) {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : "Failed to load overrides");
+        setError(cause instanceof Error ? cause.message : "Failed to load overrides");
       } finally {
         if (cancelled) return;
         setLoading(false);
@@ -323,28 +639,37 @@ export default function PortalOverridesClient() {
 
     return () => {
       cancelled = true;
-      clearTimeout(t);
+      clearTimeout(timeoutId);
     };
   }, [q]);
 
-  async function reloadOverrides() {
-    setLoading(true);
-    setError(null);
-    try {
-      const json = await fetchOverrides(q);
-      setUsers(json.users);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load overrides");
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (!detailsOwnerId) return;
+    if (!users.some((user) => user.id === detailsOwnerId)) {
+      setDetailsOwnerId(null);
     }
-  }
+  }, [detailsOwnerId, users]);
+
+  useEffect(() => {
+    if (!detailsOwnerId) return;
+    setDetailsTab("overview");
+  }, [detailsOwnerId]);
+
+  useEffect(() => {
+    if (!detailsOwnerId) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setDetailsOwnerId(null);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [detailsOwnerId]);
 
   useEffect(() => {
     let cancelled = false;
     const ownerId = (detailsOwnerId || "").trim();
-    if (!ownerId) return;
-    if (detailsByOwnerId[ownerId]) return;
+    if (!ownerId || detailsByOwnerId[ownerId]) return;
 
     setDetailsLoading(true);
     setDetailsError(null);
@@ -353,9 +678,9 @@ export default function PortalOverridesClient() {
         const json = await fetchOwnerDetails(ownerId);
         if (cancelled) return;
         setDetailsByOwnerId((prev) => ({ ...prev, [ownerId]: json }));
-      } catch (e) {
+      } catch (cause) {
         if (cancelled) return;
-        setDetailsError(e instanceof Error ? e.message : "Failed to load details");
+        setDetailsError(cause instanceof Error ? cause.message : "Failed to load details");
       } finally {
         if (cancelled) return;
         setDetailsLoading(false);
@@ -365,25 +690,108 @@ export default function PortalOverridesClient() {
     return () => {
       cancelled = true;
     };
-  }, [detailsOwnerId, detailsByOwnerId]);
+  }, [detailsByOwnerId, detailsOwnerId]);
+
+  async function reloadOverrides() {
+    setLoading(true);
+    setError(null);
+    try {
+      const json = await fetchOverrides(q);
+      setUsers(json.users);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to load overrides");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshOwnerDetails(ownerId: string) {
+    setDetailsLoading(true);
+    setDetailsError(null);
+    try {
+      const json = await fetchOwnerDetails(ownerId);
+      setDetailsByOwnerId((prev) => ({ ...prev, [ownerId]: json }));
+    } catch (cause) {
+      setDetailsError(cause instanceof Error ? cause.message : "Failed to load details");
+      throw cause;
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+
+  function patchCachedOwner(ownerId: string, patch: (owner: OwnerDetails["owner"]) => OwnerDetails["owner"]) {
+    setDetailsByOwnerId((prev) => {
+      const existing = prev[ownerId];
+      if (!existing) return prev;
+      return { ...prev, [ownerId]: { ...existing, owner: patch(existing.owner) } };
+    });
+  }
+
+  function feedbackDraftFor(item: PortalFeedbackItem): FeedbackDraft {
+    return feedbackDrafts[item.id] ?? {
+      status: item.triage.status,
+      priority: item.triage.priority,
+      backlogRef: item.triage.backlogRef ?? "",
+      promptRef: item.triage.promptRef ?? "",
+      exportBucket: item.triage.exportBucket ?? "",
+      notes: item.triage.notes ?? "",
+    };
+  }
+
+  function setFeedbackDraft(itemId: string, patch: Partial<FeedbackDraft>) {
+    setFeedbackDrafts((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] ?? { status: "new", priority: "p2", backlogRef: "", promptRef: "", exportBucket: "", notes: "" }),
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveFeedback(ownerId: string, item: PortalFeedbackItem) {
+    const draft = feedbackDraftFor(item);
+    setFeedbackSavingKey(item.id);
+    try {
+      await saveBetaFeedbackTriage({
+        ownerId,
+        itemId: item.id,
+        status: draft.status,
+        priority: draft.priority,
+        backlogRef: draft.backlogRef,
+        promptRef: draft.promptRef,
+        exportBucket: draft.exportBucket,
+        notes: draft.notes,
+      });
+      await refreshOwnerDetails(ownerId);
+      toast.success("Feedback triage updated");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Unable to update feedback triage");
+    } finally {
+      setFeedbackSavingKey(null);
+    }
+  }
 
   async function toggle(ownerId: string, module: ModuleKey, enabled: boolean) {
     const key = `${ownerId}:${module}`;
     setSavingKey(key);
     try {
       await setOverride({ ownerId, module, enabled });
-      setUsers((prev) =>
-        prev.map((u) => {
-          if (u.id !== ownerId) return u;
-          const set = new Set(u.overrides);
-          if (enabled) set.add(module);
-          else set.delete(module);
-          return { ...u, overrides: Array.from(set) };
-        }),
-      );
+      setUsers((prev) => prev.map((user) => {
+        if (user.id !== ownerId) return user;
+        const next = new Set(user.overrides);
+        if (enabled) next.add(module);
+        else next.delete(module);
+        return { ...user, overrides: Array.from(next) };
+      }));
+      patchCachedOwner(ownerId, (owner) => {
+        const next = new Set(owner.portal.overrides);
+        if (enabled) next.add(module);
+        else next.delete(module);
+        return { ...owner, portal: { ...owner.portal, overrides: Array.from(next) } };
+      });
       toast.success(enabled ? `Enabled ${MODULE_LABELS[module]}` : `Disabled ${MODULE_LABELS[module]}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Update failed");
     } finally {
       setSavingKey(null);
     }
@@ -396,50 +804,73 @@ export default function PortalOverridesClient() {
       toast.error("Enter a positive whole number of credits");
       return;
     }
+    const email = users.find((user) => user.id === ownerId)?.email ?? ownerId;
+    if (!window.confirm(`Gift ${amount} credits to ${email}?`)) return;
 
     setGiftingOwnerId(ownerId);
     try {
-      const res = await giftCredits({ ownerId, amount });
-      setUsers((prev) => prev.map((u) => (u.id === ownerId ? { ...u, creditsBalance: res.balance } : u)));
-      toast.success(`Gifted ${amount} credits`);
+      const result = await giftCredits({ ownerId, amount });
+      setUsers((prev) => prev.map((user) => (user.id === ownerId ? { ...user, creditsBalance: result.balance } : user)));
+      patchCachedOwner(ownerId, (owner) => ({ ...owner, portal: { ...owner.portal, creditsBalance: result.balance } }));
       setGiftAmountByOwner((prev) => ({ ...prev, [ownerId]: "" }));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gift failed");
+      toast.success(`Gifted ${amount} credits`);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Gift failed");
     } finally {
       setGiftingOwnerId(null);
     }
   }
 
   async function toggleCreditsOnly(ownerId: string, creditsOnly: boolean) {
+    const email = users.find((user) => user.id === ownerId)?.email ?? ownerId;
+    const confirmText = creditsOnly ? `Enable credits-only billing for ${email}?` : `Clear the credits-only billing override for ${email}?`;
+    if (!window.confirm(confirmText)) return;
+
     const key = `billingModel:${ownerId}`;
     setSavingKey(key);
     try {
       await setCreditsOnlyOverride({ ownerIds: [ownerId], creditsOnly });
-      setUsers((prev) => prev.map((u) => (u.id === ownerId ? { ...u, creditsOnlyOverride: creditsOnly } : u)));
+      setUsers((prev) => prev.map((user) => (user.id === ownerId ? { ...user, creditsOnlyOverride: creditsOnly } : user)));
+      patchCachedOwner(ownerId, (owner) => ({ ...owner, portal: { ...owner.portal, creditsOnlyOverride: creditsOnly } }));
       toast.success(creditsOnly ? "Credits-only enabled" : "Credits-only cleared (env default)");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Update failed");
     } finally {
       setSavingKey(null);
     }
   }
 
   async function bulkSetCreditsOnly(creditsOnly: boolean) {
-    const ownerIds = users.map((u) => u.id);
+    const ownerIds = filteredUsers.map((user) => user.id);
     if (!ownerIds.length) return;
-    const confirmText = creditsOnly
-      ? `Enable credits-only billing for ${ownerIds.length} user(s)?`
-      : `Clear credits-only override for ${ownerIds.length} user(s) (revert to env default)?`;
+    const confirmText = creditsOnly ? `Enable credits-only billing for ${ownerIds.length} shown account(s)?` : `Clear the credits-only billing override for ${ownerIds.length} shown account(s)?`;
     if (!window.confirm(confirmText)) return;
 
     const key = `billingModel:bulk:${creditsOnly ? "on" : "off"}`;
     setSavingKey(key);
     try {
       await setCreditsOnlyOverride({ ownerIds, creditsOnly });
-      setUsers((prev) => prev.map((u) => ({ ...u, creditsOnlyOverride: creditsOnly })));
-      toast.success(creditsOnly ? "Credits-only enabled for all shown users" : "Credits-only cleared for all shown users");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Bulk update failed");
+      setUsers((prev) => prev.map((user) => (ownerIds.includes(user.id) ? { ...user, creditsOnlyOverride: creditsOnly } : user)));
+      setDetailsByOwnerId((prev) => {
+        const next = { ...prev };
+        for (const ownerId of ownerIds) {
+          if (!next[ownerId]) continue;
+          next[ownerId] = {
+            ...next[ownerId],
+            owner: {
+              ...next[ownerId].owner,
+              portal: {
+                ...next[ownerId].owner.portal,
+                creditsOnlyOverride: creditsOnly,
+              },
+            },
+          };
+        }
+        return next;
+      });
+      toast.success(creditsOnly ? "Credits-only enabled for shown accounts" : "Credits-only cleared for shown accounts");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Bulk update failed");
     } finally {
       setSavingKey(null);
     }
@@ -452,740 +883,299 @@ export default function PortalOverridesClient() {
       toast.error("This account is missing an email");
       return;
     }
-
     setCreditSeedingOwnerId(ownerId);
     try {
       const result = await seedCreditDemo({ email, force: true });
       toast.success(result.skipped ? `Credit demo already present for ${email}` : `Credit demo seeded for ${email}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unable to seed credit demo");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Unable to seed credit demo");
     } finally {
       setCreditSeedingOwnerId(null);
     }
   }
 
   return (
-    <div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex-1">
-          <label className="text-sm font-semibold text-zinc-700">Search portal users</label>
-          <input
-            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Email or name…"
-          />
+    <div className="space-y-6">
+      <div className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-zinc-900">Account management console</div>
+            <div className="mt-1 text-sm text-zinc-600">Find accounts fast by email, name, business, mailbox, phone, or status tags, then open the full account modal when you need to work one deeply.</div>
+            <label className="mt-4 block text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Search accounts</label>
+            <input
+              className="mt-2 w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm outline-none transition focus:border-zinc-400 focus:bg-white"
+              value={q}
+              onChange={(event) => setQ(event.target.value)}
+              placeholder="Email, name, business, mailbox, phone, active, inactive, credits-only, twilio…"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+            <div className="inline-flex min-w-36 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-700">{statusLabel}</div>
+            <button
+              type="button"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              onClick={() => {
+                setQ("");
+                setCreditsFilter("all");
+                setTwilioFilter("all");
+                setOverrideFilter("all");
+                setBalanceFilter("all");
+                setLifecycleFilter("all");
+              }}
+              disabled={!q && !hasActiveFilters}
+            >
+              Reset search + filters
+            </button>
+          </div>
         </div>
-        <div className="text-sm text-zinc-600 sm:self-end">
-          {loading ? "Loading…" : `${users.length} user${users.length === 1 ? "" : "s"}`}
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <label className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Billing<div className="mt-2"><PortalSelectDropdown value={creditsFilter} onChange={setCreditsFilter} options={CREDITS_FILTER_OPTIONS} buttonClassName={filterSelectButtonClassName} /></div></label>
+          <label className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Twilio<div className="mt-2"><PortalSelectDropdown value={twilioFilter} onChange={setTwilioFilter} options={TWILIO_FILTER_OPTIONS} buttonClassName={filterSelectButtonClassName} /></div></label>
+          <label className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Overrides<div className="mt-2"><PortalSelectDropdown value={overrideFilter} onChange={setOverrideFilter} options={OVERRIDE_FILTER_OPTIONS} buttonClassName={filterSelectButtonClassName} /></div></label>
+          <label className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Credit balance<div className="mt-2"><PortalSelectDropdown value={balanceFilter} onChange={setBalanceFilter} options={BALANCE_FILTER_OPTIONS} buttonClassName={filterSelectButtonClassName} /></div></label>
+          <label className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Account status<div className="mt-2"><PortalSelectDropdown value={lifecycleFilter} onChange={setLifecycleFilter} options={LIFECYCLE_FILTER_OPTIONS} buttonClassName={filterSelectButtonClassName} /></div></label>
         </div>
+
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-700">
+            <span className="font-semibold">Bulk billing override:</span>
+            <button type="button" className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60" onClick={() => void bulkSetCreditsOnly(true)} disabled={savingKey === "billingModel:bulk:on" || loading || filteredUsers.length === 0}>{savingKey === "billingModel:bulk:on" ? "Enabling…" : "Enable for shown accounts"}</button>
+            <button type="button" className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60" onClick={() => void bulkSetCreditsOnly(false)} disabled={savingKey === "billingModel:bulk:off" || loading || filteredUsers.length === 0}>{savingKey === "billingModel:bulk:off" ? "Clearing…" : "Clear for shown accounts"}</button>
+          </div>
+          <div className="text-xs text-zinc-500">No raw passwords, auth tokens, or other secrets are shown anywhere in this console.</div>
+        </div>
+        {users.length >= 500 ? <div className="mt-3 text-xs text-amber-700">Loaded the first 500 accounts for responsiveness. Use search and filters to narrow very large account sets before opening detail modals.</div> : null}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-        <div className="text-zinc-700">
-          Credits-only billing override (affects <span className="font-mono">/portal</span>):
-        </div>
-        <button
-          type="button"
-          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-          onClick={() => void bulkSetCreditsOnly(true)}
-          disabled={savingKey === "billingModel:bulk:on" || loading || users.length === 0}
-        >
-          {savingKey === "billingModel:bulk:on" ? "Enabling…" : "Enable for all shown"}
-        </button>
-        <button
-          type="button"
-          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-          onClick={() => void bulkSetCreditsOnly(false)}
-          disabled={savingKey === "billingModel:bulk:off" || loading || users.length === 0}
-        >
-          {savingKey === "billingModel:bulk:off" ? "Clearing…" : "Clear for all shown"}
-        </button>
-        <div className="text-xs text-zinc-500">
-          When cleared, the portal uses env defaults.
-        </div>
-      </div>
+      {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div> : null}
 
-      {error ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="mt-6 overflow-x-auto rounded-3xl border border-zinc-200">
-        <table className="min-w-225 w-full border-separate border-spacing-0 bg-white">
-          <thead>
-            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              <th className="sticky left-0 z-10 bg-white px-4 py-3">User</th>
-              <th className="px-4 py-3">Credits</th>
-              <th className="px-4 py-3">Credits-only</th>
-              {moduleList.map((m) => (
-                <th key={m} className="px-4 py-3">
-                  {MODULE_LABELS[m]}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr
-                key={u.id}
-                className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer"
-                onClick={() => setDetailsOwnerId(u.id)}
-              >
-                <td className="sticky left-0 z-10 bg-white px-4 py-4">
-                  <div className="text-sm font-semibold text-brand-ink">{u.email}</div>
-                  <div className="mt-1 text-xs text-zinc-500">
-                    {u.name}{" "}
-                    {u.deletedAt ? (
-                      <span className="font-semibold text-red-700">• deleted</span>
-                    ) : u.active ? (
-                      ""
-                    ) : (
-                      "• inactive"
-                    )}
-                    {u.deletedAt ? <span className="text-zinc-500"> · {formatIso(u.deletedAt)}</span> : null}
-                  </div>
-                  <div className="mt-2 space-y-1 text-xs text-zinc-600">
-                    {u.businessName ? (
-                      <div>
-                        Business: <span className="font-semibold text-zinc-800">{u.businessName}</span>
-                      </div>
-                    ) : null}
-                    {u.businessEmail ? (
-                      <div>
-                        Mailbox: <span className="font-mono text-zinc-800">{u.businessEmail}</span>
-                      </div>
-                    ) : null}
-                    {u.phone ? (
-                      <div>
-                        Phone: <span className="font-mono text-zinc-800">{u.phone}</span>
-                      </div>
-                    ) : null}
-                    <div>
-                      Invites: <span className="font-semibold text-zinc-800">{Math.max(0, u.invitesSentCount ?? 0)}</span>
-                      <span className="text-zinc-500">
-                        {" "}· verified {Math.max(0, u.invitesVerifiedCount ?? 0)} · awarded {Math.max(0, u.inviteCreditsAwardedCount ?? 0)}
-                      </span>
+      <div className="space-y-4">
+        {showLoadingShell ? Array.from({ length: 6 }).map((_, index) => <LoadingConsoleRow key={`loading-${index}`} />) : null}
+        {!showLoadingShell && filteredUsers.map((user) => {
+          const lifecycle = getLifecycleValue(user);
+          const balance = Math.max(0, Math.floor(user.creditsBalance ?? 0));
+          return (
+            <div
+              key={user.id}
+              role="button"
+              tabIndex={0}
+              className={cn(
+                "rounded-[28px] border border-zinc-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-zinc-300",
+                detailsOwnerId === user.id && "border-zinc-900 shadow-md",
+              )}
+              onClick={() => setDetailsOwnerId(user.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setDetailsOwnerId(user.id);
+                }
+              }}
+            >
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0 flex-1 space-y-4">
+                  <div className="flex flex-wrap items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2"><div className="truncate text-lg font-semibold text-brand-ink">{user.email}</div><button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={(event) => { event.stopPropagation(); void copyValue("Login email", user.email); }}>Copy email</button></div>
+                      <div className="mt-1 truncate text-sm text-zinc-600">{user.businessName ? `${user.businessName} · ` : ""}{user.name || "No name"}</div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={
-                          u.twilio?.configured
-                            ? "inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"
-                            : "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600"
-                        }
-                      >
-                        Twilio: {u.twilio?.configured ? "On" : "Off"}
-                      </span>
-                      {u.twilio?.configured && u.twilio.fromNumberE164 ? (
-                        <span className="font-mono text-zinc-700">{u.twilio.fromNumberE164}</span>
-                      ) : null}
+                    <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.14em]">
+                      <span className={cn("rounded-full px-2.5 py-1", lifecycleBadgeClassName(lifecycle))}>{lifecycle}</span>
+                      <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-700">{billingModeLabel(user)}</span>
+                      <span className={cn("rounded-full px-2.5 py-1", user.twilio?.configured ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-600")}>Twilio {user.twilio?.configured ? "On" : "Off"}</span>
                     </div>
                   </div>
 
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTestingOwnerId(u.id);
-                      }}
-                    >
-                      Testing
-                    </button>
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="text-sm font-semibold text-zinc-900">{Math.max(0, Math.floor(u.creditsBalance ?? 0))}</div>
-                  <div
-                    className="mt-2 flex items-center gap-2"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                      placeholder="Amount"
-                      inputMode="numeric"
-                      value={giftAmountByOwner[u.id] ?? ""}
-                      onChange={(e) => setGiftAmountByOwner((prev) => ({ ...prev, [u.id]: e.target.value }))}
-                      disabled={giftingOwnerId === u.id}
-                    />
-                    <button
-                      type="button"
-                      className="rounded-xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void onGift(u.id);
-                      }}
-                      disabled={giftingOwnerId === u.id}
-                    >
-                      {giftingOwnerId === u.id ? "Gifting…" : "Gift"}
-                    </button>
-                  </div>
-                </td>
-
-                <td className="px-4 py-4">
-                  {(() => {
-                    const enabled = Boolean(u.creditsOnlyOverride);
-                    const key = `billingModel:${u.id}`;
-                    const busy = savingKey === key;
-                    return (
-                      <div
-                        className="inline-flex items-center gap-2 text-sm text-zinc-700"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ToggleSwitch
-                          checked={enabled}
-                          disabled={busy}
-                          accent="ink"
-                          ariaLabel="Credits-only billing override"
-                          onChange={(checked) => void toggleCreditsOnly(u.id, checked)}
-                        />
-                        <span className={enabled ? "font-semibold text-emerald-700" : "text-zinc-500"}>
-                          {busy ? "Saving…" : enabled ? "On" : "Off"}
-                        </span>
-                      </div>
-                    );
-                  })()}
-                  <div className="mt-1 text-[11px] text-zinc-500">Off = env default</div>
-                </td>
-
-                {moduleList.map((m) => {
-                  const enabled = u.overrides.includes(m);
-                  const key = `${u.id}:${m}`;
-                  const busy = savingKey === key;
-                  return (
-                    <td key={m} className="px-4 py-4">
-                      <div
-                        className="inline-flex items-center gap-2 text-sm text-zinc-700"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ToggleSwitch
-                          checked={enabled}
-                          disabled={busy}
-                          ariaLabel={`Toggle ${MODULE_LABELS[m]}`}
-                          onChange={(checked) => toggle(u.id, m, checked)}
-                        />
-                        <span className={enabled ? "font-semibold text-emerald-700" : "text-zinc-500"}>
-                          {busy ? "Saving…" : enabled ? "On" : "Off"}
-                        </span>
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-
-            {!loading && users.length === 0 ? (
-              <tr>
-                <td className="px-4 py-10 text-sm text-zinc-600" colSpan={3 + moduleList.length}>
-                  No portal users found.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-4 text-xs text-zinc-500">
-        Tip: Turning a module on here will unlock the matching service in `/portal` (and portal APIs) as if Stripe was paid.
-      </div>
-
-      {testingUser ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
-          <div className="w-full max-w-3xl overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-3 border-b border-zinc-200 p-5">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900">AI testing</div>
-                <div className="mt-1 truncate text-sm text-zinc-600">
-                  {testingUser.businessName ? `${testingUser.businessName} · ` : ""}{testingUser.email}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                onClick={() => setTestingOwnerId(null)}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="grid gap-5 p-5 lg:grid-cols-2">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">AI Receptionist widget</div>
-                <div className="mt-1 text-xs text-zinc-500">Uses the account’s AI Receptionist voice agent ID (falls back to Profile if missing).</div>
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                  <div className="text-xs text-zinc-600">
-                    Voice agent ID: <span className="font-mono text-zinc-800">{testingAiReceptionistAgentId ?? "N/A"}</span>
-                  </div>
-                  <div className="mt-3">
-                    <ElevenLabsConvaiWidget agentId={testingAiReceptionistAgentId} />
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Contact</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2"><div className="text-sm font-semibold text-zinc-900">{user.businessEmail ? "Mailbox configured" : "No mailbox"}</div>{user.businessEmail ? <button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={(event) => { event.stopPropagation(); void copyValue("Mailbox email", user.businessEmail); }}>Copy</button> : null}</div>
+                      <div className="mt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">Phone</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2"><div className="font-mono text-xs text-zinc-500">{user.phone || "No phone"}</div>{user.phone ? <button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={(event) => { event.stopPropagation(); void copyValue("Phone", user.phone); }}>Copy</button> : null}</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Credits</div>
+                      <div className="mt-2 text-2xl font-semibold text-zinc-900">{balance}</div>
+                      <div className="mt-1 text-xs text-zinc-500">Balance available</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Invites</div>
+                      <div className="mt-2 text-sm font-semibold text-zinc-900">{Math.max(0, user.invitesSentCount ?? 0)} sent</div>
+                      <div className="mt-1 text-xs text-zinc-500">{Math.max(0, user.invitesVerifiedCount ?? 0)} verified · {Math.max(0, user.inviteCreditsAwardedCount ?? 0)} awarded</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Overrides</div>
+                      <div className="mt-2 text-sm font-semibold text-zinc-900">{user.overrides.length} enabled</div>
+                      <div className="mt-1 text-xs text-zinc-500">{user.overrides.length ? user.overrides.slice(0, 3).map((item) => MODULE_LABELS[item]).join(" · ") : "No overrides enabled"}</div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">AI Outbound widget</div>
-                <div className="mt-1 text-xs text-zinc-500">Uses the account’s Profile voice agent ID.</div>
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                  <div className="text-xs text-zinc-600">
-                    Voice agent ID: <span className="font-mono text-zinc-800">{testingOutboundAgentId ?? "N/A"}</span>
-                  </div>
-                  <div className="mt-3">
-                    <ElevenLabsConvaiWidget agentId={testingOutboundAgentId} />
-                  </div>
+                <div className="flex shrink-0 flex-wrap gap-2 xl:ml-4" onClick={(event) => event.stopPropagation()}>
+                  <button type="button" className="rounded-xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95" onClick={() => setDetailsOwnerId(user.id)}>Open account</button>
+                  <button type="button" className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => setTestingOwnerId(user.id)}>Testing</button>
                 </div>
               </div>
             </div>
+          );
+        })}
+        {!showLoadingShell && !loading && filteredUsers.length === 0 ? <div className="rounded-[28px] border border-dashed border-zinc-300 bg-zinc-50 px-6 py-12 text-sm text-zinc-600">No accounts match the current search and filters.</div> : null}
+      </div>
+
+      <div className="text-xs text-zinc-500">Tip: Click any account row to open the full management modal without collapsing the account list into a side panel.</div>
+
+      {selectedUser ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-4 md:p-6" onClick={() => setDetailsOwnerId(null)}>
+          <div className="w-full max-w-6xl rounded-4xl border border-zinc-200 bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            {detailsLoading && !details ? (
+              <div className="p-6"><LoadingDetailPanel /></div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-5 border-b border-zinc-200 p-6 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2"><div className="truncate text-2xl font-semibold text-brand-ink">{selectedUser.email}</div><button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={() => void copyValue("Login email", selectedUser.email)}>Copy email</button></div>
+                        <div className="mt-1 truncate text-sm text-zinc-600">{selectedUser.businessName ? `${selectedUser.businessName} · ` : ""}{selectedUser.name || "No name"}</div>
+                      </div>
+                      <span className={cn("rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]", lifecycleBadgeClassName(getLifecycleValue(selectedUser)))}>{getLifecycleValue(selectedUser)}</span>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                      <button type="button" className="rounded-full bg-zinc-100 px-3 py-1 font-semibold text-zinc-700 hover:bg-zinc-200 disabled:cursor-default disabled:hover:bg-zinc-100" disabled={!selectedUser.businessEmail} onClick={() => void copyValue("Mailbox email", selectedUser.businessEmail)}>{selectedUser.businessEmail ? `Mailbox: ${selectedUser.businessEmail}` : "Mailbox: None"}</button>
+                      <button type="button" className="rounded-full bg-zinc-100 px-3 py-1 font-semibold text-zinc-700 hover:bg-zinc-200 disabled:cursor-default disabled:hover:bg-zinc-100" disabled={!selectedUser.phone} onClick={() => void copyValue("Phone", selectedUser.phone)}>{selectedUser.phone ? `Phone: ${selectedUser.phone}` : "Phone: None"}</button>
+                      <span className={cn("rounded-full px-3 py-1 font-semibold", selectedUser.twilio?.configured ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-600")}>Twilio {selectedUser.twilio?.configured ? "On" : "Off"}</span>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:max-w-2xl"><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Credits</div><div className="mt-1 text-xl font-semibold text-zinc-900">{Math.max(0, Math.floor(selectedUser.creditsBalance ?? 0))}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Billing</div><div className="mt-1 text-sm font-semibold text-zinc-900">{billingModeLabel(selectedUser)}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Overrides</div><div className="mt-1 text-xl font-semibold text-zinc-900">{selectedUser.overrides.length}</div></div></div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 lg:justify-end"><button type="button" className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => setTestingOwnerId(selectedUser.id)}>Testing</button><button type="button" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60" disabled={creditSeedingOwnerId === selectedUser.id} onClick={() => void onSeedCreditDemo(selectedUser.id)}>{creditSeedingOwnerId === selectedUser.id ? "Seeding…" : "Seed credit demo"}</button><button type="button" className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-800 hover:bg-red-100" onClick={() => {
+                    const email = selectedUser.email || selectedUser.id;
+                    if (!confirm(`Delete this client portal account?\n\n${email}\n\nThis will disable the account and free the email so a new signup can use it again.`)) return;
+                    void (async () => {
+                      try {
+                        await deletePortalUser(selectedUser.id);
+                        toast.success("Account deleted (email freed).");
+                        setDetailsByOwnerId((prev) => {
+                          const next = { ...prev };
+                          delete next[selectedUser.id];
+                          return next;
+                        });
+                        setDetailsOwnerId(null);
+                        await reloadOverrides();
+                      } catch (cause) {
+                        toast.error(cause instanceof Error ? cause.message : "Unable to delete account");
+                      }
+                    })();
+                  }}>Delete account</button><button type="button" className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => setDetailsOwnerId(null)}>Close</button></div>
+                </div>
+
+                <div className="border-b border-zinc-200 px-6 py-4"><div className="inline-flex w-full flex-wrap items-center gap-2 rounded-2xl bg-zinc-100/70 p-1">{DETAIL_TABS.map((item) => { const active = detailsTab === item.key; return <button key={item.key} type="button" onClick={() => setDetailsTab(item.key)} className={cn("rounded-2xl px-3 py-2 text-sm font-semibold transition", active ? "bg-white text-brand-ink ring-1 ring-zinc-200" : "text-zinc-600 hover:bg-white hover:text-zinc-900")}>{item.label}</button>; })}</div></div>
+
+                <div className="max-h-[calc(100vh-13rem)] overflow-y-auto px-6 py-5">
+                  {detailsError ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{detailsError}</div> : null}
+                  {detailsLoading && !details ? <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">Loading account details…</div> : null}
+                  {details ? (
+                    <div className="space-y-4 pb-2">
+                  {detailsTab === "overview" ? (
+                    <>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Business and contact</div>
+                          <div className="mt-3 space-y-2 text-sm text-zinc-700">
+                            <div><span className="text-zinc-500">Owner:</span> <span className="font-semibold text-zinc-900">{details.owner.name || "No name"}</span></div>
+                            <div className="flex flex-wrap items-center gap-2"><span className="text-zinc-500">Login email:</span> <span className="font-mono text-zinc-900">{details.owner.email}</span><button type="button" className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={() => void copyValue("Login email", details.owner.email)}>Copy</button></div>
+                            <div><span className="text-zinc-500">Business:</span> <span className="font-semibold text-zinc-900">{details.owner.businessProfile?.businessName || selectedUser.businessName || "Not set"}</span></div>
+                            <div className="flex flex-wrap items-center gap-2"><span className="text-zinc-500">Mailbox:</span> <span className="font-mono text-zinc-900">{details.owner.portal.mailboxEmail || "Not set"}</span>{details.owner.portal.mailboxEmail ? <button type="button" className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={() => void copyValue("Mailbox email", details.owner.portal.mailboxEmail)}>Copy</button> : null}</div>
+                            <div className="flex flex-wrap items-center gap-2"><span className="text-zinc-500">Phone:</span> <span className="font-mono text-zinc-900">{details.owner.portal.phone || "Not set"}</span>{details.owner.portal.phone ? <button type="button" className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={() => void copyValue("Phone", details.owner.portal.phone)}>Copy</button> : null}</div>
+                            {details.owner.businessProfile?.websiteUrl ? <div className="truncate"><span className="text-zinc-500">Website:</span> <a href={details.owner.businessProfile.websiteUrl} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">{details.owner.businessProfile.websiteUrl}</a></div> : null}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Account summary</div>
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2 text-sm text-zinc-700">
+                            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Credits</div><div className="mt-1 text-lg font-semibold text-zinc-900">{Math.max(0, Math.floor(details.owner.portal.creditsBalance ?? 0))}</div></div>
+                            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Billing</div><div className="mt-1 text-sm font-semibold text-zinc-900">{details.owner.portal.creditsOnlyOverride ? "Credits-only" : "Env default"}</div></div>
+                            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Overrides</div><div className="mt-1 text-lg font-semibold text-zinc-900">{details.owner.portal.overrides.length}</div></div>
+                            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Invites</div><div className="mt-1 text-sm font-semibold text-zinc-900">{Math.max(0, selectedUser.invitesSentCount ?? 0)} sent</div><div className="text-xs text-zinc-500">{Math.max(0, selectedUser.invitesVerifiedCount ?? 0)} verified · {Math.max(0, selectedUser.inviteCreditsAwardedCount ?? 0)} awarded</div></div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Integrations</div>
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                            <span className={cn("rounded-full px-2.5 py-1 font-semibold", details.owner.integrations.twilio.configured ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600")}>Twilio {details.owner.integrations.twilio.configured ? "On" : "Off"}</span>
+                            {details.owner.integrations.twilio.fromNumberE164 ? <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-mono font-semibold text-zinc-700">{details.owner.integrations.twilio.fromNumberE164}</span> : null}
+                            <span className={cn("rounded-full px-2.5 py-1 font-semibold", details.owner.stripe.connected ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600")}>Stripe {details.owner.stripe.connected ? "Connected" : "Off"}</span>
+                            <span className={cn("rounded-full px-2.5 py-1 font-semibold", details.owner.integrations.salesReporting.connectedProviders.length ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600")}>Sales reporting {details.owner.integrations.salesReporting.connectedProviders.length ? "On" : "Off"}</span>
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Brand profile</div>
+                          <div className="mt-3 space-y-2 text-sm text-zinc-700">
+                            <div><span className="text-zinc-500">Industry:</span> {details.owner.businessProfile?.industry || "Not set"}</div>
+                            <div><span className="text-zinc-500">Model:</span> {details.owner.businessProfile?.businessModel || "Not set"}</div>
+                            <div><span className="text-zinc-500">Target:</span> {details.owner.businessProfile?.targetCustomer || "Not set"}</div>
+                            <div><span className="text-zinc-500">Voice:</span> {details.owner.businessProfile?.brandVoice || "Not set"}</div>
+                            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-zinc-500"><span className="inline-flex items-center gap-2"><ColorSwatch hex={details.owner.businessProfile?.brandPrimaryHex} />Primary</span><span className="inline-flex items-center gap-2"><ColorSwatch hex={details.owner.businessProfile?.brandAccentHex} />Accent</span><span className="inline-flex items-center gap-2"><ColorSwatch hex={details.owner.businessProfile?.brandTextHex} />Text</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {detailsTab === "billing" ? (
+                    <>
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="flex items-end justify-between gap-3"><div><div className="text-xs uppercase tracking-wide text-zinc-500">Credit balance</div><div className="mt-1 text-3xl font-bold text-brand-ink">{Math.max(0, Math.floor(selectedUser.creditsBalance ?? 0))}</div></div><div className="text-right text-xs text-zinc-500">Protected confirmation is required for billing and credit changes.</div></div></div>
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4"><div className="flex items-center justify-between gap-3"><div><div className="text-sm font-semibold text-zinc-900">Credits-only billing</div><div className="mt-1 text-xs text-zinc-500">Affects the shared /portal experience.</div></div>{(() => { const enabled = Boolean(selectedUser.creditsOnlyOverride); const key = `billingModel:${selectedUser.id}`; const busy = savingKey === key; return <div className="inline-flex items-center gap-2 text-sm text-zinc-700"><ToggleSwitch checked={enabled} disabled={busy} accent="ink" ariaLabel="Credits-only billing override" onChange={(checked) => void toggleCreditsOnly(selectedUser.id, checked)} /><span className={enabled ? "font-semibold text-emerald-700" : "text-zinc-500"}>{busy ? "Saving…" : enabled ? "On" : "Off"}</span></div>; })()}</div></div>
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4"><div className="text-sm font-semibold text-zinc-900">Gift credits</div><div className="mt-1 text-xs text-zinc-500">Confirmation is required before credits are added.</div><div className="mt-3 flex flex-col gap-2 sm:flex-row"><input className="h-11 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400" placeholder="Amount" inputMode="numeric" value={giftAmountByOwner[selectedUser.id] ?? ""} onChange={(event) => setGiftAmountByOwner((prev) => ({ ...prev, [selectedUser.id]: event.target.value }))} disabled={giftingOwnerId === selectedUser.id} /><button type="button" className="h-11 rounded-xl bg-brand-ink px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60" onClick={() => void onGift(selectedUser.id)} disabled={giftingOwnerId === selectedUser.id}>{giftingOwnerId === selectedUser.id ? "Gifting…" : "Gift credits"}</button></div></div>
+                    </>
+                  ) : null}
+
+                  {detailsTab === "overrides" ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4"><div className="flex items-center justify-between gap-3"><div><div className="text-sm font-semibold text-zinc-900">Service overrides</div><div className="mt-1 text-xs text-zinc-500">Enabled modules are grouped first for faster scan and comparison.</div></div><div className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">{selectedUser.overrides.length} enabled</div></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{selectedOverrides.map((module) => { const enabled = selectedUser.overrides.includes(module); const key = `${selectedUser.id}:${module}`; const busy = savingKey === key; return <div key={module} className={cn("rounded-2xl border px-3 py-2.5", enabled ? "border-emerald-200 bg-emerald-50/60" : "border-zinc-200 bg-zinc-50")}><div className="flex items-center justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-semibold text-zinc-900">{MODULE_LABELS[module]}</div><div className="mt-0.5 text-[11px] text-zinc-500">{busy ? "Saving…" : enabled ? "Enabled override" : "Env or billing controlled"}</div></div><ToggleSwitch checked={enabled} disabled={busy} ariaLabel={`Toggle ${MODULE_LABELS[module]}`} onChange={(checked) => void toggle(selectedUser.id, module, checked)} /></div></div>; })}</div></div>
+                  ) : null}
+
+                  {detailsTab === "access" ? (
+                    <>
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-sm font-semibold text-zinc-900">Safe access metadata</div><div className="mt-3 grid gap-3 sm:grid-cols-2 text-sm text-zinc-700"><div><span className="text-zinc-500">Login email:</span> <span className="font-mono text-zinc-900">{details.owner.email}</span></div><div><span className="text-zinc-500">Account type:</span> <span className="font-semibold text-zinc-900">{details.owner.role}</span></div><div><span className="text-zinc-500">Time zone:</span> {details.owner.timeZone || "Not set"}</div><div><span className="text-zinc-500">Lifecycle:</span> <span className="font-semibold text-zinc-900">{getLifecycleValue(selectedUser)}</span></div><div><span className="text-zinc-500">Created:</span> {formatIso(details.owner.createdAt)}</div><div><span className="text-zinc-500">Updated:</span> {formatIso(details.owner.updatedAt)}</div><div><span className="text-zinc-500">Last activity:</span> {details.owner.usage.lastActivityAt ? formatIso(details.owner.usage.lastActivityAt) : "No recent activity"}</div><div><span className="text-zinc-500">Mailbox:</span> {details.owner.portal.mailboxEmail ? "Configured" : "Not configured"}</div></div></div>
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4"><div className="text-sm font-semibold text-zinc-900">Credential status</div><div className="mt-3 grid gap-3 sm:grid-cols-2 text-sm text-zinc-700"><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Mailbox</div><div className="mt-1 font-semibold text-zinc-900">{details.owner.portal.mailboxEmail ? "Configured" : "Missing"}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Phone</div><div className="mt-1 font-semibold text-zinc-900">{details.owner.portal.phone ? "On file" : "Missing"}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Twilio</div><div className="mt-1 font-semibold text-zinc-900">{details.owner.integrations.twilio.configured ? "Configured" : "Not configured"}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Stripe</div><div className="mt-1 font-semibold text-zinc-900">{details.owner.stripe.connected ? "Connected" : "Not connected"}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Profile voice agent</div><div className="mt-1 font-semibold text-zinc-900">{details.owner.ai.voiceAgentIds.profile ? "Configured" : "Missing"}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">AI receptionist</div><div className="mt-1 font-semibold text-zinc-900">{details.owner.ai.voiceAgentIds.aiReceptionist ? "Configured" : "Missing"}</div></div></div><div className="mt-3 text-xs text-zinc-500">Passwords, auth tokens, and raw secrets are intentionally hidden from this console.</div></div>
+                    </>
+                  ) : null}
+
+                  {detailsTab === "activity" ? (
+                    <>
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4"><div className="text-sm font-semibold text-zinc-900">Usage snapshot</div><div className="mt-3 grid grid-cols-2 gap-3 text-sm text-zinc-700"><div><div className="text-xs text-zinc-500">Blog generations</div><div className="font-semibold text-zinc-900">{details.owner.usage.blog.generationEventsLast30}</div></div><div><div className="text-xs text-zinc-500">Newsletter sends</div><div className="font-semibold text-zinc-900">{details.owner.usage.newsletter.sentLast30}</div></div><div><div className="text-xs text-zinc-500">Newsletter failures</div><div className={details.owner.usage.newsletter.failedLast30 ? "font-semibold text-amber-800" : "font-semibold text-zinc-900"}>{details.owner.usage.newsletter.failedLast30}</div></div><div><div className="text-xs text-zinc-500">Lead scraping runs</div><div className="font-semibold text-zinc-900">{details.owner.usage.leadScraping.runsLast30}</div></div><div><div className="text-xs text-zinc-500">Bookings created</div><div className="font-semibold text-zinc-900">{details.owner.usage.booking.bookingsCreatedLast30}</div></div><div><div className="text-xs text-zinc-500">Upcoming bookings</div><div className="font-semibold text-zinc-900">{details.owner.usage.booking.bookingsUpcoming}</div></div><div><div className="text-xs text-zinc-500">Hours saved</div><div className="font-semibold text-zinc-900">{formatHours(details.owner.usage.hoursSaved.secondsLast30)}</div></div><div><div className="text-xs text-zinc-500">Last activity</div><div className="font-semibold text-zinc-900">{details.owner.usage.lastActivityAt ? formatIso(details.owner.usage.lastActivityAt) : "N/A"}</div></div></div></div>
+                      {details.owner.usage.portalEngagement?.recentActivity?.length ? <div className="rounded-2xl border border-zinc-200 bg-white p-4"><div className="text-sm font-semibold text-zinc-900">Recent portal activity</div><div className="mt-1 text-xs text-zinc-500">Grouped into continuous sessions per page.</div><div className="mt-3 max-h-72 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="space-y-2">{groupRecentActivity(details.owner.usage.portalEngagement.recentActivity, { take: 200 }).map((session, index) => <div key={`${session.key}-${session.endMs}-${index}`} className="flex items-start justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700"><div className="min-w-0"><div className="truncate font-mono text-zinc-900">{session.key}</div><div className="mt-0.5 text-[11px] text-zinc-500">{new Date(session.startMs).toLocaleString()} → {new Date(session.endMs).toLocaleString()}</div></div><div className="shrink-0 font-semibold text-zinc-700">{formatDurationShort(session.seconds)}</div></div>)}</div></div></div> : null}
+                    </>
+                  ) : null}
+
+                  {detailsTab === "diagnostics" ? (
+                    details.owner.usage.portalDiagnostics ? (
+                      <>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-zinc-900">Diagnostics overview</div><div className="mt-1 text-sm text-zinc-600">Manager-side failures and beta feedback for this account.</div></div><div className="text-right text-xs text-zinc-500">{details.owner.usage.portalDiagnostics.lastSeenAt ? formatIso(details.owner.usage.portalDiagnostics.lastSeenAt) : "No diagnostics yet"}</div></div><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5"><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Action failures</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.actionFailureCount}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Runtime errors</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.runtimeErrorCount}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Promise failures</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.unhandledRejectionCount}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Resource failures</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.resourceErrorCount}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Bug reports</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.bugReports.count}</div></div></div></div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4"><div className="text-sm font-semibold text-zinc-900">Recent diagnostics</div>{details.owner.usage.portalDiagnostics.recentEvents.length ? <div className="mt-3 space-y-3">{details.owner.usage.portalDiagnostics.recentEvents.slice(0, 10).map((item) => <div key={item.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-700"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={cn("rounded-full px-2 py-0.5 font-semibold", portalDiagnosticKindClassName(item.kind))}>{portalDiagnosticKindLabel(item.kind)}</span>{item.area ? <span className="rounded-full bg-white px-2 py-0.5 font-semibold text-zinc-700">{item.area.replace(/_/g, " ")}</span> : null}</div><div className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">{item.message}</div>{item.path ? <div className="mt-2 font-mono text-[11px] text-zinc-500">{item.path}</div> : null}</div><div className="shrink-0 text-right text-[11px] text-zinc-500">{formatIso(item.lastSeenAtIso || item.createdAtIso)}</div></div></div>)}</div> : <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">No diagnostics events have been recorded for this account yet.</div>}</div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-zinc-900">Beta feedback triage</div><div className="mt-1 text-xs text-zinc-500">Review, prioritize, and annotate recent account feedback.</div></div><div className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">{details.owner.usage.portalDiagnostics.betaFeedback.count} items</div></div>{details.owner.usage.portalDiagnostics.betaFeedback.recentItems.length ? <div className="mt-3 space-y-4">{details.owner.usage.portalDiagnostics.betaFeedback.recentItems.map((item) => { const draft = feedbackDraftFor(item); const busy = feedbackSavingKey === item.id; return <div key={item.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", feedbackSeverityClassName(item.severity))}>{item.severity || "normal"}</span><span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-zinc-700">{feedbackCategoryLabel(item.category)}</span><span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", feedbackStatusClassName(draft.status))}>{draft.status}</span></div><div className="mt-2 text-sm font-semibold text-zinc-900">{item.title}</div><div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{item.message}</div>{item.expected ? <div className="mt-2 text-xs text-zinc-500">Expected: {item.expected}</div> : null}</div><div className="text-right text-[11px] text-zinc-500">{formatIso(item.createdAtIso)}</div></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Status<div className="mt-1"><PortalSelectDropdown value={draft.status} onChange={(next) => setFeedbackDraft(item.id, { status: next })} options={FEEDBACK_STATUS_OPTIONS} buttonClassName={compactSelectButtonClassName} /></div></label><label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Priority<div className="mt-1"><PortalSelectDropdown value={draft.priority} onChange={(next) => setFeedbackDraft(item.id, { priority: next })} options={FEEDBACK_PRIORITY_OPTIONS} buttonClassName={compactSelectButtonClassName} /></div></label><label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Backlog ref<input className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400" value={draft.backlogRef} onChange={(event) => setFeedbackDraft(item.id, { backlogRef: event.target.value })} /></label><label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Prompt ref<input className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400" value={draft.promptRef} onChange={(event) => setFeedbackDraft(item.id, { promptRef: event.target.value })} /></label><label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 sm:col-span-2">Export bucket<input className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400" value={draft.exportBucket} onChange={(event) => setFeedbackDraft(item.id, { exportBucket: event.target.value })} /></label><label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 sm:col-span-2">Notes<textarea className="mt-1 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400" value={draft.notes} onChange={(event) => setFeedbackDraft(item.id, { notes: event.target.value })} /></label></div><div className="mt-3 flex justify-end"><button type="button" className="rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60" disabled={busy} onClick={() => void saveFeedback(selectedUser.id, item)}>{busy ? "Saving…" : "Save triage"}</button></div></div>; })}</div> : <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">No beta feedback has been submitted for this account yet.</div>}</div>
+                      </>
+                    ) : <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">Diagnostics are not available for this account yet.</div>
+                  ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}
 
-      {detailsOwnerId ? (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center"
-          onMouseDown={() => setDetailsOwnerId(null)}
-        >
-          <div
-            className="flex w-full max-w-4xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3 border-b border-zinc-200 p-5">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900">Portal user details</div>
-                <div className="mt-1 truncate text-sm text-zinc-600">
-                  {(details?.owner.businessProfile?.businessName || users.find((x) => x.id === detailsOwnerId)?.businessName) ? (
-                    <span>{details?.owner.businessProfile?.businessName || users.find((x) => x.id === detailsOwnerId)?.businessName} · </span>
-                  ) : null}
-                  {users.find((x) => x.id === detailsOwnerId)?.email ?? detailsOwnerId}
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
-                  disabled={creditSeedingOwnerId === detailsOwnerId}
-                  onClick={() => {
-                    const ownerId = (detailsOwnerId || "").trim();
-                    if (!ownerId) return;
-                    void onSeedCreditDemo(ownerId);
-                  }}
-                >
-                  {creditSeedingOwnerId === detailsOwnerId ? "Seeding credit…" : "Seed credit demo"}
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
-                  onClick={() => {
-                    const ownerId = (detailsOwnerId || "").trim();
-                    if (!ownerId) return;
-                    const email = users.find((x) => x.id === ownerId)?.email || ownerId;
-                    if (!confirm(`Delete this client portal account?\n\n${email}\n\nThis will disable the account and free the email so a new signup can use it again.`)) return;
-                    void (async () => {
-                      try {
-                        await deletePortalUser(ownerId);
-                        toast.success("Account deleted (email freed).");
-                        setDetailsOwnerId(null);
-                        setDetailsByOwnerId((prev) => {
-                          const next = { ...prev };
-                          delete next[ownerId];
-                          return next;
-                        });
-                        await reloadOverrides();
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : "Unable to delete account");
-                      }
-                    })();
-                  }}
-                >
-                  Delete account
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                  onClick={() => setDetailsOwnerId(null)}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
+      <div className="text-xs text-zinc-500">Tip: Turning a module on here unlocks the matching service in /portal and the portal APIs as if Stripe was paid.</div>
 
-            <div className="flex-1 overflow-y-auto">
-              {detailsError ? (
-                <div className="p-5">
-                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{detailsError}</div>
-                </div>
-              ) : null}
-
-              {detailsLoading && !details ? (
-                <div className="p-5">
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">Loading details…</div>
-                </div>
-              ) : null}
-
-              {details ? (
-                <div className="grid gap-5 p-5 lg:grid-cols-2">
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-sm font-semibold text-zinc-900">Business</div>
-                    <div className="mt-2 space-y-1 text-sm text-zinc-700">
-                      <div>
-                        <span className="text-zinc-500">Owner:</span> <span className="font-semibold text-zinc-900">{details.owner.name}</span>
-                      </div>
-                      <div>
-                        <span className="text-zinc-500">Email:</span> <span className="font-mono text-zinc-900">{details.owner.email}</span>
-                      </div>
-                      {details.owner.portal.mailboxEmail ? (
-                        <div>
-                          <span className="text-zinc-500">Mailbox:</span>{" "}
-                          <span className="font-mono text-zinc-900">{details.owner.portal.mailboxEmail}</span>
-                        </div>
-                      ) : null}
-                      {details.owner.portal.phone ? (
-                        <div>
-                          <span className="text-zinc-500">Phone:</span> <span className="font-mono text-zinc-900">{details.owner.portal.phone}</span>
-                        </div>
-                      ) : null}
-                      {details.owner.businessProfile?.websiteUrl ? (
-                        <div className="truncate">
-                          <span className="text-zinc-500">Website:</span>{" "}
-                          <a
-                            href={details.owner.businessProfile.websiteUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="font-semibold text-brand-ink hover:underline"
-                          >
-                            {details.owner.businessProfile.websiteUrl}
-                          </a>
-                        </div>
-                      ) : null}
-                      {details.owner.businessProfile?.industry ? (
-                        <div>
-                          <span className="text-zinc-500">Industry:</span> {details.owner.businessProfile.industry}
-                        </div>
-                      ) : null}
-                      {details.owner.businessProfile?.businessModel ? (
-                        <div>
-                          <span className="text-zinc-500">Model:</span> {details.owner.businessProfile.businessModel}
-                        </div>
-                      ) : null}
-                      {details.owner.businessProfile?.targetCustomer ? (
-                        <div>
-                          <span className="text-zinc-500">Target:</span> {details.owner.businessProfile.targetCustomer}
-                        </div>
-                      ) : null}
-                      {details.owner.businessProfile?.brandVoice ? (
-                        <div>
-                          <span className="text-zinc-500">Voice:</span> {details.owner.businessProfile.brandVoice}
-                        </div>
-                      ) : null}
-                      <div className="pt-2 text-xs text-zinc-500">
-                        Created {formatIso(details.owner.createdAt)} · Last updated {formatIso(details.owner.updatedAt)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <div className="text-sm font-semibold text-zinc-900">Branding</div>
-                    <div className="mt-2 space-y-2 text-sm text-zinc-700">
-                      {details.owner.businessProfile?.logoUrl ? (
-                        <div className="truncate">
-                          <span className="text-zinc-500">Logo:</span>{" "}
-                          <a href={details.owner.businessProfile.logoUrl} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">
-                            {details.owner.businessProfile.logoUrl}
-                          </a>
-                        </div>
-                      ) : null}
-                      <div className="flex flex-wrap items-center gap-3">
-                        <span className="inline-flex items-center gap-2">
-                          <ColorSwatch hex={details.owner.businessProfile?.brandPrimaryHex} />
-                          <span className="text-xs text-zinc-500">Primary</span>
-                        </span>
-                        <span className="inline-flex items-center gap-2">
-                          <ColorSwatch hex={details.owner.businessProfile?.brandAccentHex} />
-                          <span className="text-xs text-zinc-500">Accent</span>
-                        </span>
-                        <span className="inline-flex items-center gap-2">
-                          <ColorSwatch hex={details.owner.businessProfile?.brandTextHex} />
-                          <span className="text-xs text-zinc-500">Text</span>
-                        </span>
-                      </div>
-                      {details.owner.businessProfile?.brandFontFamily ? (
-                        <div>
-                          <span className="text-zinc-500">Font:</span> {details.owner.businessProfile.brandFontFamily}
-                        </div>
-                      ) : null}
-                      {details.owner.businessProfile?.brandFontGoogleFamily ? (
-                        <div>
-                          <span className="text-zinc-500">Google font:</span> {details.owner.businessProfile.brandFontGoogleFamily}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-sm font-semibold text-zinc-900">Integrations</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                      <span
-                        className={
-                          details.owner.integrations.twilio.configured
-                            ? "inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"
-                            : "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600"
-                        }
-                      >
-                        Twilio: {details.owner.integrations.twilio.configured ? "On" : "Off"}
-                      </span>
-                      {details.owner.integrations.twilio.configured && details.owner.integrations.twilio.fromNumberE164 ? (
-                        <span className="font-mono text-zinc-700">{details.owner.integrations.twilio.fromNumberE164}</span>
-                      ) : null}
-                      {(() => {
-                        const on = Boolean(details.owner.stripe.connected || details.owner.integrations.salesReporting.connectedProviders.length);
-                        return (
-                          <span
-                            className={
-                              on
-                                ? "inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"
-                                : "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600"
-                            }
-                          >
-                            Sales reporting: {on ? "On" : "Off"}
-                          </span>
-                        );
-                      })()}
-                      <span
-                        className={
-                          details.owner.stripe.connected
-                            ? "inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"
-                            : "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600"
-                        }
-                      >
-                        Stripe: {details.owner.stripe.connected ? "Connected" : "Off"}
-                      </span>
-                    </div>
-
-                    {details.owner.integrations.salesReporting.connectedProviders.length ? (
-                      <div className="mt-3 space-y-1 text-xs text-zinc-600">
-                        {details.owner.integrations.salesReporting.connectedProviders.slice(0, 5).map((p) => (
-                          <div key={p.provider} className="flex items-center justify-between gap-3">
-                            <span className="font-semibold text-zinc-800">{p.provider}</span>
-                            <span className="truncate font-mono text-zinc-700">{p.displayHint ?? ""}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <div className="text-sm font-semibold text-zinc-900">Portal status</div>
-                    <div className="mt-2 grid grid-cols-2 gap-3 text-sm text-zinc-700">
-                      <div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits</div>
-                        <div className="mt-1 font-semibold text-zinc-900">{Math.max(0, Math.floor(details.owner.portal.creditsBalance ?? 0))}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits-only</div>
-                        <div className="mt-1 font-semibold text-zinc-900">{details.owner.portal.creditsOnlyOverride ? "On" : "Off"}</div>
-                      </div>
-                      <div className="col-span-2">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Overrides</div>
-                        <div className="mt-1 text-xs text-zinc-700">
-                          {details.owner.portal.overrides.length ? details.owner.portal.overrides.map((m) => MODULE_LABELS[m]).join(" · ") : "None"}
-                        </div>
-                      </div>
-                      <div className="col-span-2">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">AI agent IDs</div>
-                        <div className="mt-1 space-y-1 text-xs text-zinc-700">
-                          <div>
-                            Profile: <span className="font-mono text-zinc-900">{details.owner.ai.voiceAgentIds.profile ?? "N/A"}</span>
-                          </div>
-                          <div>
-                            AI receptionist: <span className="font-mono text-zinc-900">{details.owner.ai.voiceAgentIds.aiReceptionist ?? "N/A"}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-sm font-semibold text-zinc-900">Usage (last 30 days)</div>
-                    <div className="mt-2 grid grid-cols-2 gap-3 text-sm text-zinc-700">
-                      <div>
-                        <div className="text-xs text-zinc-500">Blog generations</div>
-                        <div className="font-semibold text-zinc-900">{details.owner.usage.blog.generationEventsLast30}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-zinc-500">Newsletter sends</div>
-                        <div className="font-semibold text-zinc-900">{details.owner.usage.newsletter.sentLast30}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-zinc-500">Newsletter failures</div>
-                        <div className={details.owner.usage.newsletter.failedLast30 ? "font-semibold text-amber-800" : "font-semibold text-zinc-900"}>
-                          {details.owner.usage.newsletter.failedLast30}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-zinc-500">Lead scrape runs</div>
-                        <div className="font-semibold text-zinc-900">{details.owner.usage.leadScraping.runsLast30}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-zinc-500">Lead scrape errors</div>
-                        <div className={details.owner.usage.leadScraping.errorsLast30 ? "font-semibold text-amber-800" : "font-semibold text-zinc-900"}>
-                          {details.owner.usage.leadScraping.errorsLast30}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-zinc-500">Bookings created</div>
-                        <div className="font-semibold text-zinc-900">{details.owner.usage.booking.bookingsCreatedLast30}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-zinc-500">Upcoming bookings</div>
-                        <div className="font-semibold text-zinc-900">{details.owner.usage.booking.bookingsUpcoming}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-zinc-500">Hours saved</div>
-                        <div className="font-semibold text-zinc-900">{formatHours(details.owner.usage.hoursSaved.secondsLast30)}</div>
-                      </div>
-
-                      {details.owner.usage.portalEngagement?.topPages?.length ? (
-                        <div className="col-span-2 pt-2 text-xs text-zinc-500">
-                          Top pages: {details.owner.usage.portalEngagement.topPages.map((p) => `${p.key}=${formatDurationShort(p.seconds)}`).join(" · ")}
-                        </div>
-                      ) : (
-                        <div className="col-span-2 pt-2 text-xs text-zinc-500">
-                          Most used: {details.owner.usage.mostUsedServices.map((s) => `${s.key.replace(/Last30$/, "")}=${s.count}`).join(" · ")}
-                        </div>
-                      )}
-
-                      <div className="col-span-2 text-xs text-zinc-500">
-                        Last activity: {details.owner.usage.lastActivityAt ? formatIso(details.owner.usage.lastActivityAt) : "N/A"}
-                      </div>
-                    </div>
-                  </div>
-
-                  {details.owner.usage.portalEngagement?.recentActivity?.length ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <div className="text-sm font-semibold text-zinc-900">All activity</div>
-                      <div className="mt-1 text-xs text-zinc-500">Grouped into continuous sessions per page (capped).</div>
-                      <div className="mt-3 max-h-72 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                        <div className="grid gap-2">
-                          {groupRecentActivity(details.owner.usage.portalEngagement.recentActivity, { take: 250 }).map((s, idx) => (
-                            <div key={`${s.key}-${s.endMs}-${idx}`} className="flex items-start justify-between gap-3 text-xs text-zinc-700">
-                              <div className="min-w-0">
-                                <div className="truncate font-mono text-zinc-900" title={s.key}>
-                                  {s.key}
-                                </div>
-                                <div className="mt-0.5 text-[11px] text-zinc-500">
-                                  {new Date(s.startMs).toLocaleString()} → {new Date(s.endMs).toLocaleString()}
-                                </div>
-                              </div>
-                              <div className="shrink-0 font-semibold text-zinc-700">{formatDurationShort(s.seconds)}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {details.hostedLinks ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="text-sm font-semibold text-zinc-900">Hosted links</div>
-                      <div className="mt-3 space-y-2 text-sm">
-                        {details.hostedLinks.funnels.length ? (
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Funnels</div>
-                            <div className="mt-1 space-y-1">
-                              {details.hostedLinks.funnels.slice(0, 10).map((f) => (
-                                <div key={f.slug} className="rounded-xl border border-zinc-200 bg-white p-2">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <a href={f.url} target="_blank" rel="noreferrer" className="truncate font-semibold text-brand-ink hover:underline">{f.name}</a>
-                                    <span className="text-xs font-mono text-zinc-600">/f/{f.slug}</span>
-                                  </div>
-                                  {f.pages.length ? (
-                                    <div className="mt-2 space-y-1">
-                                      {f.pages.slice(0, 5).map((p) => (
-                                        <div key={p.slug} className="flex items-center justify-between gap-3">
-                                          <a href={p.url} target="_blank" rel="noreferrer" className="truncate text-sm font-semibold text-brand-ink hover:underline">{p.title}</a>
-                                          <span className="text-xs font-mono text-zinc-600">/{p.slug}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {details.hostedLinks.blog ? (
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Blog</div>
-                            <div className="mt-1">
-                              <a href={details.hostedLinks.blog.indexUrl} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">Blog index</a>
-                            </div>
-                            {details.hostedLinks.blog.posts.length ? (
-                              <div className="mt-2 space-y-1">
-                                {details.hostedLinks.blog.posts.slice(0, 5).map((p) => (
-                                  <div key={p.slug} className="flex items-center justify-between gap-3">
-                                    <a href={p.url} target="_blank" rel="noreferrer" className="truncate text-sm font-semibold text-brand-ink hover:underline">{p.title}</a>
-                                    <span className="text-xs font-mono text-zinc-600">/blogs/{p.slug}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-
-                        {details.hostedLinks.newsletters ? (
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Newsletters</div>
-                            <div className="mt-1">
-                              <a href={details.hostedLinks.newsletters.indexUrl} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">Newsletters index</a>
-                            </div>
-                            {details.hostedLinks.newsletters.items.length ? (
-                              <div className="mt-2 space-y-1">
-                                {details.hostedLinks.newsletters.items.slice(0, 5).map((n) => (
-                                  <div key={n.slug} className="flex items-center justify-between gap-3">
-                                    <a href={n.url} target="_blank" rel="noreferrer" className="truncate text-sm font-semibold text-brand-ink hover:underline">{n.title}</a>
-                                    <span className="text-xs font-mono text-zinc-600">/newsletters/{n.slug}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-
-                        {details.hostedLinks.reviews ? (
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Reviews</div>
-                            <div className="mt-1">
-                              <a href={details.hostedLinks.reviews.indexUrl} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">Reviews page</a>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {details.hostedLinks.booking ? (
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Booking</div>
-                            <div className="mt-1">
-                              <a href={details.hostedLinks.booking.url} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">Booking page</a>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-                </div>
-              ) : null}
+      {testingUser ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-3xl overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-3 border-b border-zinc-200 p-5"><div className="min-w-0"><div className="text-sm font-semibold text-zinc-900">AI testing</div><div className="mt-1 truncate text-sm text-zinc-600">{testingUser.businessName ? `${testingUser.businessName} · ` : ""}{testingUser.email}</div></div><button type="button" className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => setTestingOwnerId(null)}>Close</button></div>
+            <div className="grid gap-5 p-5 lg:grid-cols-2">
+              <div><div className="text-sm font-semibold text-zinc-900">AI Receptionist widget</div><div className="mt-1 text-xs text-zinc-500">Uses the account’s AI Receptionist voice agent ID (falls back to Profile if missing).</div><div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-600">Voice agent ID: <span className="font-mono text-zinc-800">{testingAiReceptionistAgentId ?? "N/A"}</span></div><div className="mt-3"><ElevenLabsConvaiWidget agentId={testingAiReceptionistAgentId} /></div></div></div>
+              <div><div className="text-sm font-semibold text-zinc-900">AI Outbound widget</div><div className="mt-1 text-xs text-zinc-500">Uses the account’s Profile voice agent ID.</div><div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-600">Voice agent ID: <span className="font-mono text-zinc-800">{testingOutboundAgentId ?? "N/A"}</span></div><div className="mt-3"><ElevenLabsConvaiWidget agentId={testingOutboundAgentId} /></div></div></div>
             </div>
           </div>
         </div>

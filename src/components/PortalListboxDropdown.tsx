@@ -236,6 +236,7 @@ export function PortalListboxDropdown<T extends string>(props: {
         type="button"
         id={buttonId}
         disabled={disabled}
+        data-open={open ? "true" : "false"}
         className={
           (buttonClassName ||
             classNames(

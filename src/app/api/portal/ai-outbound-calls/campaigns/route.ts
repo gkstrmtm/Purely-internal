@@ -3,9 +3,9 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { parseAiOutboundBookingConfig } from "@/lib/aiOutboundBooking";
 import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
 import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
@@ -75,7 +75,7 @@ function parseMessageOutcomeTagging(raw: unknown) {
 }
 
 export async function GET(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSessionForService("aiOutboundCalls");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -86,6 +86,8 @@ export async function GET(req: Request) {
   const ownerId = auth.session.user.id;
 
   try {
+    await ensurePortalAiOutboundCallsSchema();
+
     const url = new URL(req.url);
     const lite = url.searchParams.get("lite") === "1";
 
@@ -236,6 +238,8 @@ export async function POST(req: Request) {
   const ownerId = auth.session.user.id;
   const parsed = postSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
+
+  await ensurePortalAiOutboundCallsSchema();
 
   const now = new Date();
   const id = crypto.randomUUID();

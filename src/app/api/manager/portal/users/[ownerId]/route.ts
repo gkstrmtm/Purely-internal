@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 
-import { authOptions } from "@/lib/auth";
+import { requirePlatformAdminSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { platformAdminAuthError } from "@/lib/platformAdminGrants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,22 +10,10 @@ export const revalidate = 0;
 
 const DELETED_ACCOUNT_SETUP_SLUG = "__portal_deleted_account";
 
-function requireManager(session: any) {
-  const userId = session?.user?.id;
-  const role = session?.user?.role;
-  if (!userId) return { ok: false as const, status: 401 as const, userId: null as any };
-  if (role !== "MANAGER" && role !== "ADMIN") return { ok: false as const, status: 403 as const, userId };
-  return { ok: true as const, status: 200 as const, userId };
-}
-
 export async function DELETE(_req: Request, { params }: { params: Promise<{ ownerId: string }> }) {
-  const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
+  const auth = await requirePlatformAdminSession();
   if (!auth.ok) {
-    return NextResponse.json(
-      { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
-      { status: auth.status },
-    );
+    return NextResponse.json({ error: platformAdminAuthError(auth.status) }, { status: auth.status });
   }
 
   const ownerId = String((await params)?.ownerId || "").trim();

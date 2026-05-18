@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireManagerSession } from "@/lib/apiAuth";
+import { requirePlatformAdminSession } from "@/lib/apiAuth";
 import {
   getOutboundEmailFrom,
   getOutboundEmailProvider,
@@ -25,7 +25,7 @@ function isProbablyEmail(s: string) {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireManagerSession();
+  const auth = await requirePlatformAdminSession();
   if (!auth.ok) return new NextResponse(null, { status: auth.status });
 
   const body = (await req.json().catch(() => null)) as any;

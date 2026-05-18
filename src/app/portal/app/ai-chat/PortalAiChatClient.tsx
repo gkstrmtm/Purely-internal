@@ -1182,7 +1182,7 @@ function MessageBubble({
     <div
       data-message-role={isUser ? "user" : "assistant"}
       className={classNames(
-        isUser ? "rounded-3xl bg-brand-blue px-4 py-3 text-sm leading-relaxed text-white" : "px-1 py-1 text-sm leading-relaxed text-zinc-900",
+        isUser ? "rounded-3xl bg-brand-blue px-4 py-3 text-sm leading-relaxed text-white" : "pa-pura-message-assistant px-1 py-1 text-sm leading-relaxed text-zinc-900",
       )}
     >
       {isUser ? (
@@ -1263,10 +1263,10 @@ function MessageBubble({
                 return <h3 className="my-2 text-sm font-semibold">{children}</h3>;
               },
               code({ children }: { children?: ReactNode }) {
-                return <code className="rounded bg-zinc-100 px-1 py-0.5 text-[12px]">{children}</code>;
+                return <code className="pa-pura-inline-code rounded bg-zinc-100 px-1 py-0.5 text-[12px]">{children}</code>;
               },
               pre({ children }: { children?: ReactNode }) {
-                return <pre className="my-2 overflow-x-auto rounded-2xl bg-zinc-100 p-3 text-[12px]">{children}</pre>;
+                return <pre className="pa-pura-code-block my-2 overflow-x-auto rounded-2xl bg-zinc-100 p-3 text-[12px]">{children}</pre>;
               },
             }}
           >
@@ -1290,7 +1290,7 @@ function MessageBubble({
                   target="_blank"
                   rel="noreferrer noopener"
                   className={classNames(
-                    "group flex max-w-full items-center gap-3 rounded-2xl border p-2",
+                    "pa-pura-attachment group flex max-w-full items-center gap-3 rounded-2xl border p-2",
                     isUser ? "border-white/25 bg-white/10 hover:bg-white/15" : "border-zinc-200 bg-zinc-50 hover:bg-white",
                   )}
                   title={String(a?.fileName || "Image")}
@@ -1320,7 +1320,7 @@ function MessageBubble({
                 target="_blank"
                 rel="noreferrer noopener"
                 className={classNames(
-                  "inline-flex max-w-full items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-semibold",
+                  "pa-pura-attachment inline-flex max-w-full items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-semibold",
                   isUser ? "border-white/25 bg-white/10 hover:bg-white/15" : "border-zinc-200 bg-zinc-50 hover:bg-white",
                 )}
               >
@@ -1342,7 +1342,7 @@ function MessageBubble({
                 onClick={() => onRunAction?.(a)}
                 disabled={!onRunAction || busy}
                 className={classNames(
-                  "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60",
+                  "pa-pura-action-button rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60",
                   busy && "cursor-wait",
                 )}
                 title={a.confirmLabel ? `${a.title} - ${a.confirmLabel}` : a.title}
@@ -1355,7 +1355,7 @@ function MessageBubble({
       ) : null}
 
       {!isUser && !isThinking && runTrace && runTraceSteps.length && runTraceTone ? (
-        <div className={classNames("mt-3 rounded-2xl px-3 py-2", runTraceTone.cardClassName)}>
+        <div className={classNames("pa-pura-run-trace mt-3 rounded-2xl px-3 py-2", runTraceTone.cardClassName)}>
           <div className={classNames("flex items-center justify-between gap-3 text-[11px] font-semibold", runTraceTone.headerClassName)}>
             <span>{runTrace.workTitle || "Pura work trace"}</span>
             <span>{runTraceSteps.length} step{runTraceSteps.length === 1 ? "" : "s"}</span>
@@ -1496,7 +1496,7 @@ function threadRunBadgeMeta(thread: Thread, liveStatus: LiveStatus | null) {
       label: "Running",
       title: liveStatus?.label || "Pura is working",
       dotClassName: "bg-brand-blue animate-pulse",
-      badgeClassName: "border-brand-blue/15 bg-blue-50 text-brand-blue",
+      badgeClassName: "pa-pura-run-badge pa-pura-run-badge--running border-brand-blue/15 bg-blue-50 text-brand-blue",
     };
   }
   const status = String(thread.latestRunStatus?.status || "").trim().toLowerCase();
@@ -1505,7 +1505,7 @@ function threadRunBadgeMeta(thread: Thread, liveStatus: LiveStatus | null) {
       label: "Waiting on you",
       title: "Pura is waiting for your input",
       dotClassName: "bg-orange-500",
-      badgeClassName: "border-orange-200 bg-orange-50 text-orange-900",
+      badgeClassName: "pa-pura-run-badge pa-pura-run-badge--waiting border-orange-200 bg-orange-50 text-orange-900",
     };
   }
   if (status === "failed") {
@@ -1513,7 +1513,7 @@ function threadRunBadgeMeta(thread: Thread, liveStatus: LiveStatus | null) {
       label: "Failed",
       title: "The last run failed",
       dotClassName: "bg-red-500",
-      badgeClassName: "border-red-200 bg-red-50 text-red-800",
+      badgeClassName: "pa-pura-run-badge pa-pura-run-badge--failed border-red-200 bg-red-50 text-red-800",
     };
   }
   if (status === "interrupted") {
@@ -1521,7 +1521,7 @@ function threadRunBadgeMeta(thread: Thread, liveStatus: LiveStatus | null) {
       label: "Stopped",
       title: "The last run was stopped",
       dotClassName: "bg-zinc-400",
-      badgeClassName: "border-zinc-200 bg-zinc-100 text-zinc-700",
+      badgeClassName: "pa-pura-run-badge pa-pura-run-badge--stopped border-zinc-200 bg-zinc-100 text-zinc-700",
     };
   }
   return null;
@@ -1579,6 +1579,25 @@ function isDuplicateNextStepCard(nextStepContext: NextStepContext | null, lastAs
   const prompt = normalizeAssistantComparableText(nextStepContext.suggestedPrompt || nextStepContext.suggestions[0] || null);
   const assistantComparable = normalizeAssistantComparableText(assistantText);
   return Boolean(title && prompt && assistantComparable.includes(title) && assistantComparable.includes(prompt));
+}
+
+function isDuplicateUnresolvedRunCard(unresolvedRun: UnresolvedRun | null, lastAssistantMessage: Message | null) {
+  if (!unresolvedRun || !lastAssistantMessage) return false;
+  const assistantText = String(lastAssistantMessage.text || "").trim();
+  if (!assistantText) return false;
+  if (textsLookEquivalent(unresolvedRun.summaryText, assistantText)) return true;
+
+  const assistantComparable = normalizeAssistantComparableText(assistantText);
+  const title = normalizeAssistantComparableText(unresolvedRun.workTitle || null);
+  const summary = normalizeAssistantComparableText(unresolvedRun.summaryText || unresolvedRun.userRequest || null);
+  const lastCompleted = normalizeAssistantComparableText(unresolvedRun.lastCompletedTitle || null);
+
+  if (title && assistantComparable.includes(title)) {
+    if (!summary || assistantComparable.includes(summary) || textsLookEquivalent(summary, assistantText)) return true;
+    if (lastCompleted && assistantComparable.includes(lastCompleted)) return true;
+  }
+
+  return false;
 }
 
 function formatRunStatusLabel(statusRaw: string | null | undefined): string {
@@ -1784,7 +1803,7 @@ function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveS
   const meta = describeLiveStatusMeta(status);
   const lastCompletedTitle = status.lastCompletedTitle?.trim() || null;
   return (
-    <div className="rounded-3xl border border-zinc-900/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,247,250,0.96))] px-4 py-3 text-zinc-800 shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+    <div className="pa-pura-live-progress rounded-3xl border border-zinc-900/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,247,250,0.96))] px-4 py-3 text-zinc-800 shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-[10px] font-semibold text-zinc-500">
           <ThinkingDots />
@@ -1836,7 +1855,7 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
 
   return (
     <div className={classNames(
-      "rounded-3xl px-4 py-3 text-zinc-800",
+      "pa-pura-unresolved-card rounded-3xl px-4 py-3 text-zinc-800",
       needsInput
         ? "bg-[rgba(255,247,237,0.95)] shadow-[0_8px_24px_rgba(234,88,12,0.08)]"
         : "bg-[rgba(255,251,235,0.92)] shadow-[0_8px_24px_rgba(217,119,6,0.06)]",
@@ -1857,7 +1876,7 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
-          className="rounded-2xl bg-brand-blue px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
+          className="pa-pura-primary-button rounded-2xl bg-brand-blue px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
           disabled={Boolean(sending)}
           onClick={() => onContinue(cta.prompt)}
         >
@@ -1884,7 +1903,7 @@ function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { 
   const extraSuggestions = nextStepContext.suggestions.filter((suggestion) => suggestion !== primaryPrompt).slice(0, 2);
 
   return (
-    <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(5,150,105,0.08)]">
+    <div className="pa-pura-next-step-card rounded-3xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(5,150,105,0.08)]">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700">
           <ThinkingDots />
@@ -1899,7 +1918,7 @@ function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { 
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
-          className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+          className="pa-pura-primary-button rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
           disabled={Boolean(sending)}
           onClick={() => onContinue(primaryPrompt)}
           title={primaryPrompt}
@@ -1919,7 +1938,7 @@ function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { 
           <button
             key={suggestion}
             type="button"
-            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+            className="pa-pura-action-button rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
             disabled={Boolean(sending)}
             onClick={() => onContinue(suggestion)}
             title={suggestion}
@@ -1948,13 +1967,13 @@ function threadMemorySignature(memory: WorkingMemory | null | undefined): string
 }
 
 function activityStatusPillClass(statusRaw: string | null | undefined, active = false) {
-  if (active) return "bg-blue-50 text-brand-blue";
+  if (active) return "pa-pura-status-pill pa-pura-status-pill--active bg-blue-50 text-brand-blue";
   const status = String(statusRaw || "").trim().toLowerCase();
-  if (status === "running") return "bg-blue-50 text-brand-blue";
-  if (status === "completed") return "bg-emerald-50 text-emerald-800";
-  if (status === "interrupted") return "bg-zinc-100 text-zinc-700";
-  if (status === "partial" || status === "needs_input") return "bg-amber-50 text-amber-900";
-  return "bg-red-50 text-red-800";
+  if (status === "running") return "pa-pura-status-pill pa-pura-status-pill--running bg-blue-50 text-brand-blue";
+  if (status === "completed") return "pa-pura-status-pill pa-pura-status-pill--completed bg-emerald-50 text-emerald-800";
+  if (status === "interrupted") return "pa-pura-status-pill pa-pura-status-pill--interrupted bg-zinc-100 text-zinc-700";
+  if (status === "partial" || status === "needs_input") return "pa-pura-status-pill pa-pura-status-pill--attention bg-amber-50 text-amber-900";
+  return "pa-pura-status-pill pa-pura-status-pill--failed bg-red-50 text-red-800";
 }
 
 function runTraceCardTone(steps: RunTraceStep[]) {
@@ -1962,7 +1981,7 @@ function runTraceCardTone(steps: RunTraceStep[]) {
   const okCount = steps.filter((step) => step.ok).length;
   if (!total || okCount === total) {
     return {
-      cardClassName: "bg-emerald-100/95 text-emerald-900",
+      cardClassName: "pa-pura-run-trace--success bg-emerald-100/95 text-emerald-900",
       headerClassName: "text-emerald-800",
       textClassName: "text-emerald-900",
       moreClassName: "text-emerald-800/80",
@@ -1970,14 +1989,14 @@ function runTraceCardTone(steps: RunTraceStep[]) {
   }
   if (!okCount) {
     return {
-      cardClassName: "bg-red-50 text-red-900",
+      cardClassName: "pa-pura-run-trace--failed bg-red-50 text-red-900",
       headerClassName: "text-red-800",
       textClassName: "text-red-900",
       moreClassName: "text-red-800/80",
     };
   }
   return {
-    cardClassName: "bg-amber-50/95 text-amber-900",
+    cardClassName: "pa-pura-run-trace--warning bg-amber-50/95 text-amber-900",
     headerClassName: "text-amber-800",
     textClassName: "text-amber-900",
     moreClassName: "text-amber-800/80",
@@ -1988,7 +2007,7 @@ function PuraMarkdownBlock({ text, className }: { text: string; className?: stri
   const value = String(text || "").trim();
   if (!value) return null;
   return (
-    <div className={classNames("prose prose-sm max-w-none wrap-break-word prose-zinc prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-headings:mb-2 prose-headings:mt-3 prose-code:rounded prose-code:bg-white/70 prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.92em] prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-2xl prose-pre:bg-zinc-950 prose-pre:text-zinc-50", className)}>
+    <div className={classNames("pa-pura-markdown prose prose-sm max-w-none wrap-break-word prose-zinc prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-headings:mb-2 prose-headings:mt-3 prose-code:rounded prose-code:bg-white/70 prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.92em] prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-2xl prose-pre:bg-zinc-950 prose-pre:text-zinc-50", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -2038,28 +2057,28 @@ function PuraMarkdownBlock({ text, className }: { text: string; className?: stri
 
 function frostedBlueButtonClassName(size: "compact" | "regular" = "regular") {
   return classNames(
-    "inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(29,78,216,0.12)] text-brand-blue backdrop-blur-md shadow-[0_10px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]",
+    "pa-pura-frosted-button pa-pura-frosted-button--blue inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(29,78,216,0.12)] text-brand-blue backdrop-blur-md shadow-[0_10px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]",
     size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
   );
 }
 
 function frostedBlueStrongButtonClassName(size: "compact" | "regular" = "regular") {
   return classNames(
-    "inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(29,78,216,0.18)] text-brand-blue backdrop-blur-md shadow-[0_10px_26px_rgba(29,78,216,0.18)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.26)]",
+    "pa-pura-frosted-button pa-pura-frosted-button--blue-strong inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(29,78,216,0.18)] text-brand-blue backdrop-blur-md shadow-[0_10px_26px_rgba(29,78,216,0.18)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.26)]",
     size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
   );
 }
 
 function frostedRedButtonClassName(size: "compact" | "regular" = "regular") {
   return classNames(
-    "inline-flex items-center justify-center gap-1 rounded-2xl bg-red-50 text-red-800 transition-colors duration-150 hover:bg-red-100 disabled:opacity-60",
+    "pa-pura-frosted-button pa-pura-frosted-button--red inline-flex items-center justify-center gap-1 rounded-2xl bg-red-50 text-red-800 transition-colors duration-150 hover:bg-red-100 disabled:opacity-60",
     size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
   );
 }
 
 function frostedYellowButtonClassName(size: "compact" | "regular" = "regular") {
   return classNames(
-    "inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(250,204,21,0.18)] text-amber-800 backdrop-blur-md shadow-[0_10px_24px_rgba(245,158,11,0.14)] transition-colors duration-150 hover:bg-[rgba(250,204,21,0.28)]",
+    "pa-pura-frosted-button pa-pura-frosted-button--yellow inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(250,204,21,0.18)] text-amber-800 backdrop-blur-md shadow-[0_10px_24px_rgba(245,158,11,0.14)] transition-colors duration-150 hover:bg-[rgba(250,204,21,0.28)]",
     size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
   );
 }
@@ -2079,7 +2098,7 @@ function conciseActivitySummary(raw: string | null | undefined): string | null {
 function activityStepTone(statusRaw: string | null | undefined, ok: boolean) {
   if (ok) {
     return {
-      cardClassName: "bg-emerald-100 text-emerald-800 shadow-[0_8px_24px_rgba(16,185,129,0.08)]",
+      cardClassName: "pa-pura-activity-step pa-pura-activity-step--ok bg-emerald-100 text-emerald-800 shadow-[0_8px_24px_rgba(16,185,129,0.08)]",
       textClassName: "text-emerald-900",
       pillClassName: "bg-white/55 text-emerald-800",
       label: "OK",
@@ -2089,7 +2108,7 @@ function activityStepTone(statusRaw: string | null | undefined, ok: boolean) {
   const status = String(statusRaw || "").trim().toLowerCase();
   if (status === "needs_input" || status === "interrupted" || status === "partial" || status === "running") {
     return {
-      cardClassName: "bg-amber-50/95 text-amber-950 shadow-[0_8px_24px_rgba(245,158,11,0.12)]",
+      cardClassName: "pa-pura-activity-step pa-pura-activity-step--warning bg-amber-50/95 text-amber-950 shadow-[0_8px_24px_rgba(245,158,11,0.12)]",
       textClassName: "text-amber-900",
       pillClassName: "bg-amber-600/10 text-amber-800",
       label: status === "needs_input" ? "Needs input" : status === "running" ? "Working" : "Paused",
@@ -2097,7 +2116,7 @@ function activityStepTone(statusRaw: string | null | undefined, ok: boolean) {
   }
 
   return {
-    cardClassName: "bg-red-50 text-red-800 shadow-[0_8px_24px_rgba(244,63,94,0.1)]",
+    cardClassName: "pa-pura-activity-step pa-pura-activity-step--failed bg-red-50 text-red-800 shadow-[0_8px_24px_rgba(244,63,94,0.1)]",
     textClassName: "text-red-900",
     pillClassName: "bg-white/60 text-red-800",
     label: "Failed",
@@ -2166,11 +2185,11 @@ function ThreadMemoryUpdatedCard({
   return (
     <button
       type="button"
-      className="inline-flex max-w-fit items-center gap-3 rounded-3xl bg-[rgba(29,78,216,0.12)] px-4 py-3 text-left text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]"
+      className="pa-pura-frosted-button pa-pura-frosted-button--blue inline-flex max-w-fit items-center gap-2 rounded-2xl border border-[rgba(29,78,216,0.16)] px-3 py-2 text-left text-brand-blue shadow-[0_8px_20px_rgba(29,78,216,0.1)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.14)]"
       onClick={onOpen}
     >
-      <span className="text-sm font-semibold text-brand-blue">Thread Memory updated</span>
-      {updatedLabel ? <span className="text-[11px] font-medium text-brand-blue/70">{updatedLabel}</span> : null}
+      <span className="text-xs font-semibold tracking-[0.01em]">Thread Memory updated</span>
+      {updatedLabel ? <span className="text-[11px] font-medium opacity-80">{updatedLabel}</span> : null}
     </button>
   );
 }
@@ -2194,7 +2213,7 @@ function ThreadMemoryDetail({
   const updatedLabel = fmtShortTime(memory.threadSummaryUpdatedAt);
 
   return (
-    <div className="rounded-3xl bg-[rgba(29,78,216,0.12)] px-4 py-4 text-zinc-800 shadow-[0_8px_24px_rgba(29,78,216,0.14)]">
+    <div className="pa-pura-run-trace rounded-3xl border border-[rgba(29,78,216,0.12)] bg-[rgba(29,78,216,0.08)] px-4 py-4 text-zinc-800 shadow-[0_8px_24px_rgba(29,78,216,0.08)]">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-brand-blue/80">
           <span>Thread Memory</span>
@@ -2209,7 +2228,7 @@ function ThreadMemoryDetail({
             const label = run.workTitle?.trim() || run.steps[run.steps.length - 1]?.title?.trim() || `Recent work ${index + 1}`;
             const subtitle = run.steps.length ? `${run.steps.length} step${run.steps.length === 1 ? "" : "s"}` : null;
             return (
-              <div key={`${run.assistantMessageId || run.at || index}:${label}`} className="rounded-2xl bg-white/65 px-3 py-2.5">
+              <div key={`${run.assistantMessageId || run.at || index}:${label}`} className="rounded-2xl border border-white/50 bg-white/60 px-3 py-2.5 shadow-[0_6px_16px_rgba(15,23,42,0.04)]">
                 <div className="text-xs font-semibold text-zinc-900">{label}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-600">
                   {subtitle ? <span>{subtitle}</span> : null}
@@ -2317,7 +2336,7 @@ export function PortalAiChatClient({
 
       el.style.height = "auto";
       const next = Math.min(el.scrollHeight, maxHeight);
-      el.style.height = `${Math.max(next, 44)}px`;
+      el.style.height = `${Math.max(next, 40)}px`;
       el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
     } catch {
       // ignore
@@ -2708,6 +2727,20 @@ export function PortalAiChatClient({
   const composerHydratingRequestedThread = Boolean(requestedThreadId && !requestedThreadHydrated && (threadsLoading || messagesLoading));
   const composerLocked = sending || composerAwaitingRequestedThread || composerHydratingRequestedThread;
   const hasThinkingMessage = messages.some((msg) => msg.role === "assistant" && String(msg.id || "").startsWith("optimistic-assistant-"));
+  const workStatusLabel = useMemo(() => {
+    const liveStatusLabel = activeLiveStatus?.label?.trim() || null;
+    if (liveStatusLabel) return liveStatusLabel;
+    if (regenerating && regeneratingTarget?.messageId) {
+      return effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response";
+    }
+    if (runningActionKey) {
+      return effectiveChatMode === "work" ? "Working through the next step" : "Thinking through the next step";
+    }
+    if (sending || hasThinkingMessage) {
+      return effectiveChatMode === "work" ? "Working on it" : "Thinking it through";
+    }
+    return null;
+  }, [activeLiveStatus?.label, effectiveChatMode, hasThinkingMessage, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
   const activeCanInterrupt = useMemo(() => {
     return Boolean(activeThreadId && activeLiveStatus?.canInterrupt && activeLiveStatus?.runId);
   }, [activeLiveStatus?.canInterrupt, activeLiveStatus?.runId, activeThreadId]);
@@ -2790,6 +2823,11 @@ export function PortalAiChatClient({
     if (showActiveLiveProgressCard || activeUnresolvedRun || !activeNextStepContext) return false;
     return !isDuplicateNextStepCard(activeNextStepContext, latestAssistantMessage);
   }, [activeNextStepContext, activeUnresolvedRun, latestAssistantMessage, showActiveLiveProgressCard]);
+
+  const showUnresolvedRunCard = useMemo(() => {
+    if (showActiveLiveProgressCard || !activeUnresolvedRun) return false;
+    return !isDuplicateUnresolvedRunCard(activeUnresolvedRun, latestAssistantMessage);
+  }, [activeUnresolvedRun, latestAssistantMessage, showActiveLiveProgressCard]);
 
   useLayoutEffect(() => {
     activeThreadIdRef.current = activeThreadId;
@@ -5819,10 +5857,10 @@ export function PortalAiChatClient({
   }, [showWelcomeComposer, welcomePromptChipEntries]);
 
   const composerControlButtonClass =
-    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-100 hover:border-zinc-300 hover:bg-zinc-50";
+    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-100 hover:border-zinc-300 hover:bg-zinc-50";
 
   const composerTextareaShellClass =
-    "min-h-11 rounded-3xl border border-zinc-200 bg-white focus-within:outline-none focus-within:ring-2 focus-within:ring-[rgba(29,78,216,0.25)]";
+    "min-h-10 rounded-3xl border border-zinc-200 bg-white shadow-[0_1px_0_rgba(255,255,255,0.7),0_8px_20px_rgba(15,23,42,0.05)] focus-within:outline-none focus-within:ring-2 focus-within:ring-[rgba(29,78,216,0.2)]";
 
   const composerPlaceholder = uploading
     ? "Uploading…"
@@ -5833,7 +5871,7 @@ export function PortalAiChatClient({
         : "Message";
 
   const composerInputClass =
-    "relative z-10 min-h-11 w-full min-w-0 overflow-y-auto rounded-3xl bg-transparent px-4 py-3 text-sm leading-5 text-transparent caret-zinc-900 focus:outline-none whitespace-pre-wrap break-words";
+    "relative z-10 min-h-10 w-full min-w-0 overflow-y-auto rounded-3xl bg-transparent px-4 py-2.5 text-sm leading-5 caret-zinc-900 focus:outline-none whitespace-pre-wrap break-words";
 
   const canSendComposerMessage = Boolean((input || "").trim() || pendingAttachments.length) && !composerLocked;
 
@@ -6007,7 +6045,7 @@ export function PortalAiChatClient({
                       <button
                         key="schedule-task"
                         type="button"
-                        className="inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
+                        className="pa-pura-context-action inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
                         onClick={openScheduleTaskFromComposer}
                         title="Schedule this task"
                         aria-label={`Schedule ${visibleComposerScheduleSuggestion.matchedPhrase || "this task"}`}
@@ -6019,7 +6057,7 @@ export function PortalAiChatClient({
                       <button
                         key={service.slug}
                         type="button"
-                        className="inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
+                        className="pa-pura-context-action inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
                         onClick={() => toggleDraftServiceContext(service.slug)}
                         title={`Connect ${service.title}`}
                         aria-label={`Connect ${service.title}`}
@@ -6094,7 +6132,7 @@ export function PortalAiChatClient({
                   <div className="flex min-w-0 items-center gap-1.5 rounded-[22px] bg-[rgba(219,234,254,0.62)] px-1.5 py-1 backdrop-blur-[2px]">
                     <button
                       type="button"
-                      className="inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
+                      className="pa-pura-context-action inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
                       onClick={() => {
                         toggleDraftServiceContext(composerDisconnectPopover.slug);
                         setComposerDisconnectPopover(null);
@@ -6146,7 +6184,7 @@ export function PortalAiChatClient({
             {!input ? (
               <div className="pointer-events-none absolute inset-x-0 top-0 z-0 px-4 py-3 text-sm leading-5 text-zinc-400">{composerPlaceholder}</div>
             ) : null}
-            {input ? (
+            {input && composerConnectedHighlights.length ? (
               <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden rounded-3xl">
                 <div
                   className="px-4 py-3 text-sm leading-5 text-zinc-900 whitespace-pre-wrap wrap-break-word"
@@ -6173,7 +6211,7 @@ export function PortalAiChatClient({
               aria-label={isEditing ? "Edit message" : "Message Pura"}
               aria-multiline="true"
               data-composer-input="true"
-              className={composerInputClass}
+              className={classNames(composerInputClass, input && composerConnectedHighlights.length ? "text-transparent" : "text-zinc-900")}
               value={input}
               disabled={composerLocked}
               rows={1}
@@ -6201,7 +6239,7 @@ export function PortalAiChatClient({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  void send(normalizeComposerPlainText(e.currentTarget.value || ""));
+                  void send();
                 }
               }}
               spellCheck
@@ -6209,6 +6247,13 @@ export function PortalAiChatClient({
             />
           </div>
         </div>
+
+        {workStatusLabel ? (
+          <div className="hidden items-center gap-2 rounded-2xl border border-brand-blue/15 bg-white/95 px-3 py-2 text-xs font-medium text-zinc-700 shadow-[0_10px_24px_rgba(0,0,0,0.06)] sm:inline-flex">
+            <ThinkingDots />
+            <span>{workStatusLabel}</span>
+          </div>
+        ) : null}
 
         <button
           type="button"
@@ -6597,7 +6642,7 @@ export function PortalAiChatClient({
                 <div className="flex min-w-0 flex-col items-start gap-1.5 rounded-[22px] bg-[rgba(255,255,255,0.62)] px-1.5 py-1 backdrop-blur-[2px]">
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded-2xl bg-transparent px-1 py-0.5 text-[13px] font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
+                    className="pa-pura-mode-summary-button inline-flex items-center gap-1 rounded-2xl bg-transparent px-1 py-0.5 text-[13px] font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
                     onClick={() => setModeControlsOpen((prev) => !prev)}
                     aria-label={modeControlsOpen ? "Collapse chat modes" : "Expand chat modes"}
                     title={modeControlsOpen ? "Collapse chat modes" : "Expand chat modes"}
@@ -6621,8 +6666,8 @@ export function PortalAiChatClient({
                           className={classNames(
                             "rounded-xl px-2.5 py-1.5 text-xs font-semibold transition-all",
                             effectiveChatMode === "plan"
-                              ? "bg-[rgba(37,99,235,0.14)] text-brand-blue backdrop-blur-sm"
-                              : "text-zinc-700 hover:text-zinc-900",
+                              ? "pa-pura-mode-option pa-pura-mode-option--active bg-[rgba(37,99,235,0.14)] text-brand-blue backdrop-blur-sm"
+                              : "pa-pura-mode-option text-zinc-700 hover:text-zinc-900",
                           )}
                           onClick={() => void setChatModeForCurrentThread("plan")}
                         >
@@ -6633,8 +6678,8 @@ export function PortalAiChatClient({
                           className={classNames(
                             "rounded-xl px-2.5 py-1.5 text-xs font-semibold transition-all",
                             effectiveChatMode === "work"
-                              ? "bg-[rgba(37,99,235,0.14)] text-brand-blue backdrop-blur-sm"
-                              : "text-zinc-700 hover:text-zinc-900",
+                              ? "pa-pura-mode-option pa-pura-mode-option--active bg-[rgba(37,99,235,0.14)] text-brand-blue backdrop-blur-sm"
+                              : "pa-pura-mode-option text-zinc-700 hover:text-zinc-900",
                           )}
                           onClick={() => void setChatModeForCurrentThread("work")}
                         >
@@ -6928,7 +6973,7 @@ export function PortalAiChatClient({
                     <ThreadMemoryUpdatedCard memory={activeWorkingMemory} onOpen={openThreadMemoryActivity} />
                   </div>
                 ) : null}
-                {!showActiveLiveProgressCard && activeUnresolvedRun ? (
+                {showUnresolvedRunCard && activeUnresolvedRun ? (
                   <div className="mt-3">
                     <UnresolvedRunCard
                       unresolvedRun={activeUnresolvedRun}
@@ -6991,55 +7036,33 @@ export function PortalAiChatClient({
 
         {!showWelcomeComposer ? (
           <div className="relative z-20 shrink-0 border-t border-zinc-200 bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
-            <div className="pointer-events-none absolute inset-x-0 bottom-full mb-2 px-3 sm:px-4">
-              <div className="mx-auto flex w-full max-w-5xl justify-end">
-                <div className="pointer-events-auto flex flex-col items-end gap-2">
-                  {!canvasOpen && Boolean(canvasUrl) ? (
-                    <button
-                      className={classNames(frostedBlueButtonClassName(), "h-10 px-3 py-2 text-xs font-bold lg:hidden")}
-                      title="Open canvas"
-                      onClick={() => openLatestCanvas({ modal: false })}
-                    >
-                      <span className="leading-none">Open work</span>
-                      <span className="text-base leading-none">↗</span>
-                    </button>
-                  ) : null}
+            {(!canvasOpen && Boolean(canvasUrl)) || activeThreadId ? (
+              <div className="mx-auto mb-2.5 flex w-full max-w-5xl items-center justify-end gap-2">
+                {!canvasOpen && Boolean(canvasUrl) ? (
+                  <button
+                    className={classNames(frostedBlueButtonClassName("compact"), "h-9 px-3 text-[11px] font-bold")}
+                    title="Open canvas"
+                    onClick={() => openLatestCanvas({ modal: false })}
+                  >
+                    <span className="leading-none">Open work</span>
+                    <span className="text-base leading-none">↗</span>
+                  </button>
+                ) : null}
 
-                  {activeThreadId ? (
-                    <GlassSurface
-                      width="fit-content"
-                      height="auto"
-                      borderRadius={20}
-                      borderWidth={0.04}
-                      blur={7}
-                      displace={0.22}
-                      distortionScale={-72}
-                      redOffset={0}
-                      greenOffset={2}
-                      blueOffset={6}
-                      backgroundOpacity={0.16}
-                      saturation={1.05}
-                      brightness={46}
-                      opacity={0.985}
-                      mixBlendMode="soft-light"
-                      className="rounded-2xl"
-                      style={{ background: "rgba(255,255,255,0.46)", boxShadow: "none" }}
-                    >
-                      <button
-                        type="button"
-                        className="inline-flex h-10 items-center rounded-2xl bg-[rgba(255,255,255,0.62)] px-3 text-xs font-semibold text-zinc-700 backdrop-blur-[2px] hover:bg-[rgba(255,255,255,0.72)]"
-                        onClick={() => {
-                          setActivityView({ kind: "list" });
-                          setRunsOpen(true);
-                        }}
-                      >
-                        Activity
-                      </button>
-                    </GlassSurface>
-                  ) : null}
-                </div>
+                {activeThreadId ? (
+                  <button
+                    type="button"
+                    className="pa-pura-frosted-button inline-flex h-9 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-[11px] font-semibold text-zinc-700 shadow-[0_8px_18px_rgba(15,23,42,0.06)] hover:bg-zinc-50"
+                    onClick={() => {
+                      setActivityView({ kind: "list" });
+                      setRunsOpen(true);
+                    }}
+                  >
+                    Activity
+                  </button>
+                ) : null}
               </div>
-            </div>
+            ) : null}
 
             {canvasOpen && canvasUrl ? (
               <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 lg:hidden relative">
@@ -7072,16 +7095,6 @@ export function PortalAiChatClient({
           </div>
         ) : null}
 
-        {!canvasOpen && Boolean(canvasUrl) ? (
-          <button
-            className="hidden lg:absolute lg:right-0 lg:top-32 lg:z-30 lg:inline-flex lg:h-10 lg:items-center lg:gap-1 lg:rounded-l-2xl lg:rounded-r-none lg:border lg:border-[rgba(29,78,216,0.18)] lg:bg-[rgba(29,78,216,0.12)] lg:px-3 lg:py-2 lg:text-xs lg:font-bold lg:text-brand-blue lg:backdrop-blur-md lg:shadow-[0_10px_24px_rgba(29,78,216,0.14)] lg:hover:bg-[rgba(29,78,216,0.18)]"
-            title="Open canvas"
-            onClick={() => openLatestCanvas({ modal: false })}
-          >
-            <span className="leading-none">Open work</span>
-            <span className="text-base leading-none">‹</span>
-          </button>
-        ) : null}
         </div>
 
         {canvasOpen && canvasUrl ? (
@@ -7202,16 +7215,16 @@ export function PortalAiChatClient({
               )
             ) : activityView.kind === "run" ? (
               selectedActivityRun ? (
-                <div className="rounded-3xl border border-brand-blue/20 bg-white p-4 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]">
+                <div className="pa-pura-activity-card rounded-3xl border border-brand-blue/20 bg-white p-4 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-zinc-900">{selectedActivityRun.workTitle || "Pura run"}</div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                         {Boolean(activeRunLedgerRow && activeRunLedgerRow.id === selectedActivityRun.id) ? <span className={classNames("rounded-full px-2 py-0.5 font-semibold", activityStatusPillClass("running", true))}>Active</span> : null}
-                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(selectedActivityRun.triggerKind)}</span>
+                        <span className="pa-pura-activity-meta-pill rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(selectedActivityRun.triggerKind)}</span>
                         <span className={classNames("rounded-full px-2 py-0.5", activityStatusPillClass(selectedActivityRun.status))}>{formatRunStatusLabel(selectedActivityRun.status)}</span>
-                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(selectedActivityRun.createdAt))}</span>
-                        {selectedActivityRun.completedAt ? <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Completed: {formatLocalDateTime(new Date(selectedActivityRun.completedAt))}</span> : null}
+                        <span className="pa-pura-activity-meta-pill rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(selectedActivityRun.createdAt))}</span>
+                        {selectedActivityRun.completedAt ? <span className="pa-pura-activity-meta-pill rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Completed: {formatLocalDateTime(new Date(selectedActivityRun.completedAt))}</span> : null}
                       </div>
                     </div>
                     {selectedActivityRun.canvasUrl ? (
@@ -7226,14 +7239,14 @@ export function PortalAiChatClient({
                   </div>
 
                   {selectedActivityRun.summaryText || selectedActivityRun.steps.length || selectedActivityRun.workTitle ? (
-                    <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="pa-pura-activity-summary mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
                       <div className="mb-2 text-xs font-semibold text-zinc-500">Summary</div>
                       <PuraMarkdownBlock text={summarizeRunForActivity(selectedActivityRun)} className="text-zinc-700" />
                     </div>
                   ) : null}
 
                   {selectedActivityRun.steps.length ? (
-                    <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="pa-pura-activity-summary mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
                       <div className="mb-2 text-xs font-semibold text-zinc-500">Steps</div>
                       <div className="space-y-3">
                         {selectedActivityRun.steps.map((step, idx) => {
@@ -7259,7 +7272,7 @@ export function PortalAiChatClient({
                         <button
                           key={`${selectedActivityRun.id}:${suggestion}`}
                           type="button"
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                          className="pa-pura-action-button rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
                           onClick={() => {
                             closeActivityModal();
                             void send(suggestion);
@@ -7276,7 +7289,7 @@ export function PortalAiChatClient({
                       {(selectedActivityRun.status === "needs_input" || selectedActivityRun.status === "interrupted") ? (
                         <button
                           type="button"
-                          className="rounded-2xl border border-brand-blue/20 bg-blue-50 px-3 py-2 text-xs font-semibold text-brand-blue hover:bg-blue-100"
+                          className="pa-pura-action-button rounded-2xl border border-brand-blue/20 bg-blue-50 px-3 py-2 text-xs font-semibold text-brand-blue hover:bg-blue-100"
                           onClick={() => {
                             closeActivityModal();
                             void send(selectedActivityRun.status === "needs_input" ? "Continue this chat and ask me only for the missing input you actually need." : "Continue this chat from where you left off and finish the remaining work.");
@@ -7288,7 +7301,7 @@ export function PortalAiChatClient({
                       {selectedActivityRun.status === "failed" ? (
                         <button
                           type="button"
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                          className="pa-pura-action-button rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
                           onClick={() => {
                             closeActivityModal();
                             void send("Retry the last failed work in this chat, fix the issue, and keep going until it is done.");
@@ -7314,20 +7327,20 @@ export function PortalAiChatClient({
                     <button
                       key={run.id}
                       type="button"
-                      className={classNames("block w-full rounded-3xl border bg-white p-4 text-left transition-colors hover:bg-zinc-50", isActiveRun ? "border-brand-blue/30 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]" : "border-zinc-200")}
+                      className={classNames("pa-pura-activity-run-row block w-full rounded-3xl border bg-white p-4 text-left transition-colors hover:bg-zinc-50", isActiveRun ? "border-brand-blue/30 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]" : "border-zinc-200")}
                       onClick={() => setActivityView({ kind: "run", runId: run.id })}
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-zinc-900">{run.workTitle || "Pura run"}</div>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                           {isActiveRun ? <span className={classNames("rounded-full px-2 py-0.5 font-semibold", activityStatusPillClass("running", true))}>Active</span> : null}
-                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(run.triggerKind)}</span>
+                          <span className="pa-pura-activity-meta-pill rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(run.triggerKind)}</span>
                           <span className={classNames("rounded-full px-2 py-0.5", activityStatusPillClass(run.status))}>{formatRunStatusLabel(run.status)}</span>
-                          {stepsPreview ? <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{stepsPreview}</span> : null}
-                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(run.createdAt))}</span>
+                          {stepsPreview ? <span className="pa-pura-activity-meta-pill rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{stepsPreview}</span> : null}
+                          <span className="pa-pura-activity-meta-pill rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(run.createdAt))}</span>
                         </div>
                         {run.summaryText || run.steps.length || run.workTitle ? (
-                          <div className="mt-3 max-h-24 overflow-hidden text-sm text-zinc-600">
+                          <div className="pa-pura-activity-summary mt-3 max-h-24 overflow-hidden rounded-2xl text-sm text-zinc-600">
                             <PuraMarkdownBlock text={summarizeRunForActivity(run)} className="text-zinc-600" />
                           </div>
                         ) : null}

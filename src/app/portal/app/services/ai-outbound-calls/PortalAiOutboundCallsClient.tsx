@@ -3914,7 +3914,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       onClick={createCallOutcomeRuleFromDraft}
                       disabled={!newCallOutcomeRuleDraft.label.trim() || !newCallOutcomeRuleDraft.matchText.trim() || !newCallOutcomeRuleDraft.tagIds.length}
                       className={classNames(
-                        "rounded-2xl px-4 py-2 text-xs font-semibold",
+                        "pa-ai-outbound-primary-action rounded-2xl px-4 py-2 text-xs font-semibold",
                         !newCallOutcomeRuleDraft.label.trim() || !newCallOutcomeRuleDraft.matchText.trim() || !newCallOutcomeRuleDraft.tagIds.length
                           ? "bg-zinc-200 text-zinc-600"
                           : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200",
@@ -4181,7 +4181,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       onClick={createMessageOutcomeRuleFromDraft}
                       disabled={!newMessageOutcomeRuleDraft.label.trim() || !newMessageOutcomeRuleDraft.matchText.trim() || !newMessageOutcomeRuleDraft.tagIds.length}
                       className={classNames(
-                        "rounded-2xl px-4 py-2 text-xs font-semibold",
+                        "pa-ai-outbound-primary-action rounded-2xl px-4 py-2 text-xs font-semibold",
                         !newMessageOutcomeRuleDraft.label.trim() || !newMessageOutcomeRuleDraft.matchText.trim() || !newMessageOutcomeRuleDraft.tagIds.length
                           ? "bg-zinc-200 text-zinc-600"
                           : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200",
@@ -4386,7 +4386,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                     setCreateOpen(true);
                   }}
                   className={classNames(
-                    "inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold transition-colors duration-150",
+                    "pa-ai-outbound-primary-action inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold transition-colors duration-150",
                     busy ? "bg-zinc-200 text-zinc-600" : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200",
                   )}
                 >
@@ -4457,7 +4457,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             ? "/credit/app/services/inbox/email"
                             : "/portal/app/services/inbox/email"
                       }
-                      className="inline-flex items-center justify-center rounded-2xl bg-brand-blue/12 px-3 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-brand-blue/18"
+                      className="pa-ai-outbound-primary-action inline-flex items-center justify-center rounded-2xl bg-brand-blue/12 px-3 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-brand-blue/18"
                     >
                       Open Inbox
                     </Link>
@@ -4485,7 +4485,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           setCreateOpen(true);
                         }}
                         className={classNames(
-                          "inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold transition-colors duration-150",
+                          "pa-ai-outbound-primary-action inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold transition-colors duration-150",
                           busy ? "bg-zinc-200 text-zinc-600" : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200",
                         )}
                       >
@@ -4568,7 +4568,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
               {tab === "messages" ? (
                 <div className="mt-4">
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="pa-ai-outbound-section-card rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                       <div>
                         <div className="text-sm font-semibold text-zinc-900">Activity</div>
@@ -4578,7 +4578,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           <button
                             type="button"
                             onClick={() => setManualEnrollModalOpen(true)}
-                            className="inline-flex items-center gap-2 rounded-2xl bg-sky-100 px-3 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-sky-200"
+                            className="pa-ai-outbound-primary-action inline-flex items-center gap-2 rounded-2xl bg-sky-100 px-3 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-sky-200"
                           >
                             <span className="h-3.5 w-3.5">
                               <IconMessages />
@@ -4599,8 +4599,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                               className={classNames(
                                 "rounded-full px-3 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30",
                                 messagesActivityFilter === x.k
-                                  ? "bg-sky-100 text-(--color-brand-blue)"
-                                  : "bg-zinc-100/70 text-zinc-700 hover:bg-zinc-100",
+                                    ? "pa-ai-outbound-filter-chip pa-ai-outbound-filter-chip--active bg-sky-100 text-(--color-brand-blue)"
+                                    : "pa-ai-outbound-filter-chip bg-zinc-100/70 text-zinc-700 hover:bg-zinc-100",
                               )}
                             >
                               {x.label}
@@ -4709,7 +4709,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
               {tab === "calls" ? (
                 <div className="mt-4">
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="pa-ai-outbound-section-card rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                       <div>
                         <div className="text-sm font-semibold text-zinc-900">Activity</div>
@@ -4719,7 +4719,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           <button
                             type="button"
                             onClick={() => setManualCallModalOpen(true)}
-                            className="inline-flex items-center gap-2 rounded-2xl bg-sky-100 px-3 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-sky-200"
+                            className="pa-ai-outbound-primary-action inline-flex items-center gap-2 rounded-2xl bg-sky-100 px-3 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-sky-200"
                           >
                             <svg
                               aria-hidden="true"
@@ -4749,8 +4749,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                               className={classNames(
                                 "rounded-full px-3 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30",
                                 callsActivityFilter === x.k
-                                  ? "bg-sky-100 text-(--color-brand-blue)"
-                                  : "bg-zinc-100/70 text-zinc-700 hover:bg-zinc-100",
+                                    ? "pa-ai-outbound-filter-chip pa-ai-outbound-filter-chip--active bg-sky-100 text-(--color-brand-blue)"
+                                    : "pa-ai-outbound-filter-chip bg-zinc-100/70 text-zinc-700 hover:bg-zinc-100",
                               )}
                             >
                               {x.label}
@@ -4762,12 +4762,12 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
                     <div className="mt-3 flex flex-wrap gap-2 text-xs">
                       {[
-                        { label: "Queued", value: visibleCallActivityCounts.queued, cls: badgeClass("QUEUED") },
-                        { label: "Calling", value: visibleCallActivityCounts.calling, cls: badgeClass("CALLING") },
-                        { label: "Completed", value: visibleCallActivityCounts.completed, cls: "bg-emerald-50 text-emerald-700" },
-                        { label: "Failed", value: visibleCallActivityCounts.failed, cls: "bg-red-50 text-red-700" },
-                        { label: "Manual", value: visibleCallActivityCounts.manual, cls: "bg-zinc-100 text-zinc-700" },
-                        { label: "Automated", value: visibleCallActivityCounts.automated, cls: "bg-violet-50 text-violet-700" },
+                        { label: "Queued", value: visibleCallActivityCounts.queued, cls: "pa-ai-outbound-activity-pill pa-ai-outbound-activity-pill--queued" },
+                        { label: "Calling", value: visibleCallActivityCounts.calling, cls: "pa-ai-outbound-activity-pill pa-ai-outbound-activity-pill--calling" },
+                        { label: "Completed", value: visibleCallActivityCounts.completed, cls: "pa-ai-outbound-activity-pill pa-ai-outbound-activity-pill--completed" },
+                        { label: "Failed", value: visibleCallActivityCounts.failed, cls: "pa-ai-outbound-activity-pill pa-ai-outbound-activity-pill--failed" },
+                        { label: "Manual", value: visibleCallActivityCounts.manual, cls: "pa-ai-outbound-activity-pill pa-ai-outbound-activity-pill--manual" },
+                        { label: "Automated", value: visibleCallActivityCounts.automated, cls: "pa-ai-outbound-activity-pill pa-ai-outbound-activity-pill--automated" },
                       ].map((x) => (
                         <span key={x.label} className={"rounded-full px-2 py-0.5 font-semibold " + x.cls.replace(/border-[^\s]+/g, "").trim()}>
                           {x.label}: {x.value}
@@ -4856,7 +4856,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           <button
                             type="button"
                             className={classNames(
-                              "rounded-2xl px-4 py-2 text-xs font-semibold transition-colors duration-150",
+                              "pa-ai-outbound-primary-action rounded-2xl px-4 py-2 text-xs font-semibold transition-colors duration-150",
                               callsSyncDisabled ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18",
                             )}
                             onClick={() => void syncCallsAgent()}
@@ -4947,7 +4947,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           disabled={messagesTestBusy || !messagesTestInput.trim()}
                           onClick={() => void sendMessagesTestUserText()}
                           className={classNames(
-                            "h-11 rounded-2xl px-4 py-2 text-sm font-semibold transition-colors duration-150 sm:self-end",
+                            "pa-ai-outbound-primary-action h-11 rounded-2xl px-4 py-2 text-sm font-semibold transition-colors duration-150 sm:self-end",
                             messagesTestBusy || !messagesTestInput.trim() ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18",
                           )}
                         >
@@ -4990,7 +4990,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                               type="button"
                               disabled={callsSyncDisabled}
                               onClick={syncCallsAgent}
-                              className={classNames("rounded-2xl px-4 py-2 text-xs font-semibold transition-colors duration-150", callsSyncDisabled ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18")}
+                              className={classNames("pa-ai-outbound-primary-action rounded-2xl px-4 py-2 text-xs font-semibold transition-colors duration-150", callsSyncDisabled ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18")}
                             >
                               {callsSyncBusy ? "Syncing…" : !callsAgentSyncRequired && callsEffectiveAgentId ? "Calls agent synced" : "Sync calls agent"}
                             </button>
@@ -5207,7 +5207,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         <div className="mt-6">
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div className="text-xs font-semibold text-zinc-700">System prompt</div>
-                            <button type="button" onClick={() => setKnowledgeBaseModalKind("calls")} className="rounded-2xl bg-brand-blue/12 px-4 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-brand-blue/18">{hasKnowledgeBaseContent(selected.knowledgeBase) ? "Manage knowledge base" : "Create knowledge base"}</button>
+                            <button type="button" onClick={() => setKnowledgeBaseModalKind("calls")} className="pa-ai-outbound-primary-action rounded-2xl bg-brand-blue/12 px-4 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-brand-blue/18">{hasKnowledgeBaseContent(selected.knowledgeBase) ? "Manage knowledge base" : "Create knowledge base"}</button>
                           </div>
                           <div className="mt-2">{renderKnowledgeBaseMeta("calls")}</div>
                           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -5260,7 +5260,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <button type="button" disabled={messagesSyncDisabled} onClick={syncMessagesAgent} className={classNames("rounded-2xl px-4 py-2 text-xs font-semibold transition-colors duration-150", messagesSyncDisabled ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18")}>{messagesSyncBusy ? "Syncing…" : !messagesAgentSyncRequired && messagesEffectiveAgentId ? "Messages agent synced" : "Sync messages agent"}</button>
+                            <button type="button" disabled={messagesSyncDisabled} onClick={syncMessagesAgent} className={classNames("pa-ai-outbound-primary-action rounded-2xl px-4 py-2 text-xs font-semibold transition-colors duration-150", messagesSyncDisabled ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18")}>{messagesSyncBusy ? "Syncing…" : !messagesAgentSyncRequired && messagesEffectiveAgentId ? "Messages agent synced" : "Sync messages agent"}</button>
                           </div>
                         </div>
 
@@ -5289,7 +5289,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         <div className="mt-6">
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div className="text-xs font-semibold text-zinc-700">System prompt</div>
-                            <button type="button" onClick={() => setKnowledgeBaseModalKind("messages")} className="rounded-2xl bg-brand-blue/12 px-4 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-brand-blue/18">{hasKnowledgeBaseContent(selected.messagesKnowledgeBase) ? "Manage knowledge base" : "Create knowledge base"}</button>
+                            <button type="button" onClick={() => setKnowledgeBaseModalKind("messages")} className="pa-ai-outbound-primary-action rounded-2xl bg-brand-blue/12 px-4 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-brand-blue/18">{hasKnowledgeBaseContent(selected.messagesKnowledgeBase) ? "Manage knowledge base" : "Create knowledge base"}</button>
                           </div>
                           <div className="mt-2">{renderKnowledgeBaseMeta("messages")}</div>
                           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -5462,7 +5462,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         }
                       })();
                     }}
-                    className={classNames("rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-150", modalBusy ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18")}
+                    className={classNames("pa-ai-outbound-primary-action rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-150", modalBusy ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18")}
                   >
                     {syncBusy ? "Syncing…" : "Sync knowledge base"}
                   </button>
@@ -5569,7 +5569,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       disabled={manualCallSyncBusy}
                       onClick={() => void syncManualCallArtifacts(manualCallId)}
                       className={classNames(
-                        "rounded-2xl px-3 py-2 text-xs font-semibold",
+                        "pa-ai-outbound-primary-action rounded-2xl px-3 py-2 text-xs font-semibold",
                         manualCallSyncBusy ? "bg-zinc-200 text-zinc-600" : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200",
                       )}
                     >
@@ -5586,7 +5586,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 disabled={manualCallBusy || !manualCallTo.trim()}
                 onClick={() => void startManualCall()}
                 className={classNames(
-                  "rounded-full px-4 py-2 text-sm font-semibold",
+                  "pa-ai-outbound-primary-action rounded-full px-4 py-2 text-sm font-semibold",
                   manualCallBusy || !manualCallTo.trim()
                     ? "bg-zinc-200 text-zinc-600"
                     : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200",
@@ -5727,7 +5727,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 disabled={manualEnrollBusy || !manualEnrollSelected?.id}
                 onClick={() => void enrollContactForMessages()}
                 className={classNames(
-                  "rounded-full px-4 py-2 text-sm font-semibold",
+                  "pa-ai-outbound-primary-action rounded-full px-4 py-2 text-sm font-semibold",
                   manualEnrollBusy || !manualEnrollSelected?.id
                     ? "bg-zinc-200 text-zinc-600"
                     : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200",
@@ -5798,7 +5798,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   type="submit"
                   disabled={busy}
                   className={classNames(
-                    "rounded-full px-4 py-2 text-sm font-semibold",
+                    "pa-ai-outbound-primary-action rounded-full px-4 py-2 text-sm font-semibold",
                     busy ? "bg-zinc-200 text-zinc-600" : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200",
                   )}
                 >
@@ -5849,7 +5849,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                     </div>
                     {callDetail.lastError ? <div className="mt-3 rounded-2xl bg-red-50 px-3 py-3 text-sm text-red-700">{sanitizeClientErrorText(callDetail.lastError) || callDetail.lastError}</div> : null}
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {callDetail.kind !== "seeded" ? <button type="button" disabled={callDetailActionBusy !== null || callDetail.kind === "manual"} onClick={() => void retryCallActivity(callDetail.enrollmentId)} className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold", callDetailActionBusy || callDetail.kind === "manual" ? "bg-zinc-200 text-zinc-600" : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200")}>{callDetailActionBusy === "retry" ? "Queueing…" : callDetail.kind === "manual" ? "Manual call" : "Trigger another call"}</button> : null}
+                      {callDetail.kind !== "seeded" ? <button type="button" disabled={callDetailActionBusy !== null || callDetail.kind === "manual"} onClick={() => void retryCallActivity(callDetail.enrollmentId)} className={classNames("pa-ai-outbound-primary-action rounded-2xl px-4 py-2 text-sm font-semibold", callDetailActionBusy || callDetail.kind === "manual" ? "bg-zinc-200 text-zinc-600" : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200")}>{callDetailActionBusy === "retry" ? "Queueing…" : callDetail.kind === "manual" ? "Manual call" : "Trigger another call"}</button> : null}
                     </div>
                     {callDetail.bookingAnalysis ? <div className="mt-4 rounded-2xl bg-sky-50 p-4 text-sm text-sky-900"><div className="flex flex-wrap items-center gap-2"><div className="font-semibold">Outcome summary</div><span className="rounded-full bg-white/85 px-2 py-0.5 text-[11px] font-semibold text-sky-800">{callDetail.bookingAnalysis.booked ? "Booked" : callDetail.bookingAnalysis.needsBooking ? "Needs booking" : "No booking signal"}</span></div>{callDetail.bookingAnalysis.summary ? <div className="mt-2 text-sky-900/80">{callDetail.bookingAnalysis.summary}</div> : null}{callDetail.bookingAnalysis.requestedTimeText ? <div className="mt-2 text-xs text-sky-800">Requested time: {callDetail.bookingAnalysis.requestedTimeText}</div> : null}</div> : null}
                   </div>

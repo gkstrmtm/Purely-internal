@@ -170,12 +170,12 @@ export function getFunnelEditorWorkflowViewModel(opts: {
         : "emerald";
   const workflowStatusClassName =
     workflowStatusTone === "amber"
-      ? "border-amber-200 bg-amber-50 text-amber-800"
+      ? "pa-funnel-workflow-status pa-funnel-workflow-status--amber border-amber-200 bg-amber-50 text-amber-800"
       : workflowStatusTone === "blue"
-        ? "border-blue-200 bg-blue-50 text-blue-800"
+        ? "pa-funnel-workflow-status pa-funnel-workflow-status--blue border-blue-200 bg-blue-50 text-blue-800"
         : workflowStatusTone === "emerald"
-          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-          : "border-zinc-200 bg-zinc-50 text-zinc-600";
+          ? "pa-funnel-workflow-status pa-funnel-workflow-status--emerald border-emerald-200 bg-emerald-50 text-emerald-800"
+          : "pa-funnel-workflow-status pa-funnel-workflow-status--muted border-zinc-200 bg-zinc-50 text-zinc-600";
   const workflowStatusLabel = !selectedPage
     ? "No page selected"
     : hasPendingDraftChanges

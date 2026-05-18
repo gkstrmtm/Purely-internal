@@ -15,6 +15,7 @@ import { HostedBlogPostArticle } from "@/components/hosted/HostedBlogPostArticle
 import { HostedNewsletterArchive } from "@/components/hosted/HostedNewsletterArchive";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
+import { portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { coerceBlocksJson, renderCreditFunnelBlocks, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { hostedTemplateStyleDescription, resolveHostedTemplatePageKey } from "@/lib/hostedPageTemplateIntents";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
@@ -92,7 +93,7 @@ function normalizeHostedEditorMode(doc: Pick<HostedPageDocument, "editorMode" | 
   return doc.editorMode;
 }
 
-const hostedPreviewThemeStyle = {
+const hostedPreviewThemeLightStyle = {
   ["--client-bg" as any]: "#f8fafc",
   ["--client-surface" as any]: "#ffffff",
   ["--client-soft" as any]: "#eef4ff",
@@ -103,6 +104,19 @@ const hostedPreviewThemeStyle = {
   ["--client-primary" as any]: "#1d4ed8",
   ["--client-on-primary" as any]: "#ffffff",
   ["--client-on-primary-muted" as any]: "rgba(255,255,255,0.78)",
+} as const;
+
+const hostedPreviewThemeDarkStyle = {
+  ["--client-bg" as any]: "#020617",
+  ["--client-surface" as any]: "#0f172a",
+  ["--client-soft" as any]: "#082f49",
+  ["--client-border" as any]: "rgba(148, 163, 184, 0.24)",
+  ["--client-text" as any]: "#e2e8f0",
+  ["--client-muted" as any]: "#94a3b8",
+  ["--client-link" as any]: "#7dd3fc",
+  ["--client-primary" as any]: "#0ea5e9",
+  ["--client-on-primary" as any]: "#082f49",
+  ["--client-on-primary-muted" as any]: "rgba(8,47,73,0.78)",
 } as const;
 
 const TOPBAR_INTENT_EVENT = "pa.portal.topbar.intent";
@@ -1294,6 +1308,8 @@ export function HostedServicePageEditorClient({
 
   const previewBusinessName = previewData?.businessName?.trim() || title.trim() || serviceLabel;
   const previewRuntimeBlocks = useMemo(() => {
+    const useDarkLaunchpadPreview = selectedDocument?.pageKey === "newsletter_launchpad";
+    const hostedPreviewThemeStyle = useDarkLaunchpadPreview ? hostedPreviewThemeDarkStyle : hostedPreviewThemeLightStyle;
     const siteHandle = previewData?.siteHandle?.trim() || "";
     const bookingPreviewFrame = siteHandle ? <PublicBookingClient target={{ kind: "slug", slug: siteHandle }} showBranding={false} presentation="inline" /> : undefined;
     const newsletterLatest = Array.isArray(previewData?.summary?.latest)
@@ -1347,16 +1363,29 @@ export function HostedServicePageEditorClient({
       previewData?.summary && typeof previewData.summary === "object" && previewData.summary.previewPost && typeof previewData.summary.previewPost === "object"
         ? (previewData.summary.previewPost as Record<string, unknown>)
         : null;
-    const themedWrap = (node: React.ReactNode) => <div style={hostedPreviewThemeStyle}>{node}</div>;
+    const themedWrap = (node: React.ReactNode) => (
+      <div
+        style={{ ...(hostedPreviewThemeStyle as any), backgroundColor: "var(--client-bg)", color: "var(--client-text)" } as any}
+      >
+        {node}
+      </div>
+    );
     const previewCard = (heading: string, description: string, detailLines: string[] = []) =>
       themedWrap(
-        <div className="rounded-3xl border border-[rgba(37,99,235,0.14)] bg-white px-6 py-5 shadow-[0_12px_30px_rgba(37,99,235,0.08)]">
-          <div className="text-sm font-semibold text-zinc-900">{heading}</div>
-          <p className="mt-2 text-sm leading-6 text-zinc-600">{description}</p>
+        <div
+          className="rounded-3xl border px-6 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.18)]"
+          style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+        >
+          <div className="text-sm font-semibold" style={{ color: "var(--client-text)" }}>
+            {heading}
+          </div>
+          <p className="mt-2 text-sm leading-6" style={{ color: "var(--client-muted)" }}>
+            {description}
+          </p>
           {detailLines.length ? (
             <div className="mt-4 grid gap-2">
               {detailLines.slice(0, 4).map((line) => (
-                <div key={line} className="rounded-2xl bg-[rgba(37,99,235,0.06)] px-3 py-2 text-sm text-zinc-700">
+                <div key={line} className="rounded-2xl px-3 py-2 text-sm" style={{ backgroundColor: "var(--client-soft)", color: "var(--client-text)" }}>
                   {line}
                 </div>
               ))}
@@ -1439,20 +1468,34 @@ export function HostedServicePageEditorClient({
             )
           : previewCard("Article preview", "The selected article body will render here once a published post is available.", blogSummaryLines),
     };
-  }, [previewBusinessName, previewData?.siteHandle, previewData?.summary]);
+  }, [previewBusinessName, previewData?.siteHandle, previewData?.summary, selectedDocument?.pageKey]);
+
+  const rootClassName = "min-h-screen bg-[radial-gradient(circle_at_top,rgba(30,41,59,0.94),rgba(2,6,23,0.985)_58%)] p-3 text-zinc-100 sm:p-4";
+  const previewEmptyClassName = "flex min-h-[34rem] items-center justify-center px-8 text-center text-sm text-zinc-500";
+  const surfaceClassName = classNames(
+    "rounded-[28px] border-white/12 bg-[rgba(10,15,29,0.8)] shadow-[0_24px_60px_rgba(2,6,23,0.42)] supports-backdrop-filter:bg-[rgba(10,15,29,0.6)]",
+    portalGlassPanelClass,
+  );
+  const toolbarButtonClassName =
+    classNames(
+      "inline-flex h-11 items-center justify-center rounded-2xl border-white/12 bg-[rgba(15,23,42,0.72)] px-4 text-sm font-semibold text-zinc-100 shadow-[0_12px_30px_rgba(2,6,23,0.28)] transition hover:bg-[rgba(30,41,59,0.82)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50",
+      portalGlassButtonClass,
+    );
+  const blueButtonClassName =
+    "inline-flex h-11 items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
 
   if (loading) {
     return (
-      <div data-hosted-page-editor-root={service.toLowerCase()} className="min-h-screen bg-[#f5f7fb] p-3 sm:p-4">
-        <div className="px-6 py-10 text-sm text-zinc-600">Loading {serviceLabel.toLowerCase()} page editor…</div>
+      <div data-hosted-page-editor-root={service.toLowerCase()} className={rootClassName}>
+        <div className="px-6 py-10 text-sm text-zinc-300">Loading {serviceLabel.toLowerCase()} page editor…</div>
       </div>
     );
   }
 
   if (!selectedDocument) {
     return (
-      <div data-hosted-page-editor-root={service.toLowerCase()} className="min-h-screen bg-[#f5f7fb] p-3 sm:p-4">
-        <div className="px-6 py-10 text-sm text-red-600">Could not load the {serviceLabel.toLowerCase()} hosted page document.</div>
+      <div data-hosted-page-editor-root={service.toLowerCase()} className={rootClassName}>
+        <div className="px-6 py-10 text-sm text-rose-300">Could not load the {serviceLabel.toLowerCase()} hosted page document.</div>
       </div>
     );
   }
@@ -1462,21 +1505,26 @@ export function HostedServicePageEditorClient({
     { value: "CUSTOM_HTML", label: "Custom HTML" },
   ];
 
-  const previewEmptyClassName = "flex min-h-[34rem] items-center justify-center px-8 text-center text-sm text-zinc-500";
-  const surfaceClassName = "rounded-[28px] border border-[rgba(37,99,235,0.10)] bg-[rgba(255,255,255,0.78)] shadow-[0_18px_45px_rgba(37,99,235,0.08)] supports-backdrop-filter:bg-[rgba(255,255,255,0.6)] supports-backdrop-filter:backdrop-blur-xl";
-  const toolbarButtonClassName =
-    "inline-flex h-11 items-center justify-center rounded-2xl border border-[rgba(37,99,235,0.12)] bg-white/80 px-4 text-sm font-semibold text-zinc-900 shadow-[0_10px_24px_rgba(37,99,235,0.08)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50";
-  const blueButtonClassName =
-    "inline-flex h-11 items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50";
   const previewContext = {
     bookingSiteSlug: service === "BOOKING" ? previewData?.siteHandle || undefined : undefined,
     previewDevice: "desktop" as const,
     hostedRuntimeBlocks: previewRuntimeBlocks,
   };
   const resolvedCustomHtml = replacePreviewTokens(customHtml, previewData, title || serviceLabel);
+  const useDarkLaunchpadPreview = selectedDocument.pageKey === "newsletter_launchpad";
+  const previewFrameClassName = useDarkLaunchpadPreview
+    ? "overflow-hidden rounded-2xl border border-white/10 bg-[#020617]"
+    : "overflow-hidden rounded-2xl border border-zinc-200 bg-white";
+  const blocksPreviewCanvasClassName = useDarkLaunchpadPreview
+    ? "h-[78vh] min-h-128 overflow-y-auto overflow-x-hidden bg-[#020617] p-6"
+    : "h-[78vh] min-h-128 overflow-y-auto overflow-x-hidden bg-white p-6";
+  const iframePreviewClassName = useDarkLaunchpadPreview ? "h-[78vh] min-h-128 w-full bg-[#020617]" : "h-[78vh] min-h-128 w-full bg-white";
+  const emptyCustomHtml = useDarkLaunchpadPreview
+    ? `<div style='padding:24px;font-family:Inter,system-ui,sans-serif;color:#94a3b8;background:#020617'>No custom HTML yet for ${previewBusinessName}.</div>`
+    : `<div style='padding:24px;font-family:Inter,system-ui,sans-serif;color:#64748b'>No custom HTML yet for ${previewBusinessName}.</div>`;
 
   return (
-    <div data-hosted-page-editor-root={service.toLowerCase()} className="min-h-screen bg-[#f5f7fb] p-3 sm:p-4">
+    <div data-hosted-page-editor-root={service.toLowerCase()} className={rootClassName}>
       <div className="mx-auto max-w-450 space-y-3">
         <div className={`${surfaceClassName} p-3`}>
           <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
@@ -1492,7 +1540,10 @@ export function HostedServicePageEditorClient({
                 { value: "PUBLISHED", label: "Published" },
               ]}
               placeholder="Select status"
-              buttonClassName="flex h-11 min-w-[9rem] items-center justify-between gap-2 rounded-2xl border border-[rgba(37,99,235,0.12)] bg-white/80 px-3 text-sm font-semibold text-zinc-900 shadow-[0_10px_24px_rgba(37,99,235,0.08)] hover:bg-white"
+              buttonClassName={classNames(
+                "flex h-11 min-w-[9rem] items-center justify-between gap-2 rounded-2xl border-white/12 bg-[rgba(15,23,42,0.72)] px-3 text-sm font-semibold text-zinc-100 shadow-[0_12px_30px_rgba(2,6,23,0.28)] hover:bg-[rgba(30,41,59,0.82)] hover:text-white",
+                portalGlassButtonClass,
+              )}
             />
 
             <button type="button" onClick={() => void exportBlocksToHtml()} disabled={busy || puraBusy || editorMode !== "BLOCKS"} className={toolbarButtonClassName}>
@@ -1518,7 +1569,7 @@ export function HostedServicePageEditorClient({
                   onClick={() => setEditorMode(option.value)}
                   className={classNames(
                     "inline-flex h-10 items-center justify-center rounded-xl px-3 text-sm font-semibold transition",
-                    active ? "bg-(--color-brand-blue) text-white shadow-sm" : "bg-white text-zinc-900 hover:bg-zinc-50",
+                    active ? "bg-(--color-brand-blue) text-white shadow-sm" : "border border-white/12 bg-[rgba(15,23,42,0.62)] text-zinc-100 hover:bg-[rgba(30,41,59,0.8)]",
                   )}
                 >
                   {option.label}
@@ -1526,12 +1577,12 @@ export function HostedServicePageEditorClient({
               );
             })}
 
-            <div className="ml-auto flex min-w-[20rem] flex-1 items-center gap-2 rounded-2xl border border-[rgba(37,99,235,0.12)] bg-white/80 px-3 py-2 shadow-[0_10px_24px_rgba(37,99,235,0.08)] supports-backdrop-filter:bg-white/60 supports-backdrop-filter:backdrop-blur-xl">
+            <div className="ml-auto flex min-w-[20rem] flex-1 items-center gap-2 rounded-2xl border border-white/12 bg-[rgba(15,23,42,0.72)] px-3 py-2 shadow-[0_12px_30px_rgba(2,6,23,0.28)] supports-backdrop-filter:bg-[rgba(15,23,42,0.58)] supports-backdrop-filter:backdrop-blur-xl">
               <AiSparkIcon className="h-4 w-4 shrink-0 text-(--color-brand-blue)" />
               <input
                 value={puraPrompt}
                 onChange={(event) => setPuraPrompt(event.target.value)}
-                className="min-w-0 flex-1 bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                className="min-w-0 flex-1 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
                 placeholder="Ask Pura to update this page"
               />
               <button
@@ -1558,17 +1609,17 @@ export function HostedServicePageEditorClient({
 
         <div className="grid gap-3 grid-cols-1">
           <aside id="hosted-page-preview" className={`${surfaceClassName} overflow-hidden p-3`}>
-            <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+            <div className={previewFrameClassName}>
               {editorMode === "CUSTOM_HTML" ? (
                 <iframe
                   title={`${serviceLabel} page preview`}
-                  className="h-[78vh] min-h-128 w-full bg-white"
+                  className={iframePreviewClassName}
                   sandbox="allow-same-origin"
-                  srcDoc={resolvedCustomHtml || `<div style='padding:24px;font-family:Inter,system-ui,sans-serif;color:#64748b'>No custom HTML yet for ${previewBusinessName}.</div>`}
+                  srcDoc={resolvedCustomHtml || emptyCustomHtml}
                 />
               ) : editorMode === "BLOCKS" ? (
                 parsedBlocks ? (
-                  <div className="h-[78vh] min-h-128 overflow-y-auto overflow-x-hidden bg-white p-6">
+                  <div className={blocksPreviewCanvasClassName}>
                     {renderCreditFunnelBlocks({
                       blocks: parsedBlocks,
                       basePath: "",

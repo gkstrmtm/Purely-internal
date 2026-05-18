@@ -1927,7 +1927,7 @@ export default function PortalReviewsClient() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Link
                       href={`${appBase}/services/reviews/page-editor`}
-                      className="inline-flex items-center justify-center rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-xs font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
+                      className="pa-reviews-action-button inline-flex items-center justify-center rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-xs font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
                     >
                       Edit page
                     </Link>

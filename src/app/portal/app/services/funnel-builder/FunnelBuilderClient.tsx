@@ -21,6 +21,7 @@ import {
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { useToast } from "@/components/ToastProvider";
 import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
 import {
@@ -29,13 +30,13 @@ import {
   FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
 } from "@/components/funnel/funnelButtonMotion";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
-import { toPurelyHostedUrl, toRuntimeHostedUrl } from "@/lib/publicHostedOrigin";
+import { toRuntimeHostedUrl } from "@/lib/publicHostedOrigin";
 import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
 
 import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTemplate, type CreditFormTemplateKey } from "@/lib/creditFormTemplates";
 import { CREDIT_FORM_THEMES, coerceCreditFormThemeKey, getCreditFormTheme, type CreditFormThemeKey } from "@/lib/creditFormThemes";
-import { CREDIT_FUNNEL_TEMPLATES, coerceCreditFunnelTemplateKey, getCreditFunnelTemplate, type CreditFunnelTemplateKey } from "@/lib/creditFunnelTemplates";
-import { CREDIT_FUNNEL_THEMES, coerceCreditFunnelThemeKey, getCreditFunnelTheme, type CreditFunnelThemeKey } from "@/lib/creditFunnelThemes";
+import { coerceCreditFunnelTemplateKey, getCreditFunnelTemplate, type CreditFunnelTemplateKey } from "@/lib/creditFunnelTemplates";
+import { coerceCreditFunnelThemeKey, type CreditFunnelThemeKey } from "@/lib/creditFunnelThemes";
 
 import { buildSuggestedFunnelNaming, inferFunnelPageIntentProfile, type FunnelPageIntentType, type FunnelPageMediaMode } from "@/lib/funnelPageIntent";
 import { resolveBusinessProfileRuntimeSnapshot } from "@/lib/businessProfileRuntimeSnapshot";
@@ -549,7 +550,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createThemeKey, setCreateThemeKey] = useState<CreditFormThemeKey>("royal-indigo");
   const [createFunnelTemplateKey, setCreateFunnelTemplateKey] = useState<CreditFunnelTemplateKey>("credit-audit-leadgen");
   const [createFunnelThemeKey, setCreateFunnelThemeKey] = useState<CreditFunnelThemeKey>("royal-indigo");
-  const [createFunnelPreviewOpen, setCreateFunnelPreviewOpen] = useState(false);
   const [createFunnelUseTemplate, setCreateFunnelUseTemplate] = useState(false);
   const [createFunnelPreferCustomMode, setCreateFunnelPreferCustomMode] = useState(false);
   const [createFunnelPageType, setCreateFunnelPageType] = useState<FunnelPageIntentType>("lead-capture");
@@ -1093,8 +1093,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     return opts;
   }, [domains]);
 
-  const funnelPreviewBase = useMemo(() => toPurelyHostedUrl("/f"), []);
-  const formPreviewBase = useMemo(() => toPurelyHostedUrl("/forms"), []);
   const normalizedMetaPixelIdInput = useMemo(
     () => String(metaPixelIdInput || "").trim().replace(/[^0-9]/g, "").slice(0, 32),
     [metaPixelIdInput],
@@ -1111,6 +1109,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     if (typeof window !== "undefined") return window.location.origin || null;
     return null;
   }, []);
+
+  const formPublicBase = useMemo(() => toRuntimeHostedUrl("/forms", runtimeHostedOrigin), [runtimeHostedOrigin]);
 
   const getFunnelLiveHref = useCallback(
     (assignedDomain: string | null | undefined, slug: string, funnelId: string) => {
@@ -1135,14 +1135,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     const cleanId = String(formId || "").trim();
     if (!cleanSlug || !cleanId) return null;
     const hostedPath = hostedFormPath(cleanSlug, cleanId);
-    return hostedPath ? toPurelyHostedUrl(hostedPath) : null;
-  }, []);
+    return hostedPath ? toRuntimeHostedUrl(hostedPath, runtimeHostedOrigin) : null;
+  }, [runtimeHostedOrigin]);
 
-  const getFormLiveHref = useCallback((slug: string) => {
+  const getFormLiveHref = useCallback((slug: string, formId: string) => {
     const cleanSlug = String(slug || "").trim();
-    if (!cleanSlug) return null;
-    return toPurelyHostedUrl(`/forms/${encodeURIComponent(cleanSlug)}`);
-  }, []);
+    const cleanId = String(formId || "").trim();
+    if (!cleanSlug || !cleanId) return null;
+    const hostedPath = hostedFormPath(cleanSlug, cleanId);
+    return hostedPath ? toRuntimeHostedUrl(hostedPath, runtimeHostedOrigin) : null;
+  }, [runtimeHostedOrigin]);
 
   const loadFunnels = useCallback(async () => {
     const res = await fetch("/api/portal/funnel-builder/funnels", { cache: "no-store" });
@@ -1563,7 +1565,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     setCreateThemeKey("royal-indigo");
     setCreateFunnelTemplateKey("credit-audit-leadgen");
     setCreateFunnelThemeKey("royal-indigo");
-    setCreateFunnelPreviewOpen(false);
     setCreateFunnelUseTemplate(false);
     setCreateFunnelPreferCustomMode(false);
     setCreateFunnelPageType(seededIntent.pageType);
@@ -1674,6 +1675,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     createFunnelStage,
     createName,
     createSlug,
+    createFunnelDraftSavedAt,
     saveCreateFunnelDraft,
     creatingKind,
   ]);
@@ -1709,7 +1711,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     createRequestIdRef.current = "";
     stopCreateIntakeDictation();
     setCreatingKind(null);
-    setCreateFunnelPreviewOpen(false);
     setBusy(false);
   };
 
@@ -1989,9 +1990,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <button
               type="button"
               onClick={() => openCreate("funnel")}
-              className="group flex min-h-40 flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-300 bg-white p-6 text-left transition-colors duration-150 hover:bg-zinc-50"
+              className="pa-funnel-builder-create-card group flex min-h-40 flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-300 bg-white p-6 text-left transition-colors duration-150 hover:bg-zinc-50"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-xl font-bold text-zinc-700">
+              <div className="pa-funnel-builder-create-icon flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-xl font-bold text-zinc-700">
                 +
               </div>
               <div className="mt-3 text-base font-semibold text-brand-ink">Create funnel</div>
@@ -2020,7 +2021,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               return (
                 <div
                   key={f.id}
-                  className="group rounded-3xl border border-zinc-200 bg-white p-6 transition-[transform,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                  className="pa-funnel-builder-card group rounded-3xl border border-zinc-200 bg-white p-6 transition-[transform,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
                 >
                   <div className="text-base font-semibold text-brand-ink">{f.name}</div>
                   <div className="mt-1 text-sm text-zinc-600">/{f.slug}</div>
@@ -2029,7 +2030,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     <Link
                       href={builderHref}
                       className={classNames(
-                        "inline-flex items-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95",
+                        "pa-funnel-builder-primary-action inline-flex items-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95",
                         FUNNEL_BUTTON_MOTION_CLASS,
                         FUNNEL_BUTTON_RAISE_CLASS,
                       )}
@@ -2041,7 +2042,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       href={previewHref}
                       target="_blank"
                       className={classNames(
-                        "inline-flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50",
+                        "pa-funnel-builder-secondary-action inline-flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50",
                         FUNNEL_BUTTON_MOTION_CLASS,
                         FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
                       )}
@@ -2053,7 +2054,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         href={liveHref}
                         target="_blank"
                         className={classNames(
-                          "inline-flex items-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100",
+                          "pa-funnel-builder-live-action inline-flex items-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100",
                           FUNNEL_BUTTON_MOTION_CLASS,
                           FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
                         )}
@@ -2062,7 +2063,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       </Link>
                     ) : (
                       <span
-                        className="inline-flex items-center rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-500"
+                        className="pa-funnel-builder-live-disabled inline-flex items-center rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-500"
                         title={
                           f.status !== "ACTIVE"
                             ? "Set this funnel to Live to enable the public link."
@@ -2076,7 +2077,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     )}
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+                  <div className="pa-funnel-builder-delivery-panel mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delivery</div>
                     <div className="mt-3 flex flex-col gap-3">
                       <PortalListboxDropdown
@@ -2084,7 +2085,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         disabled={!!funnelDomainBusy[f.id] || !domains}
                         options={funnelDomainOptions}
                         onChange={(v) => patchFunnelDomain(f, v ? v : null)}
-                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+                        buttonClassName="pa-funnel-builder-delivery-select flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
                         placeholder="Default (not assigned)"
                       />
 
@@ -2093,7 +2094,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         <div className="mt-1 flex min-w-0 items-start gap-2">
                           <div
                             className={classNames(
-                              "min-w-0 flex-1 truncate rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono leading-5",
+                              "pa-funnel-builder-delivery-url min-w-0 flex-1 truncate rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono leading-5",
                               assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? "text-zinc-400" : "text-zinc-700",
                             )}
                             title={liveUrlDisplay}
@@ -2103,7 +2104,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           <button
                             type="button"
                             onClick={() => copyText(liveUrlDisplay)}
-                            className="rounded-xl border border-zinc-200 bg-white p-2 text-zinc-600 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-900"
+                            className="pa-funnel-builder-delivery-copy rounded-xl border border-zinc-200 bg-white p-2 text-zinc-600 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-900"
                             aria-label="Copy funnel URL"
                             title="Copy URL"
                           >
@@ -2150,16 +2151,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             e.stopPropagation();
                             setOpenFunnelMenuId((prev) => (prev === f.id ? null : f.id));
                           }}
-                          className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
+                          className="pa-portal-glass-button grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
                         >
                           <DotsIcon className="h-5 w-5" />
                         </button>
 
                         {openFunnelMenuId === f.id ? (
-                          <div
+                          <LiquidGlassPopupSurface
                             ref={funnelMenuElRef}
                             className={classNames(
-                              "fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
+                              "fixed z-40 w-60 overflow-hidden rounded-[26px]",
                               funnelMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
                             )}
                             style={
@@ -2168,46 +2169,49 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 : undefined
                             }
                           >
-                            <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            <div className="pa-portal-menu-panel">
+                            <div className="pa-portal-menu-label">
                               Actions
                             </div>
 
-                            <div className="px-2 pb-2">
+                            <div className="pa-portal-menu-section">
                               <Link
                                 href={builderHref}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
+                                className="pa-portal-menu-item"
                                 onClick={() => setOpenFunnelMenuId(null)}
                                 aria-label="Edit"
                                 title="Edit"
                               >
-                                <span className="inline-flex items-center" aria-hidden="true">
+                                <span className="pa-portal-menu-item-icon" aria-hidden="true">
                                   <IconEdit size={16} />
                                 </span>
-                                <span className="sr-only">Edit</span>
+                                <span className="pa-portal-menu-item-title">Edit</span>
                               </Link>
 
                               <Link
                                 href={previewHref}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
+                                className="pa-portal-menu-item"
                                 onClick={() => setOpenFunnelMenuId(null)}
                               >
-                                Preview
+                                <span className="pa-portal-menu-item-icon" aria-hidden="true">↗</span>
+                                <span className="pa-portal-menu-item-title">Preview</span>
                               </Link>
 
                               {liveHref ? (
                                 <Link
                                   href={liveHref}
                                   target="_blank"
-                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
+                                  className="pa-portal-menu-item"
                                   onClick={() => setOpenFunnelMenuId(null)}
                                 >
-                                  Live
+                                  <span className="pa-portal-menu-item-icon" aria-hidden="true">●</span>
+                                  <span className="pa-portal-menu-item-title">Open live</span>
                                 </Link>
                               ) : (
                                 <div
-                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400"
+                                  className="pa-portal-menu-item pa-portal-menu-item-muted"
                                   title={
                                     f.status !== "ACTIVE"
                                       ? "Set this funnel to Live to enable the live link."
@@ -2216,11 +2220,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                         : "Live link is currently unavailable."
                                   }
                                 >
-                                  Live
+                                    <span className="pa-portal-menu-item-icon" aria-hidden="true">●</span>
+                                    <span className="pa-portal-menu-item-title">Open live</span>
                                 </div>
                               )}
 
-                              <div className="my-2 h-px bg-zinc-100" />
+                                <div className="pa-portal-menu-separator" />
 
                               {f.status !== "ARCHIVED" ? (
                                 <button
@@ -2234,20 +2239,22 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                     })();
                                   }}
                                   className={classNames(
-                                    "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors duration-100 hover:bg-zinc-50",
-                                    f.status === "ACTIVE" ? "text-zinc-700" : "text-green-700",
+                                    "pa-portal-menu-item",
+                                    f.status === "ACTIVE" ? "" : "pa-portal-menu-item-success",
                                     funnelStatusBusy[f.id] ? "opacity-60" : "",
                                   )}
                                 >
-                                  {f.status === "ACTIVE" ? "Set status: Draft" : "Set status: Live"}
+                                  <span className="pa-portal-menu-item-icon" aria-hidden="true">⇄</span>
+                                  <span className="pa-portal-menu-item-title">{f.status === "ACTIVE" ? "Set status: Draft" : "Set status: Live"}</span>
                                 </button>
                               ) : (
-                                <div className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400">
-                                  Status: Archived
+                                <div className="pa-portal-menu-item pa-portal-menu-item-muted">
+                                  <span className="pa-portal-menu-item-icon" aria-hidden="true">•</span>
+                                  <span className="pa-portal-menu-item-title">Status: Archived</span>
                                 </div>
                               )}
 
-                              <div className="my-2 h-px bg-zinc-100" />
+                              <div className="pa-portal-menu-separator" />
 
                               <button
                                 type="button"
@@ -2258,14 +2265,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                   setOpenFunnelMenuId(null);
                                 }}
                                 className={classNames(
-                                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-100 hover:bg-zinc-50",
+                                  "pa-portal-menu-item pa-portal-menu-item-danger",
                                   funnelDeleteBusy[f.id] ? "opacity-60" : "",
                                 )}
                               >
-                                Delete
+                                <span className="pa-portal-menu-item-icon" aria-hidden="true">×</span>
+                                <span className="pa-portal-menu-item-title">Delete</span>
                               </button>
                             </div>
-                          </div>
+                            </div>
+                          </LiquidGlassPopupSurface>
                         ) : null}
                       </div>
                     </div>
@@ -2326,16 +2335,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           e.stopPropagation();
                           setOpenFormMenuId((prev) => (prev === f.id ? null : f.id));
                         }}
-                        className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
+                        className="pa-portal-glass-button grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
                       >
                         <DotsIcon className="h-5 w-5" />
                       </button>
 
                       {openFormMenuId === f.id ? (
-                        <div
+                        <LiquidGlassPopupSurface
                           ref={formMenuElRef}
                           className={classNames(
-                            "fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
+                            "fixed z-40 w-60 overflow-hidden rounded-[26px]",
                             formMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
                           )}
                           style={
@@ -2344,57 +2353,62 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               : undefined
                           }
                         >
-                          <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Actions</div>
-                          <div className="px-2 pb-2">
+                          <div className="pa-portal-menu-panel">
+                          <div className="pa-portal-menu-label">Actions</div>
+                          <div className="pa-portal-menu-section">
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                              className="pa-portal-menu-item"
                               onClick={() => setOpenFormMenuId(null)}
                               aria-label="Edit"
                               title="Edit"
                             >
-                              <span className="inline-flex items-center" aria-hidden="true">
+                              <span className="pa-portal-menu-item-icon" aria-hidden="true">
                                 <IconEdit size={16} />
                               </span>
-                              <span className="sr-only">Edit</span>
+                              <span className="pa-portal-menu-item-title">Edit</span>
                             </Link>
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                              className="pa-portal-menu-item"
                               onClick={() => setOpenFormMenuId(null)}
                             >
-                              Responses
+                              <span className="pa-portal-menu-item-icon" aria-hidden="true">#</span>
+                              <span className="pa-portal-menu-item-title">Responses</span>
                             </Link>
                             <Link
-                              href={getFormPreviewHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
+                              href={getFormPreviewHref(f.slug, f.id) || toRuntimeHostedUrl(`/forms/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
+                              className="pa-portal-menu-item"
                               onClick={() => setOpenFormMenuId(null)}
                             >
-                              Preview
+                              <span className="pa-portal-menu-item-icon" aria-hidden="true">↗</span>
+                              <span className="pa-portal-menu-item-title">Preview</span>
                             </Link>
 
                             {f.status === "ACTIVE" ? (
                               <Link
-                                href={getFormLiveHref(f.slug) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
+                                href={getFormLiveHref(f.slug, f.id) || toRuntimeHostedUrl(`/forms/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
+                                className="pa-portal-menu-item"
                                 onClick={() => setOpenFormMenuId(null)}
                               >
-                                Live
+                                <span className="pa-portal-menu-item-icon" aria-hidden="true">●</span>
+                                <span className="pa-portal-menu-item-title">Open live</span>
                               </Link>
                             ) : (
                               <div
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400"
-                                title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Set this form to Live to enable the public slug link."}
+                                className="pa-portal-menu-item pa-portal-menu-item-muted"
+                                title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Set this form to Live to enable the public hosted link."}
                               >
-                                Live
+                                <span className="pa-portal-menu-item-icon" aria-hidden="true">●</span>
+                                <span className="pa-portal-menu-item-title">Open live</span>
                               </div>
                             )}
 
-                            <div className="my-2 h-px bg-zinc-100" />
+                            <div className="pa-portal-menu-separator" />
 
                             <button
                               type="button"
@@ -2405,11 +2419,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-700 transition-colors duration-150 hover:bg-zinc-50",
+                                "pa-portal-menu-item",
                                 formSaveBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
-                              Route & status
+                              <span className="pa-portal-menu-item-icon" aria-hidden="true">⇄</span>
+                              <span className="pa-portal-menu-item-title">Route & status</span>
                             </button>
 
                             <button
@@ -2421,14 +2436,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-150 hover:bg-zinc-50",
+                                "pa-portal-menu-item pa-portal-menu-item-danger",
                                 formDeleteBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
-                              Delete
+                              <span className="pa-portal-menu-item-icon" aria-hidden="true">×</span>
+                              <span className="pa-portal-menu-item-title">Delete</span>
                             </button>
                           </div>
-                        </div>
+                          </div>
+                        </LiquidGlassPopupSurface>
                       ) : null}
                     </div>
                   </div>
@@ -2975,9 +2992,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
                     />
                     <div className="mt-1 text-xs text-zinc-500">
-                      Live URL: {formPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
+                      Public slug: {formPublicBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
                     </div>
-                    <div className="mt-1 text-xs text-zinc-500">The keyed preview link is available after creation.</div>
+                    <div className="mt-1 text-xs text-zinc-500">After creation, Preview and Live use the exact hosted link with the form key.</div>
                   </div>
 
                   <div>

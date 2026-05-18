@@ -40,6 +40,7 @@ import { IconRedo, IconSend, IconSendHover, IconUndo } from "@/app/portal/Portal
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
+import { portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 import { resolveBusinessProfileRuntimeSnapshot } from "@/lib/businessProfileRuntimeSnapshot";
@@ -247,6 +248,16 @@ const MOBILE_EDITOR_SIDEBAR_BREAKPOINT = 1024;
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
+
+const funnelEditorShellClass = "bg-[radial-gradient(circle_at_top,rgba(30,41,59,0.9),rgba(2,6,23,0.98)_62%)] text-zinc-100";
+const funnelEditorChromePanelClass = classNames(
+  "border border-white/10 bg-[rgba(15,23,42,0.72)] text-zinc-100 shadow-[0_20px_50px_rgba(2,6,23,0.35)] supports-backdrop-filter:bg-[rgba(15,23,42,0.56)] supports-backdrop-filter:backdrop-blur-xl",
+  portalGlassPanelClass,
+);
+const funnelEditorChromeButtonClass = classNames(
+  "border border-white/12 bg-[rgba(15,23,42,0.72)] text-zinc-100 shadow-[0_12px_30px_rgba(2,6,23,0.28)] hover:bg-[rgba(30,41,59,0.84)] hover:text-white",
+  portalGlassButtonClass,
+);
 
 function formatEditableTextKind(kind: string) {
   return String(kind || "text")
@@ -600,9 +611,9 @@ function PreviewModeToggleButton({
       aria-pressed={active}
       title={title || label}
       className={classNames(
-        "rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition-[border-color,background-color,color,box-shadow] duration-150",
+        "pa-funnel-editor-preview-toggle rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition-[border-color,background-color,color,box-shadow] duration-150",
         active
-          ? "border-blue-200 bg-blue-50 text-blue-800 shadow-[0_8px_18px_rgba(59,130,246,0.08)]"
+          ? "pa-funnel-editor-preview-toggle--active border-zinc-300 bg-zinc-950 text-white shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
           : "border-transparent text-zinc-600 hover:border-zinc-200 hover:bg-white hover:text-zinc-950",
       )}
     >
@@ -19380,14 +19391,14 @@ export function FunnelEditorClient({
         ) : null}
       </AppModal>
 
-      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfb_100%)] backdrop-blur-sm">
+      <header className={classNames("sticky top-0 z-20 border-b border-white/10 backdrop-blur-sm", funnelEditorShellClass)}>
         <div className="px-4 py-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               onClick={requestEditorExit}
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              className={classNames("rounded-xl px-3 py-2 text-sm font-semibold", funnelEditorChromeButtonClass)}
             >
               Back
             </button>
@@ -19406,7 +19417,7 @@ export function FunnelEditorClient({
                     ...(pages || []).map((p) => ({ value: p.id, label: p.title })),
                   ]}
                   className="w-full sm:min-w-55 sm:w-auto"
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                  buttonClassName={classNames("flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-slate-400", funnelEditorChromeButtonClass)}
                   disabled={busy || !pages || pages.length === 0}
                 />
 
@@ -19422,12 +19433,12 @@ export function FunnelEditorClient({
                   + Page
                 </button>
 
-                <div className="inline-flex items-center self-start rounded-xl border border-zinc-200 bg-white p-1 sm:self-auto">
+                <div className={classNames("inline-flex items-center self-start rounded-xl p-1 sm:self-auto", funnelEditorChromeButtonClass)}>
                   <button
                     type="button"
                     disabled={busy || !selectedPage || !canUndo}
                     onClick={() => undo()}
-                    className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                    className="rounded-lg p-2 text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
                     title={
                       typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
                         ? "Undo (âŒ˜Z)"
@@ -19441,7 +19452,7 @@ export function FunnelEditorClient({
                     type="button"
                     disabled={busy || !selectedPage || !canRedo}
                     onClick={() => redo()}
-                    className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                    className="rounded-lg p-2 text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
                     title={
                       typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
                         ? "Redo (â‡§âŒ˜Z)"
@@ -19458,8 +19469,8 @@ export function FunnelEditorClient({
                   <span className={classNames(
                     "order-last inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium sm:order-0",
                     selectedPageDirty
-                      ? "border-amber-200 bg-amber-50/80 text-zinc-800"
-                      : "border-zinc-200 bg-white text-zinc-600",
+                      ? "border-amber-300/60 bg-amber-500/12 text-amber-100"
+                      : "border-emerald-400/20 bg-emerald-500/10 text-emerald-100",
                   )}>
                     <span
                       aria-hidden="true"
@@ -19512,7 +19523,8 @@ export function FunnelEditorClient({
                   disabled={!selectedPage}
                   onClick={() => setWorkspaceActionsOpen(true)}
                   className={classNames(
-                    "inline-flex w-full items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 sm:w-auto",
+                    "inline-flex w-full items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold sm:w-auto",
+                    funnelEditorChromeButtonClass,
                     !selectedPage ? "opacity-50" : "",
                   )}
                 >
@@ -19520,7 +19532,7 @@ export function FunnelEditorClient({
                 </button>
               </div>
 
-              <div className="text-xs leading-5 text-zinc-500 lg:max-w-135 lg:text-right">
+              <div className="text-xs leading-5 text-zinc-300 lg:max-w-135 lg:text-right">
                 {workflowHeaderHint}
               </div>
             </div>
@@ -19555,6 +19567,7 @@ export function FunnelEditorClient({
         } as any}
         className={classNames(
           "relative flex flex-1 flex-col overflow-auto lg:min-h-0 lg:overflow-hidden motion-reduce:transition-none",
+          funnelEditorShellClass,
           reserveChatRailSpace
             ? sidebarCollapsed
               ? "lg:grid lg:grid-cols-[72px_minmax(0,1fr)_var(--funnel-chat-rail-width)]"
@@ -19566,7 +19579,8 @@ export function FunnelEditorClient({
       >
         <aside
           className={classNames(
-            "w-full shrink-0 border-b border-zinc-200 bg-[linear-gradient(180deg,#fbfbfb_0%,#ffffff_100%)] py-3 lg:order-1 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r",
+            "w-full shrink-0 border-b border-white/10 py-3 lg:order-1 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r",
+            funnelEditorShellClass,
             sidebarCollapsed ? "overflow-hidden px-2 lg:px-2" : "overflow-y-auto px-2.5 lg:px-3",
           )}
         >
@@ -19575,7 +19589,7 @@ export function FunnelEditorClient({
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed(false)}
-                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-zinc-700 hover:bg-zinc-50 lg:w-10 lg:rounded-md lg:px-0"
+                className={classNames("inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl px-3 lg:w-10 lg:rounded-md lg:px-0", funnelEditorChromeButtonClass)}
                 title="Expand sidebar"
                 aria-label="Expand sidebar"
               >
@@ -19587,15 +19601,15 @@ export function FunnelEditorClient({
             </div>
           ) : (
             <>
-              <div className="mb-3 flex items-center justify-between gap-3 border-b border-zinc-200 pb-3">
+              <div className="mb-3 flex items-center justify-between gap-3 border-b border-white/10 pb-3">
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-zinc-900">{sidebarTitle}</div>
-                  {selectedPage && !blocksSurfaceActive ? <div className="mt-1 truncate text-xs text-zinc-500">{selectedPage.title || "Untitled page"}</div> : null}
+                  <div className="text-sm font-semibold text-zinc-100">{sidebarTitle}</div>
+                  {selectedPage && !blocksSurfaceActive ? <div className="mt-1 truncate text-xs text-zinc-400">{selectedPage.title || "Untitled page"}</div> : null}
                 </div>
                 <button
                   type="button"
                   onClick={() => setSidebarCollapsed(true)}
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  className={classNames("inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold", funnelEditorChromeButtonClass)}
                 >
                   <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M13 4l-6 6 6 6" />
@@ -19691,32 +19705,33 @@ export function FunnelEditorClient({
 
         <main
           className={classNames(
-            "relative flex min-h-0 flex-col bg-zinc-100 p-3 sm:p-4",
+            "relative flex min-h-0 flex-col bg-transparent p-3 sm:p-4",
             wholePageModeActive ? "overflow-hidden" : "overflow-auto",
             "lg:order-2",
           )}
         >
           <div
             className={classNames(
-              "flex min-h-0 flex-1 flex-col overflow-hidden border border-zinc-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.06)]",
+              "flex min-h-0 flex-1 flex-col overflow-hidden shadow-[0_24px_60px_rgba(2,6,23,0.45)]",
+              funnelEditorChromePanelClass,
               previewDevice === "mobile" ? "rounded-2xl" : "rounded-none",
             )}
           >
-            <div className="flex items-center justify-between border-b border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfb_100%)] px-3.5 py-2">
+            <div className="flex items-center justify-between border-b border-white/10 bg-[linear-gradient(180deg,rgba(30,41,59,0.78)_0%,rgba(15,23,42,0.64)_100%)] px-3.5 py-2 text-zinc-100">
               <div className="min-w-0 flex flex-wrap items-center gap-2">
-                <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Page"}</div>
+                <div className="truncate text-sm font-semibold text-zinc-100">{selectedPage?.title || "Page"}</div>
                 {selectedPage ? (
-                  <div className="max-w-full truncate rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
+                  <div className="max-w-full truncate rounded-full border border-white/12 bg-white/8 px-2.5 py-1 text-[11px] font-medium text-zinc-300">
                     {selectedPageRouteLabel}
                   </div>
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="inline-flex items-center gap-1.5 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-1">
+                <div className="inline-flex items-center gap-1.5 rounded-2xl border border-white/10 bg-white/8 p-1">
                   <button
                     type="button"
                     onClick={() => setPreviewDevice((prev) => (prev === "desktop" ? "mobile" : "desktop"))}
-                    className="relative mr-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                    className="relative mr-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
                     aria-label={previewDevice === "desktop" ? "Switch to mobile preview" : "Switch to desktop preview"}
                     title={previewDevice === "desktop" ? "Switch to mobile" : "Switch to desktop"}
                   >
@@ -19760,7 +19775,7 @@ export function FunnelEditorClient({
 
                   {selectedPage ? (
                     <>
-                      <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
+                      <div className="mx-0.5 h-4 w-px shrink-0 bg-white/12" />
                       <BuilderStageToggleButton
                         label="Page"
                         active={pageSurfaceActive}
@@ -19782,7 +19797,7 @@ export function FunnelEditorClient({
                         }}
                       />
                       <div className="hidden lg:flex lg:items-center">
-                        <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
+                        <div className="mx-0.5 h-4 w-px shrink-0 bg-white/12" />
                         <BuilderStageToggleButton
                           label="Assistant"
                           active={chatRailOpen}
@@ -19802,7 +19817,7 @@ export function FunnelEditorClient({
                 </div>
                 {selectedPage && selectedPageSupportsBlocksSurface && pageCanvasView === "preview" ? (
                   <div className="flex items-center gap-2">
-                    <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
+                    <div className="inline-flex items-center gap-1 rounded-2xl border border-white/10 bg-white/8 p-1">
                       <PreviewModeToggleButton
                         label="View"
                         active={previewMode === "preview"}

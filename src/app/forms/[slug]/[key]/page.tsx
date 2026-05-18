@@ -1,13 +1,60 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
 import { parseCreditFormContent, parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 import { CreditHostedFormClient } from "@/app/credit/forms/[slug]/CreditHostedFormClient";
 import { publicKeyFromId } from "@/lib/publicHostedKeys";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+async function fetchHostedFormRoute(slug: string, key: string) {
+  const s = String(slug || "").trim().toLowerCase();
+  const k = String(key || "").trim();
+  if (!s || !k) return null;
+
+  const form = await prisma.creditForm
+    .findFirst({ where: { slug: s, id: { endsWith: k } }, select: { id: true, name: true, slug: true, status: true, schemaJson: true } })
+    .catch(() => null);
+
+  if (!form || form.status === "ARCHIVED") return null;
+  if (publicKeyFromId(form.id, k.length) !== k) return null;
+
+  const fields = parseCreditFormFields(form.schemaJson);
+  const style = parseCreditFormStyle(form.schemaJson);
+  const successContent = parseCreditFormSuccessContent(form.schemaJson);
+  const content = parseCreditFormContent(form.schemaJson);
+
+  return { form, fields, style, successContent, content };
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string; key: string }>;
+}): Promise<Metadata> {
+  const { slug, key } = await params;
+  const loaded = await fetchHostedFormRoute(slug, key);
+  if (!loaded) return {};
+
+  const title = loaded.content?.displayTitle?.trim() || loaded.form.name || "";
+  const description = loaded.content?.description?.trim() || "";
+  const canonicalUrl = toPurelyHostedUrl(`/forms/${encodeURIComponent(loaded.form.slug)}/${encodeURIComponent(key)}`);
+
+  return {
+    title: title || undefined,
+    description: description || undefined,
+    alternates: { canonical: canonicalUrl },
+    openGraph: {
+      title: title || undefined,
+      description: description || undefined,
+      url: canonicalUrl,
+    },
+  };
+}
 
 export default async function HostedFormWithKeyPage({
   params,
@@ -19,25 +66,13 @@ export default async function HostedFormWithKeyPage({
   const { slug, key } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
 
-  const s = String(slug || "").trim().toLowerCase();
-  const k = String(key || "").trim();
-  if (!s || !k) notFound();
+  const loaded = await fetchHostedFormRoute(slug, key);
+  if (!loaded) notFound();
 
   const embedRaw = resolvedSearchParams?.embed;
   const embed = Array.isArray(embedRaw) ? embedRaw[0] === "1" : embedRaw === "1";
 
-  const form = await prisma.creditForm
-    .findFirst({ where: { slug: s, id: { endsWith: k } }, select: { id: true, name: true, slug: true, status: true, schemaJson: true } })
-    .catch(() => null);
-
-  if (!form) notFound();
-  // Backward compatible: accept older links that used a different short-key length.
-  if (publicKeyFromId(form.id, k.length) !== k) notFound();
-
-  const fields = parseCreditFormFields(form.schemaJson);
-  const style = parseCreditFormStyle(form.schemaJson);
-  const successContent = parseCreditFormSuccessContent(form.schemaJson);
-  const content = parseCreditFormContent(form.schemaJson);
+  const { form, fields, style, successContent, content } = loaded;
   const pageBg = style.pageBg ?? (embed ? "transparent" : "#f4f4f5");
 
   return (
@@ -52,7 +87,7 @@ export default async function HostedFormWithKeyPage({
           successContent={successContent}
           content={content}
           submitBasePath="/portal"
-          hostedKey={k}
+          hostedKey={key}
         />
       </main>
     </div>
