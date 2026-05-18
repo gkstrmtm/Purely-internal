@@ -4,14 +4,54 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
+import { isOutboundEmailConfigured, missingOutboundEmailConfigReason } from "@/lib/emailSender";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
+import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
 import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+function envFirst(keys: string[]): string {
+  for (const key of keys) {
+    const value = (process.env[key] ?? "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function envVoiceAgentId(): string {
+  return envFirst(["VOICE_AGENT_ID", "ELEVENLABS_AGENT_ID", "ELEVEN_LABS_AGENT_ID"]).slice(0, 120);
+}
+
+function envVoiceAgentApiKey(): string {
+  return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
+}
+
+async function getProfileVoiceReadiness(ownerId: string) {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const storedAgentId = typeof rec?.voiceAgentId === "string" ? rec.voiceAgentId.trim().slice(0, 120) : "";
+  const storedApiKey = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+
+  return {
+    apiKeyConfigured: Boolean(storedApiKey || envVoiceAgentApiKey()),
+    agentIdConfigured: Boolean(storedAgentId || envVoiceAgentId()),
+  };
+}
 
 const postSchema = z
   .object({
@@ -147,8 +187,22 @@ export async function GET(req: Request) {
     countsByCampaign.set(campaignId, next);
   }
 
+  const [twilio, voiceAgent] = await Promise.all([
+    getOwnerTwilioSmsConfigMasked(ownerId).catch(() => null),
+    getProfileVoiceReadiness(ownerId).catch(() => ({ apiKeyConfigured: false, agentIdConfigured: false })),
+  ]);
+  const emailConfigured = isOutboundEmailConfigured();
+
   return NextResponse.json({
     ok: true,
+    providerReadiness: {
+      twilio: { configured: Boolean(twilio?.configured) },
+      emailDelivery: {
+        configured: emailConfigured,
+        reason: emailConfigured ? null : missingOutboundEmailConfigReason(),
+      },
+      voiceAgent,
+    },
     campaigns: campaigns.map((c) => {
       const counts = countsByCampaign.get(String(c.id)) ?? { queued: 0, completed: 0 };
       return {

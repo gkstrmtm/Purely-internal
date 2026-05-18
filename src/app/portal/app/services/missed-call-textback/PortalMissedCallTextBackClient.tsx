@@ -559,11 +559,11 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
         <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="font-semibold">Twilio isn’t configured</div>
           <div className="mt-1 text-amber-900/80">
-            Configure Twilio in your Profile to enable texting.
+            Configure Twilio in Integrations to enable texting.
             {twilioReason ? ` (${twilioReason})` : ""}
             <span className="ml-2">
-              <Link href={`${portalBase}/app/profile`} className="underline">
-                Open Profile
+              <Link href={`${portalBase}/app/settings/integrations`} className="underline">
+                Open Integrations
               </Link>
             </span>
           </div>

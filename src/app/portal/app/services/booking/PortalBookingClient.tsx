@@ -187,6 +187,22 @@ function getApiError(body: unknown): string | undefined {
   return typeof rec.error === "string" ? rec.error : undefined;
 }
 
+type ReminderProviderStatus = {
+  twilioConfigured: boolean;
+  emailConfigured: boolean;
+  emailReason: string | null;
+};
+
+function parseReminderProviderStatus(body: unknown): ReminderProviderStatus {
+  const rec = body && typeof body === "object" ? (body as Record<string, any>) : {};
+  const emailReasonRaw = rec?.emailDelivery?.reason;
+  return {
+    twilioConfigured: Boolean(rec?.twilio?.configured),
+    emailConfigured: Boolean(rec?.emailDelivery?.configured),
+    emailReason: typeof emailReasonRaw === "string" ? emailReasonRaw : null,
+  };
+}
+
 function ToggleSwitch({
   checked,
   onChange,
@@ -680,6 +696,7 @@ export function PortalBookingClient() {
   const [reminderSettings, setReminderSettings] = useState<AppointmentReminderSettings | null>(null);
   const [reminderDraft, setReminderDraft] = useState<AppointmentReminderSettings | null>(null);
   const [reminderEvents, setReminderEvents] = useState<AppointmentReminderEvent[]>([]);
+  const [reminderProviderStatus, setReminderProviderStatus] = useState<ReminderProviderStatus | null>(null);
   const [reminderSaving, setReminderSaving] = useState(false);
   const [reminderTemplateOpen, setReminderTemplateOpen] = useState(false);
 
@@ -939,6 +956,7 @@ export function PortalBookingClient() {
     setReminderDraft(settings);
     setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
     setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
+    setReminderProviderStatus(parseReminderProviderStatus(remindersJson));
   }
 
   const verifiedBookingDomain = useMemo(() => {
@@ -1136,6 +1154,7 @@ export function PortalBookingClient() {
       setReminderDraft(settings);
       setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
       setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
+      setReminderProviderStatus(parseReminderProviderStatus(remindersJson));
     }
 
       if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok || !calendarsRes.ok || !blocksRes.ok || !remindersRes.ok) {
@@ -1290,6 +1309,7 @@ export function PortalBookingClient() {
     setReminderSettings(settings);
     setReminderDraft(settings);
     setReminderEvents((((body as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+    setReminderProviderStatus(parseReminderProviderStatus(body));
     setStatus("Saved appointment reminders");
   }
 
@@ -2175,6 +2195,63 @@ export function PortalBookingClient() {
 
 
             <div className="mt-4">
+              {reminderProviderStatus ? (
+                <div className="mb-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Channel readiness</div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-zinc-900">SMS reminders</div>
+                        <span
+                          className={
+                            "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold " +
+                            (reminderProviderStatus.twilioConfigured
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-amber-100 text-amber-700")
+                          }
+                        >
+                          {reminderProviderStatus.twilioConfigured ? "Live" : "Blocked"}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-sm text-zinc-600">
+                        {reminderProviderStatus.twilioConfigured
+                          ? "Twilio is connected, so SMS reminder steps can send live."
+                          : "Twilio powers SMS reminders. Connect it before relying on text reminders."}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-zinc-900">Email reminders</div>
+                        <span
+                          className={
+                            "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold " +
+                            (reminderProviderStatus.emailConfigured
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-amber-100 text-amber-700")
+                          }
+                        >
+                          {reminderProviderStatus.emailConfigured ? "Live" : "Needs credentials"}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-sm text-zinc-600">
+                        {reminderProviderStatus.emailConfigured
+                          ? "Email delivery is configured, so email reminder steps can send live."
+                          : reminderProviderStatus.emailReason || "Email delivery is not configured yet."}
+                      </div>
+                    </div>
+                  </div>
+                  {!reminderProviderStatus.twilioConfigured || !reminderProviderStatus.emailConfigured ? (
+                    <div className="mt-3 text-sm text-zinc-600">
+                      Set missing providers in{" "}
+                      <Link href={`${appBase}/settings/integrations`} className="font-semibold text-brand-ink underline underline-offset-2">
+                        Integrations
+                      </Link>
+                      {" "}before treating these reminders as live.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               <label className="block text-xs font-semibold text-zinc-600">Calendar</label>
               <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
                 <PortalListboxDropdown

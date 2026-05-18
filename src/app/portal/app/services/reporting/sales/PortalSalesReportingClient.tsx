@@ -300,7 +300,7 @@ export function PortalSalesReportingClient() {
       ) : (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">No provider connected</div>
-          <div className="mt-2 text-sm text-zinc-600">Connect a payment processor in Profile to enable sales reporting.</div>
+          <div className="mt-2 text-sm text-zinc-600">Connect a payment processor in Integrations to enable sales reporting.</div>
           <div className="mt-4">
             <Link
               href={`${portalBase}/app/settings/integrations`}

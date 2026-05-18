@@ -1058,24 +1058,28 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const aiStepLabel = (step: (typeof aiStepOrder)[number]) => {
     switch (step) {
       case "delivery":
-        return "Delivery";
+        return "Schedule & channels";
       case "styling":
-        return "Styling";
+        return "Hosted page style";
       case "guided":
-        return "Guided prompt";
+        return "AI context";
       case "topics":
-        return "Topic hints";
+        return "Topic ideas";
       case "review":
-        return "Review";
+        return "Generate draft";
     }
   };
 
   const reviewSynopsis = useMemo(() => {
     if (!settings) return "";
-    const channelParts = [settings.channels.email ? "Email" : null, settings.channels.sms ? "SMS" : null].filter(Boolean);
+    const channelParts = [settings.channels.email ? "Email draft" : null, settings.channels.sms ? "SMS draft with link" : null].filter(Boolean);
     const font = settings.fontKey ?? "brand";
-    const enabledLine = settings.enabled ? `Enabled · every ${settings.frequencyDays}d` : "Disabled";
-    const approvalLine = settings.requireApproval ? "Requires approval (creates READY drafts)" : "Auto-send (sends immediately)";
+    const enabledLine = settings.enabled
+      ? `Runs every ${settings.frequencyDays} day${settings.frequencyDays === 1 ? "" : "s"}`
+      : "Off";
+    const approvalLine = settings.requireApproval
+      ? "Creates drafts for review before anything is sent"
+      : "Sends automatically on the schedule above";
     const royaltyFreeImages = settings.royaltyFreeImages ?? true;
     const imagesLine = settings.includeImages
       ? `Images: yes${royaltyFreeImages ? " (royalty-free)" : ""}${settings.includeImagesWhereNeeded ? " (only where needed)" : ""}`
@@ -1315,8 +1319,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-semibold text-zinc-900">Composer</div>
-                  <div className="mt-1 text-sm text-zinc-600">Use AI to draft content, or write it manually.</div>
+                  <div className="text-sm font-semibold text-zinc-900">Newsletter draft setup</div>
+                  <div className="mt-1 text-sm text-zinc-600">Choose how this newsletter should be drafted, reviewed, and sent.</div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -1343,7 +1347,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
                       <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
                     </svg>
-                    <span>AI</span>
+                    <span>AI draft</span>
                   </button>
                   <button
                     type="button"
@@ -1353,7 +1357,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       (mode === "manual" ? "bg-brand-ink text-white hover:opacity-95" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                     }
                   >
-                    <span>Manual</span>
+                    <span>Write manually</span>
                   </button>
 
                   <button
@@ -1367,7 +1371,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-90")
                     }
                   >
-                    {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
+                    {saving ? "Saving…" : isDirty ? "Save setup" : "Setup saved"}
                   </button>
 
                   <button
@@ -1379,6 +1383,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     ×
                   </button>
                 </div>
+              </div>
+
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
+                {mode === "ai"
+                  ? "AI uses the schedule, channel, and prompt details below to draft the newsletter for you. You can review the draft before sending."
+                  : "Write the newsletter title, hosted page, and optional email or SMS draft yourself. This screen creates drafts only and does not send anything."}
               </div>
 
           {mode === "manual" ? (
@@ -1394,17 +1404,17 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-zinc-600">Email message (sent with hosted link)</label>
+                <label className="text-xs font-semibold text-zinc-600">Email draft</label>
                 <textarea
                   value={manualExcerpt}
                   onChange={(e) => setManualExcerpt(e.target.value)}
                   className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="Write the email message. The hosted link is appended automatically."
+                  placeholder="Write the email message. The hosted page link is added automatically."
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-zinc-600">SMS message (sent with hosted link)</label>
+                <label className="text-xs font-semibold text-zinc-600">SMS draft with link</label>
                 <input
                   value={manualSmsText}
                   onChange={(e) => setManualSmsText(e.target.value)}
@@ -1705,7 +1715,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   onClick={() => void createManual("DRAFT")}
                   disabled={manualCreating}
                 >
-                  {manualCreating ? "Working…" : "Create draft"}
+                  {manualCreating ? "Working…" : "Save as draft"}
                 </button>
                 <button
                   type="button"
@@ -1713,7 +1723,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   onClick={() => void createManual("READY")}
                   disabled={manualCreating}
                 >
-                  {manualCreating ? "Working…" : "Create READY"}
+                  {manualCreating ? "Working…" : "Create review-ready draft"}
                 </button>
               </div>
             </div>
@@ -1749,23 +1759,23 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <div className="rounded-2xl border border-brand-blue/20 bg-brand-blue/5 px-4 py-3 sm:col-span-2">
                     <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
                       <div>
-                        <div className="text-sm font-semibold text-zinc-800">Skip to the end</div>
-                        <div className="mt-1 text-xs text-zinc-600">Skip to Review to generate this whole thing with AI.</div>
+                        <div className="text-sm font-semibold text-zinc-800">Jump to the last step</div>
+                        <div className="mt-1 text-xs text-zinc-600">Review the setup first, then generate the draft when you are ready.</div>
                       </div>
                       <button
                         type="button"
                         onClick={() => setAiStep("review")}
                         className="rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90"
                       >
-                        Skip to Review
+                        Review draft settings
                       </button>
                     </div>
                   </div>
 
                   <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                     <div>
-                      <div className="text-sm font-semibold text-zinc-800">Enabled</div>
-                      <div className="mt-1 text-xs text-zinc-500">Runs on schedule when enabled.</div>
+                      <div className="text-sm font-semibold text-zinc-800">Run this automatically</div>
+                      <div className="mt-1 text-xs text-zinc-500">When this is on, the system runs on the schedule below.</div>
                     </div>
                     <ToggleSwitch
                       checked={Boolean(settings?.enabled)}
@@ -1775,7 +1785,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   </label>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Frequency</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">How often should this run?</div>
                     <div className="mt-2 flex gap-2">
                       <input
                         type="number"
@@ -1824,13 +1834,13 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         />
                       </div>
                     </div>
-                    <div className="mt-2 text-xs text-zinc-500">Stored as days for scheduling.</div>
+                    <div className="mt-2 text-xs text-zinc-500">Saved in days behind the scenes for scheduling.</div>
                   </div>
 
                   <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                     <div>
-                      <div className="text-sm font-semibold text-zinc-800">Require approval</div>
-                      <div className="mt-1 text-xs text-zinc-500">If enabled, scheduled runs create READY drafts you manually send.</div>
+                      <div className="text-sm font-semibold text-zinc-800">Review before sending</div>
+                      <div className="mt-1 text-xs text-zinc-500">When this is on, scheduled runs create drafts for you to review before anything is sent.</div>
                     </div>
                     <ToggleSwitch
                       checked={Boolean(settings?.requireApproval)}
@@ -1840,7 +1850,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   </label>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Channels</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Which channels should this use?</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <label
                         className={
@@ -1865,7 +1875,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             (settings?.channels?.email ? "bg-[color:var(--color-brand-blue)]" : "bg-zinc-300")
                           }
                         />
-                        Email
+                        Email draft
                       </label>
 
                       <label
@@ -1891,22 +1901,23 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             (settings?.channels?.sms ? "bg-[color:var(--color-brand-blue)]" : "bg-zinc-300")
                           }
                         />
-                        SMS (link)
+                        SMS draft with link
                       </label>
                     </div>
+                    <div className="mt-2 text-xs text-zinc-500">Email prepares the email message. SMS prepares a text message and adds the hosted page link automatically.</div>
                   </div>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
                     <div>
                       <div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delivery copy (AI)</div>
-                        <div className="mt-1 text-xs text-zinc-500">Guide the tone and length. The system appends the hosted link.</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">AI writing instructions</div>
+                        <div className="mt-1 text-xs text-zinc-500">Tell AI how to write the email and SMS drafts. The final message includes the hosted page link automatically.</div>
                       </div>
                     </div>
 
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <label className="block">
-                        <div className="text-xs font-semibold text-zinc-600">Email message guidance</div>
+                        <div className="text-xs font-semibold text-zinc-600">Email draft instructions</div>
                         <textarea
                           value={settings?.deliveryEmailHint ?? ""}
                           onChange={(e) =>
@@ -1918,7 +1929,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         />
                       </label>
                       <label className="block">
-                        <div className="text-xs font-semibold text-zinc-600">SMS message guidance</div>
+                        <div className="text-xs font-semibold text-zinc-600">SMS draft instructions</div>
                         <textarea
                           value={settings?.deliverySmsHint ?? ""}
                           onChange={(e) => setSettings((prev) => (prev ? { ...prev, deliverySmsHint: e.target.value.slice(0, 800) } : prev))}
@@ -2014,8 +2025,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
               {aiStep === "guided" ? (
                 <div className="mt-4">
-                  <div className="text-sm font-semibold text-zinc-900">Guided prompt</div>
-                  <div className="mt-2 text-sm text-zinc-600">Answer a few questions to steer the next draft.</div>
+                  <div className="text-sm font-semibold text-zinc-900">AI context</div>
+                  <div className="mt-2 text-sm text-zinc-600">Answer a few questions so AI knows what to emphasize in the next draft.</div>
                   <div className="mt-3 grid gap-3">
                     {promptFields.map((f) => (
                       <label key={f.key} className="block">
@@ -2041,8 +2052,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
               {aiStep === "topics" ? (
                 <div className="mt-4">
-                  <div className="text-sm font-semibold text-zinc-900">Topic hints (optional)</div>
-                  <div className="mt-2 text-sm text-zinc-600">Add as many as you want. The generator rotates through these over time.</div>
+                  <div className="text-sm font-semibold text-zinc-900">Topic ideas (optional)</div>
+                  <div className="mt-2 text-sm text-zinc-600">Add as many as you want. AI can rotate through these ideas over time.</div>
 
                   <div className="mt-3 space-y-2">
                     {(Array.isArray(settings?.topics) && settings?.topics.length ? settings.topics : [""]).map((t, idx, arr) => (
@@ -2102,8 +2113,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
               {aiStep === "review" ? (
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Review</div>
-                  <div className="mt-1 text-sm text-zinc-600">Confirm the inputs, then generate a draft (30 credits).</div>
+                  <div className="text-sm font-semibold text-zinc-900">Generate draft</div>
+                  <div className="mt-1 text-sm text-zinc-600">Confirm the setup below, then generate a draft (30 credits). Nothing is sent from this step.</div>
                   <pre className="mt-3 whitespace-pre-wrap wrap-break-word rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
                     {reviewSynopsis || "No settings loaded."}
                   </pre>
@@ -2120,7 +2131,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       disabled={saving || !settings || !isDirty}
                       onClick={saveSettings}
                     >
-                      {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
+                      {saving ? "Saving…" : isDirty ? "Save setup" : "Setup saved"}
                     </button>
                     <button
                       type="button"
@@ -2149,7 +2160,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
                         <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
                       </svg>
-                      <span>{generating ? "Generating…" : "Generate"}</span>
+                      <span>{generating ? "Generating…" : "Generate draft"}</span>
                     </button>
                   </div>
                 </div>

@@ -22,6 +22,7 @@ import {
   providerLabel,
   type SalesReportingProviderKey,
 } from "@/lib/salesReportingProviders";
+import { normalizeBookingMeetingIntegrationStatus, type BookingMeetingIntegrationStatus } from "@/lib/bookingMeetingIntegrations.shared";
 import { SuggestedSetupSection } from "./SuggestedSetupSection";
 import { IconChevron, IconCopy, IconEyeGlyph, IconEyeOffGlyph } from "@/app/portal/PortalIcons";
 
@@ -239,6 +240,8 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationPayload | null>(null);
   const [salesStatusLoaded, setSalesStatusLoaded] = useState(false);
+  const [bookingIntegrations, setBookingIntegrations] = useState<BookingMeetingIntegrationStatus | null>(null);
+  const [bookingIntegrationsLoaded, setBookingIntegrationsLoaded] = useState(false);
   const [funnelDomains, setFunnelDomains] = useState<FunnelBuilderDomain[]>([]);
   const [funnelDomainsLoaded, setFunnelDomainsLoaded] = useState(false);
   const [domainComposerOpen, setDomainComposerOpen] = useState(false);
@@ -345,6 +348,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const showSuggestedSetup = mode === "all" || mode === "profile";
   const showContactSection = mode === "all" || mode === "profile";
   const showIntegrationSections = mode === "all" || mode === "integrations";
+  const showIntegrationOverview = mode === "integrations";
   const showBusinessSections = mode === "all" || mode === "business";
   const showAdvancedToggle = mode === "all";
 
@@ -600,6 +604,17 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     })();
 
     (async () => {
+      const res = await fetch("/api/portal/booking/settings", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+      setBookingIntegrationsLoaded(true);
+      if (!res?.ok) return;
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; site?: { meetingIntegrations?: unknown } } | null;
+      if (json?.ok) {
+        setBookingIntegrations(normalizeBookingMeetingIntegrationStatus(json.site?.meetingIntegrations));
+      }
+    })();
+
+    (async () => {
       setMailboxLoading(true);
       setMailboxError(null);
       const res = await fetch("/api/portal/mailbox", { cache: "no-store" }).catch(() => null as any);
@@ -630,6 +645,193 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       mounted = false;
     };
   }, [portalMe, canViewWebhooks, canViewTwilio]);
+
+  const fullAccessApiKey = apiKeysState?.fullAccessKey ?? null;
+  const scopedApiKeys = apiKeysState?.scopedKeys ?? [];
+
+  const integrationOverviewCards = useMemo(() => {
+    if (!showIntegrationOverview) return [] as Array<{
+      title: string;
+      status: string;
+      tone: "success" | "warning" | "neutral";
+      description: string;
+    }>;
+
+    const salesCard = (() => {
+      if (!salesStatusLoaded) {
+        return {
+          title: "Payments & sales reporting",
+          status: "Checking setup…",
+          tone: "neutral" as const,
+          description: "Connect Stripe or another supported processor so Sales Reporting can read real transaction data.",
+        };
+      }
+      if (!salesStatus?.ok) {
+        return {
+          title: "Payments & sales reporting",
+          status: "Setup required",
+          tone: "warning" as const,
+          description: "No payment provider is active yet for sales reporting.",
+        };
+      }
+      if (!salesStatus.encryptionConfigured) {
+        return {
+          title: "Payments & sales reporting",
+          status: "Support required",
+          tone: "warning" as const,
+          description: "Secure credential storage is not enabled on this deployment yet.",
+        };
+      }
+      if (salesStatus.activeProvider) {
+        return {
+          title: "Payments & sales reporting",
+          status: `${providerLabel(salesStatus.activeProvider)} connected`,
+          tone: "success" as const,
+          description: "Sales Reporting will pull gross, refunds, and net directly from the connected processor.",
+        };
+      }
+      return {
+        title: "Payments & sales reporting",
+        status: "Setup required",
+        tone: "warning" as const,
+        description: "Choose a processor below, then paste the credentials needed for reporting.",
+      };
+    })();
+
+    const twilioCard = (() => {
+      if (!canViewTwilio && !canViewWebhooks) {
+        return {
+          title: "Twilio, SMS & voice",
+          status: "Access limited",
+          tone: "neutral" as const,
+          description: "An owner or admin needs to grant access before you can inspect or edit Twilio setup.",
+        };
+      }
+      if (twilioMasked?.configured) {
+        return {
+          title: "Twilio, SMS & voice",
+          status: "Connected",
+          tone: "success" as const,
+          description: twilioMasked.fromNumberE164
+            ? `Inbound and outbound messaging is tied to ${twilioMasked.fromNumberE164}.`
+            : "Twilio credentials are configured for calling and texting.",
+        };
+      }
+      return {
+        title: "Twilio, SMS & voice",
+        status: "Setup required",
+        tone: "warning" as const,
+        description: "Receptionist, missed-call text back, and SMS features need Twilio credentials here.",
+      };
+    })();
+
+    const bookingCard = (() => {
+      if (!bookingIntegrationsLoaded) {
+        return {
+          title: "Booking providers",
+          status: "Checking setup…",
+          tone: "neutral" as const,
+          description: "Zoom and Google Meet connections are reused by Booking and Funnel Builder.",
+        };
+      }
+      if (!bookingIntegrations?.encryptionConfigured) {
+        return {
+          title: "Booking providers",
+          status: "Support required",
+          tone: "warning" as const,
+          description: "Secure meeting-provider storage is not enabled on this deployment yet.",
+        };
+      }
+      const connectedProviders = Object.values(bookingIntegrations.providers).filter((provider) => provider.connected).length;
+      const oauthConfiguredProviders = Object.values(bookingIntegrations.providers).filter((provider) => provider.oauthConfigured).length;
+      if (connectedProviders > 0) {
+        return {
+          title: "Booking providers",
+          status: connectedProviders === 1 ? "1 provider connected" : `${connectedProviders} providers connected`,
+          tone: "success" as const,
+          description: "Booking pages and funnel booking blocks can create meeting links automatically.",
+        };
+      }
+      return {
+        title: "Booking providers",
+        status: oauthConfiguredProviders > 0 ? "Setup required" : "Support required",
+        tone: "warning" as const,
+        description: oauthConfiguredProviders > 0
+          ? "Open Booking to connect Zoom or Google Meet before using automatic meeting links."
+          : "Zoom or Google Meet OAuth is not configured on this deployment yet.",
+      };
+    })();
+
+    const apiKeysCard = (() => {
+      if (!apiKeysLoaded) {
+        return {
+          title: "API keys",
+          status: "Checking setup…",
+          tone: "neutral" as const,
+          description: "Manage the full-access key and any scoped keys for external integrations.",
+        };
+      }
+      const keyCount = (fullAccessApiKey ? 1 : 0) + scopedApiKeys.length;
+      if (keyCount > 0) {
+        return {
+          title: "API keys",
+          status: keyCount === 1 ? "1 key active" : `${keyCount} keys active`,
+          tone: "success" as const,
+          description: "Use scoped keys when a workflow should only access a narrow part of the portal.",
+        };
+      }
+      return {
+        title: "API keys",
+        status: "Setup optional",
+        tone: "neutral" as const,
+        description: "Create an API key only when another tool needs authenticated access to portal data.",
+      };
+    })();
+
+    const emailCard = (() => {
+      if (mailboxLoading) {
+        return {
+          title: "Business email",
+          status: "Checking setup…",
+          tone: "neutral" as const,
+          description: "This address is used for mailbox replies and other business-email flows.",
+        };
+      }
+      if (mailbox?.emailAddress) {
+        return {
+          title: "Business email",
+          status: mailbox.emailAddress,
+          tone: "success" as const,
+          description: mailbox.canChange
+            ? "You can update the mailbox local part below if this address should change."
+            : "This mailbox is locked for this workspace and already configured.",
+        };
+      }
+      return {
+        title: "Business email",
+        status: mailboxError ? "Setup required" : "Not configured",
+        tone: "warning" as const,
+        description: mailboxError || "Set the business mailbox so team and contact email flows have a clear sender identity.",
+      };
+    })();
+
+    return [salesCard, twilioCard, bookingCard, apiKeysCard, emailCard];
+  }, [
+    apiKeysLoaded,
+    bookingIntegrations,
+    bookingIntegrationsLoaded,
+    canViewTwilio,
+    canViewWebhooks,
+    fullAccessApiKey,
+    mailbox,
+    mailboxError,
+    mailboxLoading,
+    salesStatus,
+    salesStatusLoaded,
+    scopedApiKeys.length,
+    showIntegrationOverview,
+    twilioMasked,
+  ]);
 
   async function reloadDomains() {
     setFunnelDomainsLoaded(false);
@@ -1010,9 +1212,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     stripeSecretKey,
   ]);
 
-  const fullAccessApiKey = apiKeysState?.fullAccessKey ?? null;
-  const scopedApiKeys = apiKeysState?.scopedKeys ?? [];
-
   const canCreateApiKey = useMemo(() => {
     if (newApiKeyName.trim().length < 2) return false;
     if (!newApiKeyPermissions.length) return false;
@@ -1294,6 +1493,34 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
         </div>
       ) : (
         <div className="mt-6 space-y-4">
+          {showIntegrationOverview ? (
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+              <div className="text-base font-semibold text-brand-ink">What this page controls</div>
+              <div className="mt-1 text-sm text-zinc-600">
+                Related services should send you here for provider setup. Use the status cards below to see what is already connected, what still needs setup, and what is handled inside Booking.
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {integrationOverviewCards.map((card) => (
+                  <div key={card.title} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="text-sm font-semibold text-zinc-900">{card.title}</div>
+                      <span
+                        className={classNames(
+                          "rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
+                          card.tone === "success" && "bg-emerald-100 text-emerald-800",
+                          card.tone === "warning" && "bg-amber-100 text-amber-800",
+                          card.tone === "neutral" && "bg-zinc-200 text-zinc-700",
+                        )}
+                      >
+                        {card.status}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-sm text-zinc-600">{card.description}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {showSuggestedSetup ? <SuggestedSetupSection canEdit={canEditBusinessInfo} /> : null}
           {showContactSection ? (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

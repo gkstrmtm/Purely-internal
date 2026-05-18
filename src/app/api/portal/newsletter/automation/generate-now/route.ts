@@ -6,9 +6,17 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
+import { isOutboundEmailConfigured, missingOutboundEmailConfigReason } from "@/lib/emailSender";
 import { ensureNewsletterSiteForOwner, uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { normalizeNewsletterFontKey, stripLegacyNewsletterFontWrapper } from "@/lib/portalNewsletterFonts";
+import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
+import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
+import {
+  emailDeliverySetupBlocker,
+  formatProviderBlockers,
+  twilioSetupBlocker,
+} from "@/lib/providerSetupGuidance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -269,6 +277,40 @@ export async function POST(req: Request) {
   let sentAt: Date | null = null;
 
   if (!s.requireApproval) {
+    const portalBase = await requestPortalAppBasePath();
+    const integrationsPath = `${portalBase}/settings/integrations`;
+    const blockers = [];
+
+    if (s.channels.email && !isOutboundEmailConfigured()) {
+      blockers.push(
+        emailDeliverySetupBlocker({
+          setupPath: integrationsPath,
+          actionLabel: "Sending this generated newsletter",
+          reason: missingOutboundEmailConfigReason(),
+        }),
+      );
+    }
+
+    if (s.channels.sms) {
+      const twilio = await getOwnerTwilioSmsConfigMasked(ownerId).catch(() => null);
+      if (!twilio?.configured) {
+        blockers.push(
+          twilioSetupBlocker({
+            setupPath: integrationsPath,
+            actionLabel: "Sending this generated newsletter by text",
+            flowLabel: "SMS",
+          }),
+        );
+      }
+    }
+
+    if (blockers.length) {
+      return NextResponse.json(
+        { ok: false, error: formatProviderBlockers(blockers), providerBlockers: blockers },
+        { status: 409 },
+      );
+    }
+
     sendResults = await sendNewsletterToAudience({
       req,
       ownerId,

@@ -4,8 +4,16 @@ import { prisma } from "@/lib/db";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
+import { isOutboundEmailConfigured, missingOutboundEmailConfigReason } from "@/lib/emailSender";
 import { uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
+import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
+import {
+  emailDeliverySetupBlocker,
+  formatProviderBlockers,
+  twilioSetupBlocker,
+} from "@/lib/providerSetupGuidance";
 import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 
 export const runtime = "nodejs";
@@ -281,6 +289,37 @@ async function runKind(opts: {
   const fromName = profile?.businessName || opts.site.name || "Purely Automation";
 
   if (!opts.s.requireApproval) {
+    const portalBase = await requestPortalAppBasePath();
+    const integrationsPath = `${portalBase}/settings/integrations`;
+    const blockers = [];
+
+    if (opts.s.channels.email && !isOutboundEmailConfigured()) {
+      blockers.push(
+        emailDeliverySetupBlocker({
+          setupPath: integrationsPath,
+          actionLabel: "Sending this scheduled newsletter",
+          reason: missingOutboundEmailConfigReason(),
+        }),
+      );
+    }
+
+    if (opts.s.channels.sms) {
+      const twilio = await getOwnerTwilioSmsConfigMasked(opts.ownerId).catch(() => null);
+      if (!twilio?.configured) {
+        blockers.push(
+          twilioSetupBlocker({
+            setupPath: integrationsPath,
+            actionLabel: "Sending this scheduled newsletter by text",
+            flowLabel: "SMS",
+          }),
+        );
+      }
+    }
+
+    if (blockers.length) {
+      throw new Error(formatProviderBlockers(blockers));
+    }
+
     const sendResults = await sendNewsletterToAudience({
       req: opts.req,
       ownerId: opts.ownerId,

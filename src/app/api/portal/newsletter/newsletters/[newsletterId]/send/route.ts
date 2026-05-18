@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { isOutboundEmailConfigured, missingOutboundEmailConfigReason } from "@/lib/emailSender";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensureNewsletterSiteForOwner, sendNewsletterToAudience } from "@/lib/portalNewsletter";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
+import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
+import {
+  emailDeliverySetupBlocker,
+  formatProviderBlockers,
+  twilioSetupBlocker,
+} from "@/lib/providerSetupGuidance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +66,40 @@ export async function POST(req: Request, ctx: { params: Promise<{ newsletterId: 
   };
 
   const audience = (k?.audience && typeof k.audience === "object" ? k.audience : {}) as any;
+
+  const portalBase = await requestPortalAppBasePath();
+  const integrationsPath = `${portalBase}/settings/integrations`;
+  const blockers = [];
+
+  if (channels.email && !isOutboundEmailConfigured()) {
+    blockers.push(
+      emailDeliverySetupBlocker({
+        setupPath: integrationsPath,
+        actionLabel: "Sending this newsletter",
+        reason: missingOutboundEmailConfigReason(),
+      }),
+    );
+  }
+
+  if (channels.sms) {
+    const twilio = await getOwnerTwilioSmsConfigMasked(ownerId).catch(() => null);
+    if (!twilio?.configured) {
+      blockers.push(
+        twilioSetupBlocker({
+          setupPath: integrationsPath,
+          actionLabel: "Sending this newsletter by text",
+          flowLabel: "SMS",
+        }),
+      );
+    }
+  }
+
+  if (blockers.length) {
+    return NextResponse.json(
+      { ok: false, error: formatProviderBlockers(blockers), providerBlockers: blockers },
+      { status: 409 },
+    );
+  }
 
   const profile = await prisma.businessProfile.findUnique({
     where: { ownerId },

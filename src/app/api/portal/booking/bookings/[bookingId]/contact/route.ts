@@ -3,8 +3,15 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { isOutboundEmailConfigured, missingOutboundEmailConfigReason } from "@/lib/emailSender";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
-import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { getOwnerTwilioSmsConfigMasked, sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
+import {
+  emailDeliverySetupBlocker,
+  formatProviderBlockers,
+  twilioSetupBlocker,
+} from "@/lib/providerSetupGuidance";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { sendTransactionalEmail } from "@/lib/emailSender";
 
@@ -77,6 +84,37 @@ export async function POST(
   const sendSmsRequested = Boolean(parsed.data.sendSms);
   if (!sendEmailRequested && !sendSmsRequested) {
     return NextResponse.json({ error: "Choose Email and/or Text." }, { status: 400 });
+  }
+
+  const portalBase = await requestPortalAppBasePath();
+  const integrationsPath = `${portalBase}/settings/integrations`;
+  const blockers = [];
+
+  if (sendEmailRequested && !isOutboundEmailConfigured()) {
+    blockers.push(
+      emailDeliverySetupBlocker({
+        setupPath: integrationsPath,
+        actionLabel: "Sending this follow-up email",
+        reason: missingOutboundEmailConfigReason(),
+      }),
+    );
+  }
+
+  if (sendSmsRequested) {
+    const twilio = await getOwnerTwilioSmsConfigMasked(ownerId).catch(() => null);
+    if (!twilio?.configured) {
+      blockers.push(
+        twilioSetupBlocker({
+          setupPath: integrationsPath,
+          actionLabel: "Sending this follow-up text",
+          flowLabel: "SMS",
+        }),
+      );
+    }
+  }
+
+  if (blockers.length) {
+    return NextResponse.json({ error: formatProviderBlockers(blockers), providerBlockers: blockers }, { status: 409 });
   }
 
   const site = await prisma.portalBookingSite.findUnique({

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { isOutboundEmailConfigured, missingOutboundEmailConfigReason } from "@/lib/emailSender";
 import {
   listAppointmentReminderEvents,
   parseAppointmentReminderSettings,
@@ -50,6 +51,10 @@ export async function GET(req: Request) {
     calendarId: selected.calendarId ?? null,
     isOverride: selected.isOverride,
     twilio,
+    emailDelivery: {
+      configured: isOutboundEmailConfigured(),
+      reason: isOutboundEmailConfigured() ? null : missingOutboundEmailConfigReason(),
+    },
     events,
     builtinVariables,
   });
@@ -91,5 +96,16 @@ export async function PUT(req: Request) {
     "endAt",
   ];
 
-  return NextResponse.json({ ok: true, settings: next, calendarId: calendarId ?? null, twilio, events, builtinVariables });
+  return NextResponse.json({
+    ok: true,
+    settings: next,
+    calendarId: calendarId ?? null,
+    twilio,
+    emailDelivery: {
+      configured: isOutboundEmailConfigured(),
+      reason: isOutboundEmailConfigured() ? null : missingOutboundEmailConfigReason(),
+    },
+    events,
+    builtinVariables,
+  });
 }

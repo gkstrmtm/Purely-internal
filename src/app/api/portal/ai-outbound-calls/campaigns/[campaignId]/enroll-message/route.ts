@@ -4,10 +4,18 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
+import { isOutboundEmailConfigured, missingOutboundEmailConfigReason } from "@/lib/emailSender";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { normalizeEmailKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { recordPortalContactServiceTrigger } from "@/lib/portalContactServiceTriggers";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
+import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
+import {
+  emailDeliverySetupBlocker,
+  formatProviderBlockers,
+  twilioSetupBlocker,
+} from "@/lib/providerSetupGuidance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,6 +117,66 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     | "SMS"
     | "EMAIL"
     | "BOTH";
+
+  const contact = await (prisma as any).portalContact
+    .findFirst({ where: { ownerId, id: contactId }, select: { email: true, phone: true } })
+    .catch(() => null);
+
+  const hasEmail = Boolean(String(contact?.email || "").trim());
+  const hasPhone = Boolean(String(contact?.phone || "").trim());
+  const twilio = (channelPolicy === "SMS" || channelPolicy === "BOTH")
+    ? await getOwnerTwilioSmsConfigMasked(ownerId).catch(() => null)
+    : null;
+  const emailConfigured = isOutboundEmailConfigured();
+  const smsReady = hasPhone && Boolean(twilio?.configured);
+  const emailReady = hasEmail && emailConfigured;
+  const portalBase = await requestPortalAppBasePath();
+  const blockers = [];
+
+  if (channelPolicy === "SMS" && !smsReady) {
+    blockers.push(
+      twilioSetupBlocker({
+        setupPath: `${portalBase}/settings/integrations`,
+        actionLabel: "Starting live SMS outreach for this campaign",
+        flowLabel: "SMS",
+      }),
+    );
+  }
+
+  if (channelPolicy === "EMAIL" && !emailReady) {
+    blockers.push(
+      emailDeliverySetupBlocker({
+        setupPath: `${portalBase}/settings/integrations`,
+        actionLabel: "Starting live email outreach for this campaign",
+        reason: missingOutboundEmailConfigReason(),
+      }),
+    );
+  }
+
+  if (channelPolicy === "BOTH" && !smsReady && !emailReady) {
+    if (hasPhone) {
+      blockers.push(
+        twilioSetupBlocker({
+          setupPath: `${portalBase}/settings/integrations`,
+          actionLabel: "Starting live message outreach for this campaign",
+          flowLabel: "SMS",
+        }),
+      );
+    }
+    if (hasEmail) {
+      blockers.push(
+        emailDeliverySetupBlocker({
+          setupPath: `${portalBase}/settings/integrations`,
+          actionLabel: "Starting live message outreach for this campaign",
+          reason: missingOutboundEmailConfigReason(),
+        }),
+      );
+    }
+  }
+
+  if (blockers.length) {
+    return NextResponse.json({ ok: false, error: formatProviderBlockers(blockers), providerBlockers: blockers }, { status: 409 });
+  }
 
   const existing = await prisma.portalAiOutboundMessageEnrollment
     .findUnique({ where: { campaignId_contactId: { campaignId: campaign.id, contactId } }, select: { id: true, sentFirstMessageAt: true } })

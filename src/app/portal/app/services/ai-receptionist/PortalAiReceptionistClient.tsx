@@ -1450,10 +1450,10 @@ export function PortalAiReceptionistClient() {
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="font-semibold">Connect Twilio to take calls</div>
           <div className="mt-1 text-amber-900/80">
-            AI Receptionist cannot receive live calls until Twilio is configured. Add your Twilio details in Profile, then use Testing for a safe check before relying on inbound traffic.
+            AI Receptionist cannot receive live calls until Twilio is configured. Add your Twilio details in Integrations, then use Testing for a safe check before relying on inbound traffic.
             <span className="ml-2">
-              <Link href={`${portalBase}/app/profile`} className="underline">
-                Open Profile
+              <Link href={`${portalBase}/app/settings/integrations`} className="underline">
+                Open Integrations
               </Link>
             </span>
           </div>
@@ -2664,10 +2664,10 @@ export function PortalAiReceptionistClient() {
                   </button>
                 ) : (
                   <Link
-                    href={`${portalBase}/app/profile`}
+                    href={`${portalBase}/app/settings/integrations`}
                     className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                   >
-                    Open Profile
+                    Open Integrations
                   </Link>
                 )}
               </div>

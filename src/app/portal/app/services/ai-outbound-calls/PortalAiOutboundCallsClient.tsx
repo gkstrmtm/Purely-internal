@@ -118,7 +118,15 @@ type ApiGetVoiceToolsResponse =
   | { ok: false; error?: string };
 
 type ApiGetCampaignsResponse =
-  | { ok: true; campaigns: Campaign[] }
+  | {
+      ok: true;
+      campaigns: Campaign[];
+      providerReadiness?: {
+        twilio?: { configured?: boolean };
+        emailDelivery?: { configured?: boolean; reason?: string | null };
+        voiceAgent?: { apiKeyConfigured?: boolean; agentIdConfigured?: boolean };
+      };
+    }
   | { ok: false; error: string };
 
 type ApiCreateCampaignResponse =
@@ -147,6 +155,14 @@ type ApiGenerateAgentConfigResponse =
 type ApiEnrollMessageContactResponse =
   | { ok: true; enrolled: true; alreadySentFirstMessage: boolean; activatedCampaign?: boolean }
   | { ok: false; error?: string };
+
+type OutboundProviderReadiness = {
+  twilioConfigured: boolean;
+  emailConfigured: boolean;
+  emailReason: string | null;
+  voiceApiKeyConfigured: boolean;
+  voiceAgentIdConfigured: boolean;
+};
 
 type ManualCall = {
   id: string;
@@ -522,6 +538,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     return p;
   }, [pathname]);
 
+  const appBase = useMemo(() => (pathname?.startsWith("/credit/") ? "/credit/app" : "/portal/app"), [pathname]);
+
   const isMobileApp = useMemo(() => {
     const q = String(searchParams?.get("pa_mobileapp") ?? "").trim();
     if (q === "1") return true;
@@ -542,6 +560,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [tags, setTags] = useState<ContactTag[]>([]);
+  const [providerReadiness, setProviderReadiness] = useState<OutboundProviderReadiness | null>(null);
   const [voiceTools, setVoiceTools] = useState<VoiceTool[]>([]);
   const [voiceToolsApiKeyConfigured, setVoiceToolsApiKeyConfigured] = useState(true);
 
@@ -1529,6 +1548,16 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         nextCampaigns.map((c) => [c.id, { calls: callsAgentSig(c), messages: messagesAgentSig(c) }]),
       );
 
+      setProviderReadiness({
+        twilioConfigured: Boolean((campaignsJson as any)?.providerReadiness?.twilio?.configured),
+        emailConfigured: Boolean((campaignsJson as any)?.providerReadiness?.emailDelivery?.configured),
+        emailReason:
+          typeof (campaignsJson as any)?.providerReadiness?.emailDelivery?.reason === "string"
+            ? (campaignsJson as any).providerReadiness.emailDelivery.reason
+            : null,
+        voiceApiKeyConfigured: Boolean((campaignsJson as any)?.providerReadiness?.voiceAgent?.apiKeyConfigured),
+        voiceAgentIdConfigured: Boolean((campaignsJson as any)?.providerReadiness?.voiceAgent?.agentIdConfigured),
+      });
       setCampaigns(nextCampaigns);
       setTags(Array.isArray((tagsJson as any).tags) ? ((tagsJson as any).tags as ContactTag[]) : []);
 
@@ -1546,6 +1575,49 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       setRefreshing(false);
     }
   }, [callsAgentSig, messagesAgentSig]);
+
+  const outboundReadinessCards = useMemo(
+    () => [
+      {
+        key: "voice",
+        label: "Voice calls",
+        state: providerReadiness?.voiceApiKeyConfigured && providerReadiness?.voiceAgentIdConfigured ? "Live" : "Blocked",
+        tone:
+          providerReadiness?.voiceApiKeyConfigured && providerReadiness?.voiceAgentIdConfigured
+            ? "bg-emerald-100 text-emerald-700"
+            : "bg-amber-100 text-amber-700",
+        description:
+          providerReadiness?.voiceApiKeyConfigured && providerReadiness?.voiceAgentIdConfigured
+            ? "Voice provider credentials and a default agent are set."
+            : "AI calls need a voice API key and agent ID in Profile before they can go live.",
+        href: `${appBase}/profile`,
+        cta: "Open Profile",
+      },
+      {
+        key: "sms",
+        label: "SMS messages",
+        state: providerReadiness?.twilioConfigured ? "Live" : "Blocked",
+        tone: providerReadiness?.twilioConfigured ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700",
+        description: providerReadiness?.twilioConfigured
+          ? "Twilio is connected, so SMS outreach can send live."
+          : "Twilio powers outbound texts. Connect it before activating SMS outreach.",
+        href: `${appBase}/settings/integrations`,
+        cta: "Open Integrations",
+      },
+      {
+        key: "email",
+        label: "Email messages",
+        state: providerReadiness?.emailConfigured ? "Live" : "Needs credentials",
+        tone: providerReadiness?.emailConfigured ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700",
+        description: providerReadiness?.emailConfigured
+          ? "Email delivery is configured, so email outreach can send live."
+          : providerReadiness?.emailReason || "Email delivery is not configured yet.",
+        href: `${appBase}/settings/integrations`,
+        cta: "Open Integrations",
+      },
+    ],
+    [appBase, providerReadiness],
+  );
 
   useEffect(() => {
     void loadVoiceLibrary();
@@ -2465,10 +2537,24 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Before your first campaign works</div>
                   <ul className="mt-3 space-y-2 text-sm text-zinc-700">
                     <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span><strong>Contacts with tags</strong> — campaigns target contacts by tag. Add contacts and tag them in People first.</span></li>
-                    <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span><strong>Voice provider (calls)</strong> — outbound calls require a connected ElevenLabs or equivalent voice agent API key in Settings.</span></li>
-                    <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span><strong>Twilio (messages)</strong> — outbound SMS requires a connected Twilio number. Email outbound uses your configured sender.</span></li>
                     <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span><strong>Credits</strong> — AI calls consume credits. Check your credit balance in Billing before activating a campaign.</span></li>
                   </ul>
+                  <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+                    {outboundReadinessCards.map((item) => (
+                      <div key={item.key} className="rounded-2xl border border-zinc-200 bg-white p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-sm font-semibold text-zinc-900">{item.label}</div>
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${item.tone}`}>
+                            {item.state}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-sm text-zinc-600">{item.description}</div>
+                        <Link href={item.href} className="mt-3 inline-flex text-sm font-semibold text-brand-ink underline underline-offset-2">
+                          {item.cta}
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="mt-5">
@@ -2535,6 +2621,23 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                     </button>
                   </div>
                 ) : null}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
+                {outboundReadinessCards.map((item) => (
+                  <div key={item.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold text-zinc-900">{item.label}</div>
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${item.tone}`}>
+                        {item.state}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-sm text-zinc-600">{item.description}</div>
+                    <Link href={item.href} className="mt-3 inline-flex text-sm font-semibold text-brand-ink underline underline-offset-2">
+                      {item.cta}
+                    </Link>
+                  </div>
+                ))}
               </div>
 
               {isMobileApp ? (

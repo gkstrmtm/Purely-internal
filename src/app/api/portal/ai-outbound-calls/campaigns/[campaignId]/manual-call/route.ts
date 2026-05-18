@@ -8,6 +8,13 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
+import {
+  formatProviderBlockers,
+  twilioSetupBlocker,
+  voiceAgentApiKeyBlocker,
+  voiceAgentIdBlocker,
+} from "@/lib/providerSetupGuidance";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const runtime = "nodejs";
@@ -210,18 +217,46 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   });
   if (!campaign) return jsonError("Not found", 404);
 
+  const portalBase = await requestPortalAppBasePath();
+  const blockers = [];
   const twilio = await getOwnerTwilioSmsConfig(ownerId);
-  if (!twilio) return jsonError("Twilio is not configured for this account", 400);
+  if (!twilio) {
+    blockers.push(
+      twilioSetupBlocker({
+        setupPath: `${portalBase}/settings/integrations`,
+        actionLabel: "Starting this live outbound call",
+        flowLabel: "calls",
+      }),
+    );
+  }
 
   const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
-  if (!apiKey) return jsonError("Missing voice API key. Set it in Profile first.", 400);
+  if (!apiKey) {
+    blockers.push(
+      voiceAgentApiKeyBlocker({
+        setupPath: `${portalBase}/profile`,
+        actionLabel: "Starting this live outbound call",
+      }),
+    );
+  }
 
   const profileAgentId = await getProfileVoiceAgentId(ownerId);
   const agentId =
     String((campaign as any).manualVoiceAgentId || "").trim() ||
     String(campaign.voiceAgentId || "").trim() ||
     String(profileAgentId || "").trim();
-  if (!agentId) return jsonError("Missing agent id. Set one on this campaign or in Profile.", 400);
+  if (!agentId) {
+    blockers.push(
+      voiceAgentIdBlocker({
+        setupPath: `${portalBase}/profile`,
+        actionLabel: "Starting this live outbound call",
+      }),
+    );
+  }
+
+  if (blockers.length) {
+    return NextResponse.json({ ok: false, error: formatProviderBlockers(blockers), providerBlockers: blockers }, { status: 409 });
+  }
 
   const manualCallId = crypto.randomUUID();
   const token = crypto.randomUUID();
