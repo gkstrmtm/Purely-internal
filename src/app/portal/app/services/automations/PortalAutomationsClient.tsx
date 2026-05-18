@@ -573,6 +573,212 @@ function shouldAutolabel(currentLabel: string) {
   return false;
 }
 
+type AutomationLifecycleStatus = "draft" | "blocked" | "paused" | "active";
+
+type AutomationReadiness = {
+  status: AutomationLifecycleStatus;
+  label: string;
+  summary: string;
+  issues: string[];
+  notes: string[];
+  canToggleLive: boolean;
+};
+
+function hasSetupText(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function automationStatusBadgeClass(status: AutomationLifecycleStatus) {
+  switch (status) {
+    case "draft":
+      return "border-zinc-200 bg-zinc-100 text-zinc-700";
+    case "blocked":
+      return "border-red-200 bg-red-50 text-red-700";
+    case "paused":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    default:
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  }
+}
+
+function evaluateAutomationReadiness(
+  automation: Automation,
+  context: {
+    ownerTags: ContactTag[];
+    ownerForms: Array<{ id: string; slug: string; name: string; status: string }>;
+    accountMembers: AccountMember[];
+    aiOutboundCallCampaigns: AiOutboundCallCampaign[];
+    nurtureCampaigns: NurtureCampaign[];
+    bookingCalendars: BookingCalendar[];
+  },
+): AutomationReadiness {
+  const nodes = Array.isArray(automation.nodes) ? automation.nodes : [];
+  const triggerNodes = nodes.filter((node) => node.type === "trigger" && node.config?.kind === "trigger");
+  const actionNodes = nodes.filter((node) => node.type === "action" && node.config?.kind === "action");
+  const issues: string[] = [];
+  const notes: string[] = [];
+  const pushIssue = (value: string) => {
+    if (!issues.includes(value)) issues.push(value);
+  };
+  const pushNote = (value: string) => {
+    if (!notes.includes(value)) notes.push(value);
+  };
+
+  const triggerConfig = triggerNodes[0]?.config?.kind === "trigger" ? triggerNodes[0].config : null;
+  const triggerKind = triggerConfig?.triggerKind ?? null;
+  const triggerHasContact = Boolean(triggerKind && triggerKind !== "scheduled_time" && triggerKind !== "manual");
+  const enabledCalendars = context.bookingCalendars.filter((calendar) => calendar.enabled !== false);
+  const enabledCalendarIds = new Set(enabledCalendars.map((calendar) => calendar.id));
+  const activeOutboundCampaigns = context.aiOutboundCallCampaigns.filter(
+    (campaign) => String(campaign.status || "").toUpperCase() === "ACTIVE",
+  );
+  const activeNurtureCampaigns = context.nurtureCampaigns.filter(
+    (campaign) => String(campaign.status || "").toUpperCase() === "ACTIVE",
+  );
+  const hasActiveMember = context.accountMembers.some((member) => Boolean(member.user?.active));
+
+  if (triggerNodes.length === 0) pushIssue("Add one trigger to decide when this automation runs.");
+  if (triggerNodes.length > 1) pushIssue("Keep only one trigger node per automation.");
+  if (actionNodes.length === 0) pushIssue("Add at least one action before activating this automation.");
+
+  if (triggerConfig?.triggerKind === "inbound_webhook" && !hasSetupText(triggerConfig.webhookKey)) {
+    pushIssue("Inbound webhook triggers need a webhook key.");
+  }
+  if (triggerConfig?.triggerKind === "form_submitted" && context.ownerForms.length === 0) {
+    pushIssue("Form submitted triggers need at least one funnel form.");
+  }
+  if (
+    triggerKind === "appointment_booked"
+    || triggerKind === "appointment_ended"
+    || triggerKind === "missed_appointment"
+  ) {
+    if (!enabledCalendars.length) {
+      pushIssue("Booking triggers need at least one enabled booking calendar.");
+    } else if (hasSetupText(triggerConfig?.calendarId) && !enabledCalendarIds.has(String(triggerConfig?.calendarId || ""))) {
+      pushIssue("This booking trigger points to a calendar that is no longer enabled.");
+    }
+  }
+  if (triggerConfig?.triggerKind === "scheduled_time" && triggerConfig.scheduleMode === "specific" && !hasSetupText(triggerConfig.specificTime)) {
+    pushIssue("Scheduled time triggers need a delivery time.");
+  }
+
+  for (const node of nodes) {
+    if (node.type === "condition" && node.config?.kind === "condition") {
+      if (!hasSetupText(node.config.left)) pushIssue("Condition steps need a field to evaluate.");
+      if (node.config.op !== "is_empty" && node.config.op !== "is_not_empty" && !hasSetupText(node.config.right)) {
+        pushIssue("Condition steps need a comparison value.");
+      }
+    }
+
+    if (node.type === "action" && node.config?.kind === "action") {
+      const config = node.config;
+      switch (config.actionKind) {
+        case "send_sms":
+          if (!hasSetupText(config.body)) pushIssue("Send SMS actions need a message body.");
+          if (config.smsTo === "custom" && !hasSetupText(config.smsToNumber)) pushIssue("Custom SMS destinations need a phone number.");
+          pushNote("SMS delivery still depends on Inbox and Twilio setup, which is not checked in this builder.");
+          break;
+        case "send_email":
+          if (!hasSetupText(config.subject)) pushIssue("Send Email actions need a subject.");
+          if (!hasSetupText(config.body)) pushIssue("Send Email actions need a body.");
+          if (config.emailTo === "custom" && !hasSetupText(config.emailToAddress)) pushIssue("Custom email destinations need an email address.");
+          pushNote("Email delivery still depends on Inbox mailbox setup, which is not checked in this builder.");
+          break;
+        case "create_task":
+          if (!hasSetupText(config.subject)) pushIssue("Create Task actions need a title.");
+          break;
+        case "assign_lead":
+          if (!hasActiveMember) pushIssue("Assign Lead needs at least one active account member.");
+          break;
+        case "find_contact":
+          if (!hasSetupText(config.contactName) && !hasSetupText(config.contactEmail) && !hasSetupText(config.contactPhone)) {
+            pushIssue("Find Contact needs at least one contact field.");
+          }
+          break;
+        case "create_contact":
+          if (!hasSetupText(config.contactName) && !hasSetupText(config.contactEmail) && !hasSetupText(config.contactPhone)) {
+            pushIssue("Create Contact needs at least one contact field.");
+          }
+          break;
+        case "update_contact":
+          if (!triggerHasContact) pushIssue("Update Contact needs a trigger that supplies a contact.");
+          if (!hasSetupText(config.contactName) && !hasSetupText(config.contactEmail) && !hasSetupText(config.contactPhone)) {
+            pushIssue("Update Contact needs at least one field to update.");
+          }
+          break;
+        case "add_tag":
+          if (!triggerHasContact) pushIssue("Add Tag needs a trigger that supplies a contact.");
+          if (!hasSetupText(config.tagId) && context.ownerTags.length === 0) pushIssue("Add Tag needs at least one available tag.");
+          break;
+        case "send_review_request":
+          if (!triggerHasContact) pushIssue("Review Request needs a trigger that supplies a contact.");
+          break;
+        case "send_booking_link":
+          if (!triggerHasContact) pushIssue("Book Appointment needs a trigger that supplies a contact.");
+          if (!enabledCalendars.length) pushIssue("Book Appointment needs at least one enabled booking calendar.");
+          break;
+        case "send_webhook":
+          if (!hasSetupText(config.webhookUrl)) pushIssue("Send Webhook actions need a destination URL.");
+          if (hasSetupText(config.webhookBodyJson)) {
+            try {
+              JSON.parse(String(config.webhookBodyJson));
+            } catch {
+              pushIssue("Send Webhook body must be valid JSON.");
+            }
+          }
+          break;
+        case "trigger_service": {
+          if (!triggerHasContact) pushIssue("Trigger Service needs a trigger that supplies a contact.");
+          const serviceSlug = String(config.serviceSlug || "ai-outbound-calls");
+          if (serviceSlug === "ai-outbound-calls") {
+            if (hasSetupText(config.serviceCampaignId) && !context.aiOutboundCallCampaigns.some((campaign) => campaign.id === config.serviceCampaignId)) {
+              pushIssue("This automation points to an AI outbound campaign that no longer exists.");
+            } else if (!hasSetupText(config.serviceCampaignId) && activeOutboundCampaigns.length === 0) {
+              pushIssue("Trigger Service needs at least one ACTIVE AI outbound campaign.");
+            }
+          } else if (serviceSlug === "nurture-campaigns") {
+            if (hasSetupText(config.serviceCampaignId) && !context.nurtureCampaigns.some((campaign) => campaign.id === config.serviceCampaignId)) {
+              pushIssue("This automation points to a nurture campaign that no longer exists.");
+            } else if (!hasSetupText(config.serviceCampaignId) && activeNurtureCampaigns.length === 0) {
+              pushIssue("Trigger Service needs at least one ACTIVE nurture campaign.");
+            }
+          } else {
+            pushIssue("This service action is not supported yet.");
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+
+  const status: AutomationLifecycleStatus = issues.some(
+    (issue) => issue === "Add one trigger to decide when this automation runs." || issue === "Add at least one action before activating this automation.",
+  )
+    ? "draft"
+    : issues.length > 0
+      ? "blocked"
+      : automation.paused
+        ? "paused"
+        : "active";
+
+  return {
+    status,
+    label: status === "draft" ? "Draft" : status === "blocked" ? "Blocked" : status === "paused" ? "Paused" : "Active",
+    summary: status === "draft"
+      ? issues[0] || "Add the first runnable steps."
+      : status === "blocked"
+        ? issues[0] || "Finish required setup before activation."
+        : status === "paused"
+          ? "Setup is complete enough to resume from this builder."
+          : "Setup looks runnable from this builder.",
+    issues,
+    notes,
+    canToggleLive: status === "active" || status === "paused",
+  };
+}
+
 export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const mode = props.mode ?? "editor";
   const pathname = usePathname();
@@ -610,7 +816,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const [testBody, setTestBody] = useState("Hello");
 
   const [listQuery, setListQuery] = useState("");
-  const [listStatus, setListStatus] = useState<"all" | "active" | "paused">("all");
+  const [listStatus, setListStatus] = useState<"all" | AutomationLifecycleStatus>("all");
   const [listTrigger, setListTrigger] = useState<"all" | TriggerKind>("all");
 
   const [openListMenu, setOpenListMenu] = useState<null | { automationId: string; left: number; top: number; maxHeight: number }>(null);
@@ -1267,6 +1473,28 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     if (!selectedAutomation || !selectedNodeId) return null;
     return selectedAutomation.nodes.find((n) => n.id === selectedNodeId) ?? null;
   }, [selectedAutomation, selectedNodeId]);
+
+  const automationReadinessById = useMemo(() => {
+    const map = new Map<string, AutomationReadiness>();
+    for (const automation of automations) {
+      map.set(
+        automation.id,
+        evaluateAutomationReadiness(automation, {
+          ownerTags,
+          ownerForms,
+          accountMembers,
+          aiOutboundCallCampaigns,
+          nurtureCampaigns,
+          bookingCalendars,
+        }),
+      );
+    }
+    return map;
+  }, [accountMembers, aiOutboundCallCampaigns, automations, bookingCalendars, nurtureCampaigns, ownerForms, ownerTags]);
+
+  const selectedAutomationReadiness = selectedAutomation
+    ? automationReadinessById.get(selectedAutomation.id) ?? null
+    : null;
 
   function clampZoom(z: number) {
     return clamp(z, 0.3, 2.5);
@@ -2052,6 +2280,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   }
 
   function togglePausedById(automationId: string) {
+    const current = automations.find((automation) => automation.id === automationId);
+    const readiness = current ? automationReadinessById.get(current.id) ?? null : null;
+    if (current && readiness && !current.paused && !readiness.canToggleLive) {
+      setError(readiness.summary);
+      return;
+    }
     const nextList = automations.map((a) =>
       a.id === automationId ? { ...a, paused: !Boolean(a.paused), updatedAtIso: new Date().toISOString() } : a,
     );
@@ -2201,8 +2435,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
     const filtered = automations
       .filter((a) => {
-        if (listStatus === "active" && Boolean(a.paused)) return false;
-        if (listStatus === "paused" && !Boolean(a.paused)) return false;
+        const readiness = automationReadinessById.get(a.id);
+        if (listStatus !== "all" && readiness?.status !== listStatus) return false;
         const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
         const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
         if (listTrigger !== "all" && triggerKind !== listTrigger) return false;
@@ -2214,9 +2448,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       })
       .sort((a, b) => (String(b.updatedAtIso || "") || "").localeCompare(String(a.updatedAtIso || "") || ""));
 
-    const listStatusOptions: Array<{ value: "all" | "active" | "paused"; label: string }> = [
+    const listStatusOptions: Array<{ value: "all" | AutomationLifecycleStatus; label: string }> = [
       { value: "all", label: "All" },
       { value: "active", label: "Active" },
+      { value: "draft", label: "Draft" },
+      { value: "blocked", label: "Blocked" },
       { value: "paused", label: "Paused" },
     ];
 
@@ -2242,6 +2478,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
           <div>
             <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">My Automations</h1>
             <div className="mt-1 text-sm text-zinc-600">Create, filter, and open automations in a dedicated editor window.</div>
+            <div className="mt-1 text-xs text-zinc-500">Draft and blocked states are computed from the graph here. Run history and failure logs are not surfaced in this builder yet.</div>
             {refreshing ? (
               <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
                 <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
@@ -2349,6 +2586,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
             ) : (
               filtered.map((a) => {
+                const readiness = automationReadinessById.get(a.id) ?? evaluateAutomationReadiness(a, { ownerTags, ownerForms, accountMembers, aiOutboundCallCampaigns, nurtureCampaigns, bookingCalendars });
                 const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
                 const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
                 const triggerLabel = triggerKind
@@ -2370,14 +2608,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                         <div className="truncate text-sm font-semibold text-zinc-900">{a.name}</div>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
                           <span
-                            className={
-                              "inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold " +
-                              (a.paused
-                                ? "border-amber-200 bg-amber-50 text-amber-800"
-                                : "border-emerald-200 bg-emerald-50 text-emerald-800")
-                            }
+                            className={"inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold " + automationStatusBadgeClass(readiness.status)}
                           >
-                            {a.paused ? "Paused" : "Active"}
+                            {readiness.label}
                           </span>
                           <span className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800">
                             {triggerLabel}
@@ -2385,6 +2618,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                           <span className="text-[11px] text-zinc-500">Updated {updatedLabel}</span>
                           <span className="text-[11px] text-zinc-500">Created {createdLabel}</span>
                         </div>
+                        <div className="mt-2 text-xs text-zinc-500">{readiness.summary}</div>
                       </div>
 
                       <button
@@ -2420,6 +2654,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 <div className="px-4 py-10 text-center text-sm text-zinc-600">No automations match your filters.</div>
               ) : (
                 filtered.map((a) => {
+                  const readiness = automationReadinessById.get(a.id) ?? evaluateAutomationReadiness(a, { ownerTags, ownerForms, accountMembers, aiOutboundCallCampaigns, nurtureCampaigns, bookingCalendars });
                   const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
                   const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
                   const triggerLabel = triggerKind
@@ -2475,12 +2710,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
                       <div className="col-span-2">
                         <span
-                          className={
-                            "inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold " +
-                            (a.paused ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")
-                          }
+                          className={"inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold " + automationStatusBadgeClass(readiness.status)}
                         >
-                          {a.paused ? "Paused" : "Active"}
+                          {readiness.label}
                         </span>
                       </div>
 
@@ -2496,7 +2728,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                             <button
                               type="button"
                               className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                              disabled={manualRunBusyFor === a.id}
+                              disabled={manualRunBusyFor === a.id || readiness.status === "draft" || readiness.status === "blocked"}
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 if (manualRunBusyFor) return;
@@ -2567,6 +2799,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               {(() => {
                 const a = filtered.find((x) => x.id === openListMenu.automationId);
                 if (!a) return null;
+                const readiness = automationReadinessById.get(a.id) ?? evaluateAutomationReadiness(a, { ownerTags, ownerForms, accountMembers, aiOutboundCallCampaigns, nurtureCampaigns, bookingCalendars });
                 const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
                 const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
                 const canManualRun = triggerKind === "manual";
@@ -2585,20 +2818,21 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
                     <button
                       type="button"
-                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-400"
                       onClick={() => {
                         setOpenListMenu(null);
                         togglePausedById(a.id);
                       }}
+                      disabled={!readiness.canToggleLive && !a.paused}
                     >
-                      {a.paused ? "Resume" : "Pause"}
+                      {!readiness.canToggleLive && !a.paused ? readiness.label : a.paused ? "Resume" : "Pause"}
                     </button>
 
                     {canManualRun ? (
                       <button
                         type="button"
                         className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                        disabled={manualRunBusyFor === a.id}
+                        disabled={manualRunBusyFor === a.id || readiness.status === "draft" || readiness.status === "blocked"}
                         onClick={async () => {
                           if (manualRunBusyFor) return;
                           setOpenListMenu(null);
@@ -2727,19 +2961,24 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 type="button"
                 className={
                   "rounded-2xl px-3 py-2 text-sm font-semibold transition disabled:opacity-60 " +
-                  (selectedAutomation.paused
-                    ? "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
-                    : "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100")
+                  (selectedAutomationReadiness?.status === "blocked"
+                    ? "border border-red-200 bg-red-50 text-red-700"
+                    : selectedAutomationReadiness?.status === "draft"
+                      ? "border border-zinc-200 bg-zinc-100 text-zinc-700"
+                      : selectedAutomation.paused
+                        ? "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                        : "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100")
                 }
                 onClick={() => {
+                  if (!selectedAutomationReadiness?.canToggleLive && !selectedAutomation.paused) return;
                   const nextPaused = !Boolean(selectedAutomation.paused);
                   updateSelectedAutomation((a) => ({ ...a, paused: nextPaused, updatedAtIso: new Date().toISOString() }));
                   setDirty(true);
                 }}
-                disabled={saving}
-                title={selectedAutomation.paused ? "Resume this automation" : "Pause this automation"}
+                disabled={saving || (!selectedAutomationReadiness?.canToggleLive && !selectedAutomation.paused)}
+                title={!selectedAutomationReadiness?.canToggleLive && !selectedAutomation.paused ? selectedAutomationReadiness?.summary || "Finish setup before activation" : selectedAutomation.paused ? "Resume this automation" : "Pause this automation"}
               >
-                {selectedAutomation.paused ? "Paused" : "Active"}
+                {!selectedAutomationReadiness?.canToggleLive && !selectedAutomation.paused ? selectedAutomationReadiness?.label || "Needs setup" : selectedAutomation.paused ? "Paused" : "Active"}
               </button>
             ) : null}
             <button
@@ -2765,11 +3004,51 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
           <div>
             <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Automation Builder</h1>
             <div className="mt-1 text-sm text-zinc-600">Drag triggers + steps, connect them, and save multiple automations.</div>
+            <div className="mt-1 text-xs text-zinc-500">This builder surfaces draft, blocked, paused, and active states from the graph. Run history and failure logs are not available here yet.</div>
           </div>
         </div>
       )}
 
       {note ? <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{note}</div> : null}
+      {selectedAutomationReadiness ? (
+        <div
+          className={
+            "mt-4 rounded-3xl border px-4 py-4 "
+            + (selectedAutomationReadiness.status === "active"
+              ? "border-emerald-200 bg-emerald-50/70"
+              : selectedAutomationReadiness.status === "paused"
+                ? "border-amber-200 bg-amber-50/70"
+                : selectedAutomationReadiness.status === "blocked"
+                  ? "border-red-200 bg-red-50/70"
+                  : "border-zinc-200 bg-zinc-50")
+          }
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Readiness: {selectedAutomationReadiness.label}</div>
+              <div className="mt-1 text-sm text-zinc-700">{selectedAutomationReadiness.summary}</div>
+            </div>
+            <span className={"inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold " + automationStatusBadgeClass(selectedAutomationReadiness.status)}>
+              {selectedAutomationReadiness.label}
+            </span>
+          </div>
+
+          {selectedAutomationReadiness.issues.length ? (
+            <div className="mt-3 space-y-1 text-xs text-zinc-700">
+              {selectedAutomationReadiness.issues.slice(0, 4).map((issue) => (
+                <div key={issue}>• {issue}</div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mt-3 space-y-1 text-xs text-zinc-600">
+            {selectedAutomationReadiness.notes.map((noteItem) => (
+              <div key={noteItem}>{noteItem}</div>
+            ))}
+            <div>Run history and failure logs are not surfaced in this builder yet.</div>
+          </div>
+        </div>
+      ) : null}
 
       <PortalVariablePickerModal
         open={variablePickerOpen}
@@ -3164,6 +3443,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 automations.map((a) => {
                   const isSel = a.id === selectedAutomationId;
                   const isPaused = Boolean((a as any).paused);
+                  const readiness = automationReadinessById.get(a.id) ?? evaluateAutomationReadiness(a, { ownerTags, ownerForms, accountMembers, aiOutboundCallCampaigns, nurtureCampaigns, bookingCalendars });
                   const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
                   const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
                   const canManualRun = triggerKind === "manual";
@@ -3189,7 +3469,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                         </div>
                         <div className={"mt-1 text-xs " + (isSel ? "text-zinc-200" : "text-zinc-600")}>
                           {(a.nodes?.length ?? 0)} nodes · {(a.edges?.length ?? 0)} connections
-                          {isPaused ? " · Paused" : ""}
+                          {` · ${readiness.label}`}
                         </div>
                       </button>
 
@@ -3202,6 +3482,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                             : "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
                         }
                         onClick={() => {
+                          if (!readiness.canToggleLive && !isPaused) return;
                           setAutomations((prev) =>
                             prev.map((x) =>
                               x.id !== a.id
@@ -3215,9 +3496,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                           );
                           setDirty(true);
                         }}
-                        title={isPaused ? "Resume this automation" : "Pause this automation"}
+                        disabled={!readiness.canToggleLive && !isPaused}
+                        title={!readiness.canToggleLive && !isPaused ? readiness.summary : isPaused ? "Resume this automation" : "Pause this automation"}
                       >
-                        {isPaused ? "Resume" : "Pause"}
+                        {!readiness.canToggleLive && !isPaused ? readiness.label : isPaused ? "Resume" : "Pause"}
                       </button>
 
                       {canManualRun ? (
@@ -3229,7 +3511,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                               ? "bg-white/10 text-white hover:bg-white/15"
                               : "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
                           }
-                          disabled={manualRunBusyFor === a.id}
+                          disabled={manualRunBusyFor === a.id || readiness.status === "draft" || readiness.status === "blocked"}
                           onClick={async () => {
                             if (manualRunBusyFor) return;
                             setManualRunBusyFor(a.id);
@@ -3388,18 +3670,24 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 type="button"
                 className={
                   "rounded-2xl px-3 py-2 text-sm font-semibold " +
-                  (selectedAutomation.paused
-                    ? "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                    : "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100")
+                  (selectedAutomationReadiness?.status === "blocked"
+                    ? "border border-red-200 bg-red-50 text-red-700"
+                    : selectedAutomationReadiness?.status === "draft"
+                      ? "border border-zinc-200 bg-zinc-100 text-zinc-700"
+                      : selectedAutomation.paused
+                        ? "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                        : "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100")
                 }
                 onClick={() => {
+                  if (!selectedAutomationReadiness?.canToggleLive && !selectedAutomation.paused) return;
                   const nextPaused = !Boolean(selectedAutomation.paused);
                   updateSelectedAutomation((a) => ({ ...a, paused: nextPaused, updatedAtIso: new Date().toISOString() }));
                   setDirty(true);
                 }}
-                title={selectedAutomation.paused ? "Resume this automation" : "Pause this automation"}
+                disabled={!selectedAutomationReadiness?.canToggleLive && !selectedAutomation.paused}
+                title={!selectedAutomationReadiness?.canToggleLive && !selectedAutomation.paused ? selectedAutomationReadiness?.summary || "Finish setup before activation" : selectedAutomation.paused ? "Resume this automation" : "Pause this automation"}
               >
-                {selectedAutomation.paused ? "Paused (click to resume)" : "Active (click to pause)"}
+                {!selectedAutomationReadiness?.canToggleLive && !selectedAutomation.paused ? `${selectedAutomationReadiness?.label || "Needs setup"} (finish setup)` : selectedAutomation.paused ? "Paused (click to resume)" : "Active (click to pause)"}
               </button>
             ) : null}
             <button

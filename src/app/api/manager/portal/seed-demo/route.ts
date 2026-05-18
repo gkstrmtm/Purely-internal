@@ -6,6 +6,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureClientRoleAllowed";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted, PLATFORM_ACCESS_REQUIRED_MESSAGE } from "@/lib/platformAdminGrants";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { makeEmailThreadKey, makeSmsThreadKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
@@ -530,8 +532,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (session.user.role !== "MANAGER" && session.user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!hasPlatformAdminCapability(session.user.role, await isPlatformAdminGranted(session.user.id).catch(() => false))) {
+      return NextResponse.json({ error: PLATFORM_ACCESS_REQUIRED_MESSAGE }, { status: 403 });
     }
 
     const json = await req.json().catch(() => null);

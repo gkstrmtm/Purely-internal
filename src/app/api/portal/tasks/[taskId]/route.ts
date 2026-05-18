@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
+import { archiveEntity, isEntityArchived, RECOVERABILITY_ENTITY_TYPES } from "@/lib/recoverability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: strin
     const { taskId } = await ctx.params;
 
     const trimmedTaskId = String(taskId || "").trim();
+    if (await isEntityArchived({ ownerId, entityType: RECOVERABILITY_ENTITY_TYPES.TASK, entityId: trimmedTaskId })) {
+      return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    }
+
     const sets: string[] = [];
     const params: any[] = [ownerId, trimmedTaskId];
 
@@ -189,22 +194,34 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ taskId: str
     await ensurePortalTasksSchema();
 
     const ownerId = auth.session.user.id;
+    const memberId = (auth.session.user as any).memberId || ownerId;
     const { taskId } = await ctx.params;
     const trimmedTaskId = String(taskId || "").trim();
     if (!trimmedTaskId) return NextResponse.json({ ok: false, error: "Invalid task id" }, { status: 400 });
 
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM "PortalTaskMemberCompletion" WHERE "ownerId" = $1 AND "taskId" = $2`,
-      ownerId,
-      trimmedTaskId,
-    );
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2`,
-      ownerId,
-      trimmedTaskId,
-    );
+    if (await isEntityArchived({ ownerId, entityType: RECOVERABILITY_ENTITY_TYPES.TASK, entityId: trimmedTaskId })) {
+      return NextResponse.json({ ok: true, archived: true });
+    }
 
-    return NextResponse.json({ ok: true });
+    const existing = (await prisma.$queryRawUnsafe(
+      `SELECT "id", "title" FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2 LIMIT 1`,
+      ownerId,
+      trimmedTaskId,
+    )) as Array<{ id?: string | null; title?: string | null }>;
+
+    if (!existing[0]?.id) {
+      return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    }
+
+    await archiveEntity({
+      ownerId,
+      entityType: RECOVERABILITY_ENTITY_TYPES.TASK,
+      entityId: trimmedTaskId,
+      actorUserId: memberId,
+      metadata: { title: existing[0].title ? String(existing[0].title) : null },
+    });
+
+    return NextResponse.json({ ok: true, archived: true });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message || "Delete failed") }, { status: 500 });
   }

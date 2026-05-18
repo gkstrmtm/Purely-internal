@@ -279,14 +279,16 @@ export function PortalServicesClient() {
           ) : (
             <>
               <div className="mt-2 text-lg font-semibold text-zinc-900">
-                {servicesSummary.hasLoadedStatuses ? "Workspace looks clear" : "Checking workspace status"}
+                {servicesSummary.hasLoadedStatuses ? "Workspace looks clear" : `${services.length} service${services.length !== 1 ? "s" : ""} available`}
               </div>
               <div className="mt-1 text-sm text-zinc-600">
                 {servicesSummary.hasLoadedStatuses
                   ? variant === "credit"
                     ? "Use the cards below to open live credit workflows or review anything that still needs setup."
                     : "Use the cards below to open live services or review anything that still needs setup."
-                  : "We are loading service readiness so the first next action is accurate for this workspace."}
+                  : variant === "credit"
+                    ? "Status is loading — each card below opens the full credit workflow immediately. Ready, locked, and setup-needed states will appear shortly."
+                    : "Status is loading — each card below opens the full service immediately. Ready, locked, and setup-needed states will appear shortly."}
               </div>
             </>
           )}
@@ -345,10 +347,10 @@ export function PortalServicesClient() {
                           {access?.label || "Access"}
                         </span>
                         <span className={classNames("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", readiness ? readinessBadgeClasses(readiness.state) : "border-zinc-200 bg-zinc-50 text-zinc-500")}>
-                          {readiness?.label || "Checking readiness"}
+                          {readiness?.label || "Loading"}
                         </span>
                       </div>
-                      <div className="text-sm text-zinc-600">{readiness?.helper || "Checking what this workspace needs next."}</div>
+                      <div className="text-sm text-zinc-600">{readiness?.helper || "Open this service to see full setup details."}</div>
                       <div className="text-sm font-semibold text-brand-ink">{readiness?.ctaLabel || "Open service"}</div>
                     </div>
                   </Link>

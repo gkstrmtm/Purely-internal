@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
 import { PortalSelectDropdown, type PortalSelectOption } from "@/components/PortalSelectDropdown";
@@ -318,6 +318,120 @@ function billingModeLabel(user: Pick<UserRow, "creditsOnlyOverride">) {
   return user.creditsOnlyOverride ? "Credits-only" : "Env default";
 }
 
+type PortalOverrideUserCardProps = {
+  user: UserRow;
+  selectionMode: boolean;
+  isSelected: boolean;
+  isDetailsOpen: boolean;
+  onToggleSelected: (ownerId: string) => void;
+  onOpenDetails: (ownerId: string) => void;
+  onOpenTesting: (ownerId: string) => void;
+  onCopyValue: (label: string, value: string | null | undefined) => Promise<void>;
+};
+
+const PortalOverrideUserCard = memo(function PortalOverrideUserCard({
+  user,
+  selectionMode,
+  isSelected,
+  isDetailsOpen,
+  onToggleSelected,
+  onOpenDetails,
+  onOpenTesting,
+  onCopyValue,
+}: PortalOverrideUserCardProps) {
+  const lifecycle = getLifecycleValue(user);
+  const balance = Math.max(0, Math.floor(user.creditsBalance ?? 0));
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className={cn(
+        "rounded-[28px] border border-zinc-200 bg-white p-5 text-left shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300",
+        isDetailsOpen && "border-zinc-900 shadow-md",
+        selectionMode && isSelected && "border-red-400 bg-red-50/40 ring-4 ring-red-300 shadow-[0_0_0_8px_rgba(248,113,113,0.22)] focus-visible:ring-4 focus-visible:ring-red-300",
+      )}
+      onClick={() => {
+        if (selectionMode) {
+          onToggleSelected(user.id);
+          return;
+        }
+        onOpenDetails(user.id);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          if (selectionMode) {
+            onToggleSelected(user.id);
+            return;
+          }
+          onOpenDetails(user.id);
+        }
+      }}
+    >
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1 space-y-4">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2"><div className="truncate text-lg font-semibold text-brand-ink">{user.email}</div><button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={(event) => { event.stopPropagation(); void onCopyValue("Login email", user.email); }}>Copy email</button></div>
+              <div className="mt-1 truncate text-sm text-zinc-600">{user.businessName ? `${user.businessName} · ` : ""}{user.name || "No name"}</div>
+            </div>
+            <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.14em]">
+              <span className={cn("rounded-full px-2.5 py-1", lifecycleBadgeClassName(lifecycle))}>{lifecycle}</span>
+              <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-700">{billingModeLabel(user)}</span>
+              <span className={cn("rounded-full px-2.5 py-1", user.twilio?.configured ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-600")}>Twilio {user.twilio?.configured ? "On" : "Off"}</span>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Contact</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2"><div className="text-sm font-semibold text-zinc-900">{user.businessEmail ? "Mailbox configured" : "No mailbox"}</div>{user.businessEmail ? <button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={(event) => { event.stopPropagation(); void onCopyValue("Mailbox email", user.businessEmail); }}>Copy</button> : null}</div>
+              <div className="mt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">Phone</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2"><div className="font-mono text-xs text-zinc-500">{user.phone || "No phone"}</div>{user.phone ? <button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={(event) => { event.stopPropagation(); void onCopyValue("Phone", user.phone); }}>Copy</button> : null}</div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Credits</div>
+              <div className="mt-2 text-2xl font-semibold text-zinc-900">{balance}</div>
+              <div className="mt-1 text-xs text-zinc-500">Balance available</div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Invites</div>
+              <div className="mt-2 text-sm font-semibold text-zinc-900">{Math.max(0, user.invitesSentCount ?? 0)} sent</div>
+              <div className="mt-1 text-xs text-zinc-500">{Math.max(0, user.invitesVerifiedCount ?? 0)} verified · {Math.max(0, user.inviteCreditsAwardedCount ?? 0)} awarded</div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Overrides</div>
+              <div className="mt-2 text-sm font-semibold text-zinc-900">{user.overrides.length} enabled</div>
+              <div className="mt-1 text-xs text-zinc-500">{user.overrides.length ? user.overrides.slice(0, 3).map((item) => MODULE_LABELS[item]).join(" · ") : "No overrides enabled"}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-2 xl:ml-4" onClick={(event) => event.stopPropagation()}>
+          {selectionMode ? null : (
+            <>
+              <button type="button" className="rounded-xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95" onClick={() => onOpenDetails(user.id)}>Open account</button>
+              <button type="button" className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => onOpenTesting(user.id)}>Testing</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}, (prev, next) => {
+  return prev.user === next.user
+    && prev.selectionMode === next.selectionMode
+    && prev.isSelected === next.isSelected
+    && prev.isDetailsOpen === next.isDetailsOpen
+    && prev.onToggleSelected === next.onToggleSelected
+    && prev.onOpenDetails === next.onOpenDetails
+    && prev.onOpenTesting === next.onOpenTesting
+    && prev.onCopyValue === next.onCopyValue;
+});
+
+PortalOverrideUserCard.displayName = "PortalOverrideUserCard";
+
 function balanceFilterMatches(value: number, filter: BalanceFilter) {
   if (filter === "all") return true;
   if (filter === "zero") return value <= 0;
@@ -514,6 +628,16 @@ async function deletePortalUser(ownerId: string) {
   return body as { ok: true };
 }
 
+async function restorePortalUser(ownerId: string) {
+  const res = await fetch(`/api/manager/portal/users/${encodeURIComponent(ownerId)}`, { method: "PATCH" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
+    throw new Error(message);
+  }
+  return body as { ok: true };
+}
+
 async function seedCreditDemo(opts: { email: string; force?: boolean }) {
   const res = await fetch("/api/manager/portal/seed-credit-demo", {
     method: "POST",
@@ -545,6 +669,11 @@ export default function PortalOverridesClient() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [testingOwnerId, setTestingOwnerId] = useState<string | null>(null);
   const [detailsOwnerId, setDetailsOwnerId] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedOwnerIds, setSelectedOwnerIds] = useState<string[]>([]);
+  const [deletePreviewOwnerIds, setDeletePreviewOwnerIds] = useState<string[]>([]);
+  const [deletingOwnerIds, setDeletingOwnerIds] = useState<string[]>([]);
+  const [restoringOwnerId, setRestoringOwnerId] = useState<string | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailsByOwnerId, setDetailsByOwnerId] = useState<Record<string, OwnerDetails>>({});
@@ -596,6 +725,10 @@ export default function PortalOverridesClient() {
       return MODULE_LABELS[left].localeCompare(MODULE_LABELS[right]);
     });
   }, [moduleList, selectedUser]);
+  const deletePreviewUsers = useMemo(() => {
+    const selected = new Set(deletePreviewOwnerIds);
+    return users.filter((user) => selected.has(user.id));
+  }, [deletePreviewOwnerIds, users]);
 
   const showLoadingShell = loading && users.length === 0 && !error;
   const statusLabel = showLoadingShell ? "Loading accounts" : loading ? "Refreshing…" : `${filteredUsers.length}${filteredUsers.length === users.length ? "" : ` / ${users.length}`} account${filteredUsers.length === 1 ? "" : "s"}`;
@@ -605,7 +738,14 @@ export default function PortalOverridesClient() {
   const testingAiReceptionistAgentId = testingUser?.voiceAgentIds?.aiReceptionist ?? testingUser?.voiceAgentIds?.profile ?? null;
   const testingOutboundAgentId = testingUser?.voiceAgentIds?.profile ?? null;
 
-  async function copyValue(label: string, value: string | null | undefined) {
+  useEffect(() => {
+    setSelectedOwnerIds((prev) => prev.filter((ownerId) => users.some((user) => user.id === ownerId)));
+    setDeletePreviewOwnerIds((prev) => prev.filter((ownerId) => users.some((user) => user.id === ownerId)));
+  }, [users]);
+
+  const selectedOwnerIdSet = useMemo(() => new Set(selectedOwnerIds), [selectedOwnerIds]);
+
+  const copyValue = useCallback(async (label: string, value: string | null | undefined) => {
     const safeValue = String(value || "").trim();
     if (!safeValue) {
       toast.error(`No ${label.toLowerCase()} to copy`);
@@ -617,7 +757,15 @@ export default function PortalOverridesClient() {
     } catch {
       toast.error(`Unable to copy ${label.toLowerCase()}`);
     }
-  }
+  }, [toast]);
+
+  const openDetails = useCallback((ownerId: string) => {
+    setDetailsOwnerId(ownerId);
+  }, []);
+
+  const openTesting = useCallback((ownerId: string) => {
+    setTestingOwnerId(ownerId);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -894,6 +1042,62 @@ export default function PortalOverridesClient() {
     }
   }
 
+  const toggleSelectedOwner = useCallback((ownerId: string) => {
+    setSelectedOwnerIds((prev) => (prev.includes(ownerId) ? prev.filter((id) => id !== ownerId) : [...prev, ownerId]));
+  }, []);
+
+  function openDeletePreview(ownerIds: string[]) {
+    const stableIds = Array.from(new Set(ownerIds.map((id) => String(id || "").trim()).filter(Boolean)));
+    if (!stableIds.length) return;
+    setDeletePreviewOwnerIds(stableIds);
+  }
+
+  async function confirmDeleteOwners() {
+    const ownerIds = Array.from(new Set(deletePreviewOwnerIds));
+    if (!ownerIds.length) return;
+
+    setDeletingOwnerIds(ownerIds);
+    try {
+      for (const ownerId of ownerIds) {
+        await deletePortalUser(ownerId);
+      }
+      toast.success(ownerIds.length === 1 ? "Account deleted (email freed)." : `${ownerIds.length} accounts deleted (emails freed).`);
+      setSelectedOwnerIds((prev) => prev.filter((id) => !ownerIds.includes(id)));
+      setDeletePreviewOwnerIds([]);
+      if (detailsOwnerId && ownerIds.includes(detailsOwnerId)) {
+        setDetailsOwnerId(null);
+      }
+      setDetailsByOwnerId((prev) => {
+        const next = { ...prev };
+        for (const ownerId of ownerIds) delete next[ownerId];
+        return next;
+      });
+      await reloadOverrides();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Unable to delete account(s)");
+    } finally {
+      setDeletingOwnerIds([]);
+    }
+  }
+
+  async function onRestoreOwner(ownerId: string) {
+    setRestoringOwnerId(ownerId);
+    try {
+      await restorePortalUser(ownerId);
+      toast.success("Account restored.");
+      setDetailsByOwnerId((prev) => {
+        const next = { ...prev };
+        delete next[ownerId];
+        return next;
+      });
+      await reloadOverrides();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Unable to restore account");
+    } finally {
+      setRestoringOwnerId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
@@ -920,7 +1124,7 @@ export default function PortalOverridesClient() {
                 setTwilioFilter("all");
                 setOverrideFilter("all");
                 setBalanceFilter("all");
-                setLifecycleFilter("all");
+                setLifecycleFilter("active");
               }}
               disabled={!q && !hasActiveFilters}
             >
@@ -945,6 +1149,65 @@ export default function PortalOverridesClient() {
           </div>
           <div className="text-xs text-zinc-500">No raw passwords, auth tokens, or other secrets are shown anywhere in this console.</div>
         </div>
+        <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-zinc-700">
+            <span className="font-semibold">Account delete:</span>
+            <button
+              type="button"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={() => {
+                setSelectionMode((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    setDetailsOwnerId(null);
+                  } else {
+                    setSelectedOwnerIds([]);
+                  }
+                  return next;
+                });
+              }}
+            >
+              {selectionMode ? "Done selecting" : "Select accounts"}
+            </button>
+            {selectionMode ? (
+              <>
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                  onClick={() => setSelectedOwnerIds(filteredUsers.map((user) => user.id))}
+                  disabled={filteredUsers.length === 0}
+                >
+                  Select shown
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                  onClick={() => setSelectedOwnerIds([])}
+                  disabled={selectedOwnerIds.length === 0}
+                >
+                  Clear selection
+                </button>
+                <div className="inline-flex min-w-20 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-700">
+                  {selectedOwnerIds.length} selected
+                </div>
+                <button
+                  type="button"
+                  className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                  onClick={() => openDeletePreview(selectedOwnerIds)}
+                  disabled={selectedOwnerIds.length === 0}
+                >
+                  Delete selected
+                </button>
+              </>
+            ) : null}
+          </div>
+          <div className="text-xs text-zinc-500">Selection mode keeps the same cards, but card clicks switch to select-only behavior.</div>
+        </div>
+        {selectionMode ? (
+          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+            Click any account card to select it. Selected cards get a red outline. When you are done, click `Delete selected` to review the final list in the pop-up.
+          </div>
+        ) : null}
         {users.length >= 500 ? <div className="mt-3 text-xs text-amber-700">Loaded the first 500 accounts for responsiveness. Use search and filters to narrow very large account sets before opening detail modals.</div> : null}
       </div>
 
@@ -952,73 +1215,19 @@ export default function PortalOverridesClient() {
 
       <div className="space-y-4">
         {showLoadingShell ? Array.from({ length: 6 }).map((_, index) => <LoadingConsoleRow key={`loading-${index}`} />) : null}
-        {!showLoadingShell && filteredUsers.map((user) => {
-          const lifecycle = getLifecycleValue(user);
-          const balance = Math.max(0, Math.floor(user.creditsBalance ?? 0));
-          return (
-            <div
-              key={user.id}
-              role="button"
-              tabIndex={0}
-              className={cn(
-                "rounded-[28px] border border-zinc-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-zinc-300",
-                detailsOwnerId === user.id && "border-zinc-900 shadow-md",
-              )}
-              onClick={() => setDetailsOwnerId(user.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setDetailsOwnerId(user.id);
-                }
-              }}
-            >
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0 flex-1 space-y-4">
-                  <div className="flex flex-wrap items-start gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2"><div className="truncate text-lg font-semibold text-brand-ink">{user.email}</div><button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={(event) => { event.stopPropagation(); void copyValue("Login email", user.email); }}>Copy email</button></div>
-                      <div className="mt-1 truncate text-sm text-zinc-600">{user.businessName ? `${user.businessName} · ` : ""}{user.name || "No name"}</div>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.14em]">
-                      <span className={cn("rounded-full px-2.5 py-1", lifecycleBadgeClassName(lifecycle))}>{lifecycle}</span>
-                      <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-700">{billingModeLabel(user)}</span>
-                      <span className={cn("rounded-full px-2.5 py-1", user.twilio?.configured ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-600")}>Twilio {user.twilio?.configured ? "On" : "Off"}</span>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Contact</div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2"><div className="text-sm font-semibold text-zinc-900">{user.businessEmail ? "Mailbox configured" : "No mailbox"}</div>{user.businessEmail ? <button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={(event) => { event.stopPropagation(); void copyValue("Mailbox email", user.businessEmail); }}>Copy</button> : null}</div>
-                      <div className="mt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">Phone</div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2"><div className="font-mono text-xs text-zinc-500">{user.phone || "No phone"}</div>{user.phone ? <button type="button" className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800" onClick={(event) => { event.stopPropagation(); void copyValue("Phone", user.phone); }}>Copy</button> : null}</div>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Credits</div>
-                      <div className="mt-2 text-2xl font-semibold text-zinc-900">{balance}</div>
-                      <div className="mt-1 text-xs text-zinc-500">Balance available</div>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Invites</div>
-                      <div className="mt-2 text-sm font-semibold text-zinc-900">{Math.max(0, user.invitesSentCount ?? 0)} sent</div>
-                      <div className="mt-1 text-xs text-zinc-500">{Math.max(0, user.invitesVerifiedCount ?? 0)} verified · {Math.max(0, user.inviteCreditsAwardedCount ?? 0)} awarded</div>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Overrides</div>
-                      <div className="mt-2 text-sm font-semibold text-zinc-900">{user.overrides.length} enabled</div>
-                      <div className="mt-1 text-xs text-zinc-500">{user.overrides.length ? user.overrides.slice(0, 3).map((item) => MODULE_LABELS[item]).join(" · ") : "No overrides enabled"}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex shrink-0 flex-wrap gap-2 xl:ml-4" onClick={(event) => event.stopPropagation()}>
-                  <button type="button" className="rounded-xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95" onClick={() => setDetailsOwnerId(user.id)}>Open account</button>
-                  <button type="button" className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => setTestingOwnerId(user.id)}>Testing</button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        {!showLoadingShell && filteredUsers.map((user) => (
+          <PortalOverrideUserCard
+            key={user.id}
+            user={user}
+            selectionMode={selectionMode}
+            isSelected={selectedOwnerIdSet.has(user.id)}
+            isDetailsOpen={detailsOwnerId === user.id}
+            onToggleSelected={toggleSelectedOwner}
+            onOpenDetails={openDetails}
+            onOpenTesting={openTesting}
+            onCopyValue={copyValue}
+          />
+        ))}
         {!showLoadingShell && !loading && filteredUsers.length === 0 ? <div className="rounded-[28px] border border-dashed border-zinc-300 bg-zinc-50 px-6 py-12 text-sm text-zinc-600">No accounts match the current search and filters.</div> : null}
       </div>
 
@@ -1047,25 +1256,7 @@ export default function PortalOverridesClient() {
                     </div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:max-w-2xl"><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Credits</div><div className="mt-1 text-xl font-semibold text-zinc-900">{Math.max(0, Math.floor(selectedUser.creditsBalance ?? 0))}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Billing</div><div className="mt-1 text-sm font-semibold text-zinc-900">{billingModeLabel(selectedUser)}</div></div><div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs uppercase tracking-wide text-zinc-500">Overrides</div><div className="mt-1 text-xl font-semibold text-zinc-900">{selectedUser.overrides.length}</div></div></div>
                   </div>
-                  <div className="flex flex-wrap gap-2 lg:justify-end"><button type="button" className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => setTestingOwnerId(selectedUser.id)}>Testing</button><button type="button" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60" disabled={creditSeedingOwnerId === selectedUser.id} onClick={() => void onSeedCreditDemo(selectedUser.id)}>{creditSeedingOwnerId === selectedUser.id ? "Seeding…" : "Seed credit demo"}</button><button type="button" className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-800 hover:bg-red-100" onClick={() => {
-                    const email = selectedUser.email || selectedUser.id;
-                    if (!confirm(`Delete this client portal account?\n\n${email}\n\nThis will disable the account and free the email so a new signup can use it again.`)) return;
-                    void (async () => {
-                      try {
-                        await deletePortalUser(selectedUser.id);
-                        toast.success("Account deleted (email freed).");
-                        setDetailsByOwnerId((prev) => {
-                          const next = { ...prev };
-                          delete next[selectedUser.id];
-                          return next;
-                        });
-                        setDetailsOwnerId(null);
-                        await reloadOverrides();
-                      } catch (cause) {
-                        toast.error(cause instanceof Error ? cause.message : "Unable to delete account");
-                      }
-                    })();
-                  }}>Delete account</button><button type="button" className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => setDetailsOwnerId(null)}>Close</button></div>
+                  <div className="flex flex-wrap gap-2 lg:justify-end"><button type="button" className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => setTestingOwnerId(selectedUser.id)}>Testing</button><button type="button" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60" disabled={creditSeedingOwnerId === selectedUser.id} onClick={() => void onSeedCreditDemo(selectedUser.id)}>{creditSeedingOwnerId === selectedUser.id ? "Seeding…" : "Seed credit demo"}</button>{selectedUser.deletedAt ? <button type="button" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60" disabled={restoringOwnerId === selectedUser.id} onClick={() => void onRestoreOwner(selectedUser.id)}>{restoringOwnerId === selectedUser.id ? "Restoring…" : "Restore account"}</button> : <button type="button" className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-800 hover:bg-red-100" onClick={() => openDeletePreview([selectedUser.id])}>Delete account</button>}<button type="button" className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" onClick={() => setDetailsOwnerId(null)}>Close</button></div>
                 </div>
 
                 <div className="border-b border-zinc-200 px-6 py-4"><div className="inline-flex w-full flex-wrap items-center gap-2 rounded-2xl bg-zinc-100/70 p-1">{DETAIL_TABS.map((item) => { const active = detailsTab === item.key; return <button key={item.key} type="button" onClick={() => setDetailsTab(item.key)} className={cn("rounded-2xl px-3 py-2 text-sm font-semibold transition", active ? "bg-white text-brand-ink ring-1 ring-zinc-200" : "text-zinc-600 hover:bg-white hover:text-zinc-900")}>{item.label}</button>; })}</div></div>
@@ -1163,6 +1354,70 @@ export default function PortalOverridesClient() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {deletePreviewUsers.length ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" onClick={() => deletingOwnerIds.length === 0 && setDeletePreviewOwnerIds([])}>
+          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 border-b border-zinc-200 p-5">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-900">
+                  {deletePreviewUsers.length === 1 ? "Delete portal account" : `Delete ${deletePreviewUsers.length} portal accounts`}
+                </div>
+                <div className="mt-1 text-sm text-zinc-600">This archives the account quietly in the database, removes it from the normal surface, and frees the email so a new signup can reuse it.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                onClick={() => setDeletePreviewOwnerIds([])}
+                disabled={deletingOwnerIds.length > 0}
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-5">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Selected accounts</div>
+                <div className="mt-3 max-h-80 overflow-y-auto rounded-2xl border border-zinc-200 bg-white">
+                  {deletePreviewUsers.map((user) => (
+                    <div key={user.id} className="flex items-center justify-between gap-3 border-b border-zinc-100 px-4 py-3 text-sm last:border-b-0">
+                      <div className="min-w-0">
+                        <div className="truncate font-mono text-zinc-900">{user.email}</div>
+                        <div className="truncate text-xs text-zinc-500">{user.name || "No name"}</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 hover:border-zinc-300 hover:text-zinc-800 disabled:opacity-60"
+                        onClick={() => setDeletePreviewOwnerIds((prev) => prev.filter((id) => id !== user.id))}
+                        disabled={deletingOwnerIds.length > 0}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                  onClick={() => setDeletePreviewOwnerIds([])}
+                  disabled={deletingOwnerIds.length > 0}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                  onClick={() => void confirmDeleteOwners()}
+                  disabled={deletePreviewUsers.length === 0 || deletingOwnerIds.length > 0}
+                >
+                  {deletingOwnerIds.length > 0 ? "Deleting…" : deletePreviewUsers.length === 1 ? "Delete account" : `Delete ${deletePreviewUsers.length} accounts`}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}

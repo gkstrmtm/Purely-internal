@@ -37,14 +37,17 @@ export default function PortalTutorialPhotosAdmin() {
       );
       if (!mounted) return;
       if (!res?.ok) {
-        setLoadState({ status: "error", message: "Could not load tutorial photos." });
+        let message = "Could not load tutorial photos.";
+        const body = await res?.json().catch(() => null as any);
+        if (body && typeof body.error === "string" && body.error.trim()) message = body.error.trim();
+        setLoadState({ status: "error", message });
         return;
       }
       const json = (await res.json().catch(() => null)) as
-        | { ok?: boolean; tutorials?: TutorialMeta[]; photos?: Record<string, string[]> }
+        | { ok?: boolean; error?: string; tutorials?: TutorialMeta[]; photos?: Record<string, string[]> }
         | null;
       if (!json?.ok || !Array.isArray(json.tutorials)) {
-        setLoadState({ status: "error", message: "Unexpected response." });
+        setLoadState({ status: "error", message: typeof json?.error === "string" && json.error ? json.error : "Unexpected response." });
         return;
       }
       setTutorials(json.tutorials);

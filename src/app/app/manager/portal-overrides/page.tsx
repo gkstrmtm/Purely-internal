@@ -2,6 +2,8 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted } from "@/lib/platformAdminGrants";
 import PortalOverridesClient from "./PortalOverridesClient";
 
 export default async function ManagerPortalOverridesPage() {
@@ -9,7 +11,8 @@ export default async function ManagerPortalOverridesPage() {
   if (!session?.user) redirect("/employeelogin");
 
   const role = session.user.role;
-  if (role !== "MANAGER" && role !== "ADMIN") redirect("/app");
+  const platformAdminGranted = await isPlatformAdminGranted(session.user.id).catch(() => false);
+  if (!hasPlatformAdminCapability(role, platformAdminGranted)) redirect("/app");
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10 2xl:max-w-352">

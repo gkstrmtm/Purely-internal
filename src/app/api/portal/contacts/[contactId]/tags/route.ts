@@ -10,6 +10,7 @@ import {
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { enqueueOutboundCallForTaggedContact } from "@/lib/portalAiOutboundCalls";
 import { enqueueOutboundMessageForTaggedContact } from "@/lib/portalAiOutboundMessages";
+import { isEntityArchived, RECOVERABILITY_ENTITY_TYPES } from "@/lib/recoverability";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -34,6 +35,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
   const params = await ctx.params;
   const contactId = contactIdSchema.safeParse(params.contactId);
   if (!contactId.success) return NextResponse.json({ ok: false, error: "Invalid contact id" }, { status: 400 });
+  if (await isEntityArchived({ ownerId, entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT, entityId: contactId.data })) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
 
   const tags = await listContactTagsForContact(ownerId, contactId.data);
   return NextResponse.json({ ok: true, tags });
@@ -52,6 +56,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ contactId: str
   const params = await ctx.params;
   const contactId = contactIdSchema.safeParse(params.contactId);
   if (!contactId.success) return NextResponse.json({ ok: false, error: "Invalid contact id" }, { status: 400 });
+  if (await isEntityArchived({ ownerId, entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT, entityId: contactId.data })) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
 
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = bodySchema.safeParse(body ?? {});
@@ -103,6 +110,9 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ contactId: s
   const params = await ctx.params;
   const contactId = contactIdSchema.safeParse(params.contactId);
   if (!contactId.success) return NextResponse.json({ ok: false, error: "Invalid contact id" }, { status: 400 });
+  if (await isEntityArchived({ ownerId, entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT, entityId: contactId.data })) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
 
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = bodySchema.safeParse(body ?? {});

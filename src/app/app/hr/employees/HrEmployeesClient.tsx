@@ -8,6 +8,7 @@ type EmployeeRow = {
   name: string;
   role: string;
   createdAt: string;
+  platformAdminGranted: boolean;
 };
 
 function fmtDate(value: string) {
@@ -16,10 +17,11 @@ function fmtDate(value: string) {
   return d.toLocaleString();
 }
 
-export default function HrEmployeesClient() {
+export default function HrEmployeesClient({ canManagePlatformAdmin = false }: { canManagePlatformAdmin?: boolean }) {
   const [rows, setRows] = useState<EmployeeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -40,6 +42,7 @@ export default function HrEmployeesClient() {
       name: String(u.name || ""),
       role: String(u.role || ""),
       createdAt: typeof u.createdAt === "string" ? u.createdAt : new Date(u.createdAt).toISOString(),
+      platformAdminGranted: u.platformAdminGranted === true,
     }));
 
     setRows(normalized);
@@ -55,6 +58,33 @@ export default function HrEmployeesClient() {
 
   if (rows.length === 0) return <div className="text-sm text-zinc-600">No employees found.</div>;
 
+  async function togglePlatformAdmin(user: EmployeeRow) {
+    setSavingId(user.id);
+    setError(null);
+
+    const res = await fetch(`/api/hr/employees/${encodeURIComponent(user.id)}/platform-admin`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: !user.platformAdminGranted }),
+    }).catch(() => null as any);
+    const body = res ? await res.json().catch(() => ({})) : null;
+
+    if (!res || !res.ok || !body?.ok) {
+      setSavingId(null);
+      setError(body?.error ?? "Failed to update platform-admin access");
+      return;
+    }
+
+    setRows((current) =>
+      current.map((row) =>
+        row.id === user.id
+          ? { ...row, platformAdminGranted: body.employee?.platformAdminGranted === true }
+          : row,
+      ),
+    );
+    setSavingId(null);
+  }
+
   return (
     <div className="divide-y divide-zinc-100 rounded-2xl border border-zinc-200 bg-white">
       {rows.map((u) => (
@@ -64,7 +94,28 @@ export default function HrEmployeesClient() {
               <div className="font-medium text-zinc-900">{u.name}</div>
               <div className="text-sm text-zinc-600">{u.email}</div>
             </div>
-            <div className="text-sm text-zinc-600">{u.role} • {fmtDate(u.createdAt)}</div>
+            <div className="flex flex-col items-start gap-2 text-sm text-zinc-600 sm:items-end">
+              <div>
+                {u.role}
+                {u.platformAdminGranted ? " • Platform admin" : ""}
+                {" • "}
+                {fmtDate(u.createdAt)}
+              </div>
+              {canManagePlatformAdmin && u.role !== "ADMIN" ? (
+                <button
+                  type="button"
+                  disabled={savingId === u.id}
+                  onClick={() => void togglePlatformAdmin(u)}
+                  className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink transition hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {savingId === u.id
+                    ? "Saving…"
+                    : u.platformAdminGranted
+                      ? "Revoke platform admin"
+                      : "Grant platform admin"}
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       ))}

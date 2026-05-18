@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted, PLATFORM_ACCESS_REQUIRED_MESSAGE } from "@/lib/platformAdminGrants";
 
 export const runtime = "nodejs";
 
@@ -33,8 +35,8 @@ export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (session.user.role !== "MANAGER" && session.user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!hasPlatformAdminCapability(session.user.role, await isPlatformAdminGranted(session.user.id).catch(() => false))) {
+      return NextResponse.json({ error: PLATFORM_ACCESS_REQUIRED_MESSAGE }, { status: 403 });
     }
 
     const json = await req.json().catch(() => null);

@@ -104,8 +104,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
-  const title = parsed.data.title?.trim() || "Untitled post";
-  const slug = await uniqueSlug(siteId, title);
+  const title = parsed.data.title?.trim() ?? "";
+  const slug = await uniqueSlug(siteId, title || "draft");
 
   const created = await prisma.clientBlogPost.create({
     data: {

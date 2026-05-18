@@ -448,7 +448,7 @@ function AssistantThinkingCard({
   );
 }
 
-type PageRailDetailPanel = "booking" | "commerce" | "search" | "tracking" | "advanced";
+type PageRailDetailPanel = "booking" | "chatbot" | "commerce" | "search" | "tracking" | "advanced";
 
 function PageRailSummaryCard({
   title,
@@ -15160,6 +15160,16 @@ export function FunnelEditorClient({
       : pageCalendarConfiguredCount
       ? "Mixed routes"
       : "Linked";
+    const chatbotSummaryLabel = !pageHasChatbotBlock
+      ? "No AI widget on this page yet"
+      : aiReceptionistChatAgentId
+        ? "Public launcher is ready on the live page"
+        : "Widget placed, but no live agent is linked yet";
+    const chatbotSummaryStatusLabel = !pageHasChatbotBlock
+      ? "Optional"
+      : aiReceptionistChatAgentId
+        ? "Ready"
+        : "Needs agent";
   const searchSummaryLabel = funnel?.seo?.noIndex ? "Hidden from search" : "Search visible";
   const canvasSummaryLabel = !showCanvasDefaults
     ? "Inherited from imported page"
@@ -15274,6 +15284,11 @@ export function FunnelEditorClient({
       : funnel?.bookingCalendarId
         ? `New booking steps inherit ${linkedFunnelCalendarTitle}.`
         : "No booking step is selected on this page.";
+  const chatbotSupportLabel = !pageHasChatbotBlock
+    ? "Add a Chat widget block when this page needs a visitor-facing AI launcher."
+    : aiReceptionistChatAgentId
+      ? "This block only controls the public launcher and placement. Conversation instructions, lead handling, and handoff live in AI Receptionist."
+      : "This page already has a Chat widget block, but the linked AI Receptionist chat agent is missing. The widget will not render publicly until that agent is configured.";
   const commerceSupportLabel = purchaseReadinessItem?.summary
     || (pageHasStripeProductButtons
       ? "Checkout or cart UI is present, but at least one offer or path still needs setup."
@@ -15369,6 +15384,30 @@ export function FunnelEditorClient({
       >
         Open booking setup
       </button>
+    </div>
+  );
+  const chatbotRailDetail = (
+    <div className="space-y-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
+          {pageHasChatbotBlock
+            ? "A Chat widget block is placed on this page."
+            : "No Chat widget block is placed on this page yet."}
+        </div>
+        <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
+          {aiReceptionistChatAgentId
+            ? "A linked AI Receptionist chat agent is available for this widget."
+            : "No AI Receptionist chat agent is linked yet, so the live page cannot open this widget."}
+        </div>
+      </div>
+
+      <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
+        Builder preview only shows launcher placement. Test the real conversation on the live or published page.
+      </div>
+
+      <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
+        This block currently controls launcher color, style, image, and screen position. Visitor-facing behavior, internal instructions, lead capture, and fallback handling come from AI Receptionist.
+      </div>
     </div>
   );
   const commerceRailDetail = (
@@ -15760,6 +15799,12 @@ export function FunnelEditorClient({
         description: "Routing, inheritance, and scheduler readiness for this page.",
         content: bookingRailDetail,
       }
+    : pageRailDetailPanel === "chatbot"
+      ? {
+          title: "AI widget",
+          description: "Public launcher readiness, preview limits, and where the real conversation behavior is configured.",
+          content: chatbotRailDetail,
+        }
     : pageRailDetailPanel === "commerce"
       ? {
           title: "Commerce details",
@@ -15795,6 +15840,15 @@ export function FunnelEditorClient({
         statusTone={(!funnel?.bookingCalendarId && pageHasCalendarPlaceholder) || pageCalendarBlockStats.missingConfiguredCount > 0 ? "warning" : funnel?.bookingCalendarId || pageCalendarConfiguredCount ? "success" : "neutral"}
         actionLabel="Open booking"
         onOpen={() => setPageRailDetailPanel("booking")}
+      />
+      <PageRailSummaryCard
+        title="AI widget"
+        summary={chatbotSummaryLabel}
+        detail={chatbotSupportLabel}
+        statusLabel={chatbotSummaryStatusLabel}
+        statusTone={!pageHasChatbotBlock ? "neutral" : aiReceptionistChatAgentId ? "success" : "warning"}
+        actionLabel="Open widget"
+        onOpen={() => setPageRailDetailPanel("chatbot")}
       />
       <PageRailSummaryCard
         title="Commerce"

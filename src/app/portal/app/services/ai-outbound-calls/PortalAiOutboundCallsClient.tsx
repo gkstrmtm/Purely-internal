@@ -2449,7 +2449,47 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
             </div>
           ) : null}
           {!selected ? (
-            <div className="text-sm text-zinc-500">Select a campaign.</div>
+            loading ? (
+              <div className="text-sm text-zinc-500">Loading campaigns…</div>
+            ) : campaigns.length === 0 ? (
+              <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+                <div className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">
+                  No campaigns yet
+                </div>
+                <h2 className="mt-3 text-lg font-semibold text-zinc-900">AI Outbound Calls &amp; Messages</h2>
+                <p className="mt-2 text-sm text-zinc-600">
+                  AI Outbound lets you run call and message campaigns against tagged contact lists. Campaigns do not call or message anyone automatically — a campaign must be set to <strong>Active</strong> before any outreach begins.
+                </p>
+
+                <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Before your first campaign works</div>
+                  <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                    <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span><strong>Contacts with tags</strong> — campaigns target contacts by tag. Add contacts and tag them in People first.</span></li>
+                    <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span><strong>Voice provider (calls)</strong> — outbound calls require a connected ElevenLabs or equivalent voice agent API key in Settings.</span></li>
+                    <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span><strong>Twilio (messages)</strong> — outbound SMS requires a connected Twilio number. Email outbound uses your configured sender.</span></li>
+                    <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span><strong>Credits</strong> — AI calls consume credits. Check your credit balance in Billing before activating a campaign.</span></li>
+                  </ul>
+                </div>
+
+                <div className="mt-5">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">First action</div>
+                  <p className="mt-2 text-sm text-zinc-600">Create a campaign, configure the voice agent script and audience tags, then set status to <strong>Active</strong> when you are ready to start outreach.</p>
+                  <button
+                    type="button"
+                    className="mt-3 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    disabled={busy}
+                    onClick={() => {
+                      setCreateName("");
+                      setCreateOpen(true);
+                    }}
+                  >
+                    Create first campaign
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6 text-sm text-zinc-500">Select a campaign from the left panel.</div>
+            )
           ) : (
             <div>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

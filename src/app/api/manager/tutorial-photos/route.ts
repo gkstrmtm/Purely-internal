@@ -3,17 +3,21 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted, platformAdminAuthError } from "@/lib/platformAdminGrants";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function requireManager(session: any) {
+async function requirePlatformAdmin(session: any) {
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return { ok: false as const, status: 401 as const };
-  if (role !== "MANAGER" && role !== "ADMIN") return { ok: false as const, status: 403 as const };
+  if (!hasPlatformAdminCapability(role, await isPlatformAdminGranted(userId).catch(() => false))) {
+    return { ok: false as const, status: 403 as const };
+  }
   return { ok: true as const, userId };
 }
 
@@ -107,10 +111,10 @@ function isHttpUrl(url: string) {
 
 export async function GET() {
   const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
+  const auth = await requirePlatformAdmin(session);
   if (!auth.ok) {
     return NextResponse.json(
-      { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { error: platformAdminAuthError(auth.status) },
       { status: auth.status },
     );
   }
@@ -133,10 +137,10 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
+  const auth = await requirePlatformAdmin(session);
   if (!auth.ok) {
     return NextResponse.json(
-      { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { error: platformAdminAuthError(auth.status) },
       { status: auth.status },
     );
   }

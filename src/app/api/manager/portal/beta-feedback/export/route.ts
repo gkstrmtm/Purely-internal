@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { PORTAL_FEEDBACK_SETUP_SLUG, parsePortalFeedbackPayload } from "@/lib/betaFeedback";
-import { requireManagerSession } from "@/lib/apiAuth";
+import { requirePlatformAdminSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -21,7 +21,7 @@ function escapeCsv(value: unknown) {
 }
 
 export async function GET(req: Request) {
-  const auth = await requireManagerSession();
+  const auth = await requirePlatformAdminSession();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

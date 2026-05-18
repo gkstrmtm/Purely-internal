@@ -10,12 +10,13 @@ import { SignOutButton } from "@/components/SignOutButton";
 type Props = {
   role?: string;
   email?: string;
+  platformAdminGranted?: boolean;
   children: React.ReactNode;
 };
 
 const STORAGE_KEY = "pa_app_nav_collapsed_v1";
 
-export function AppShell({ role, email, children }: Props) {
+export function AppShell({ role, email, platformAdminGranted, children }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -94,7 +95,12 @@ export function AppShell({ role, email, children }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
-          <AppSidebarNav role={role} collapsed={collapsed} onNavigate={() => setMobileOpen(false)} />
+          <AppSidebarNav
+            role={role}
+            platformAdminGranted={platformAdminGranted}
+            collapsed={collapsed}
+            onNavigate={() => setMobileOpen(false)}
+          />
         </div>
 
         <div className={"border-t border-zinc-200 p-3 " + (collapsed ? "px-2" : "")}
@@ -108,7 +114,7 @@ export function AppShell({ role, email, children }: Props) {
         </div>
       </aside>
     );
-  }, [collapsed, email, role, sidebarWidthClass]);
+  }, [collapsed, email, platformAdminGranted, role, sidebarWidthClass]);
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
@@ -182,7 +188,12 @@ export function AppShell({ role, email, children }: Props) {
             </div>
 
             <div className="h-[calc(100%-60px)] overflow-y-auto p-2">
-              <AppSidebarNav role={role} collapsed={false} onNavigate={() => setMobileOpen(false)} />
+              <AppSidebarNav
+                role={role}
+                platformAdminGranted={platformAdminGranted}
+                collapsed={false}
+                onNavigate={() => setMobileOpen(false)}
+              />
               <div className="mt-4 border-t border-zinc-200 pt-4">
                 {email ? <div className="mb-2 truncate px-2 text-xs font-medium text-zinc-500">{email}</div> : null}
                 <div className="px-2">

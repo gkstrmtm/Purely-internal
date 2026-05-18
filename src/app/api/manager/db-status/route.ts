@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted, PLATFORM_ACCESS_REQUIRED_MESSAGE } from "@/lib/platformAdminGrants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,8 +40,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: { "cache-control": "no-store" } });
   }
 
-  if (session.user.role !== "MANAGER" && session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: { "cache-control": "no-store" } });
+  if (!hasPlatformAdminCapability(session.user.role, await isPlatformAdminGranted(session.user.id).catch(() => false))) {
+    return NextResponse.json({ error: PLATFORM_ACCESS_REQUIRED_MESSAGE }, { status: 403, headers: { "cache-control": "no-store" } });
   }
 
   const [userCount, activeUserCount, creditCount, portalCount, portalServiceSetupCount, businessProfileCount, inboxThreadCount, inboxMessageCount, receptionistCallCount, receptionistEventCount] = await Promise.all([

@@ -4,6 +4,11 @@ import { prisma } from "@/lib/db";
 import { findOrCreatePortalContact, normalizePhoneKey } from "@/lib/portalContacts";
 import { addContactTagAssignment, createOwnerContactTag, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import {
+  countActiveArchivedEntities,
+  getActiveArchivedEntityIdSet,
+  RECOVERABILITY_ENTITY_TYPES,
+} from "@/lib/recoverability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +55,7 @@ export async function GET(req: Request) {
   const debugEnabled = url.searchParams.get("debug") === "1";
 
   const take = Math.max(1, Math.min(50, Number(url.searchParams.get("take") || 50) || 50));
+  const contactsFetchTake = Math.min(250, take * 3 + 5);
   const contactsCursor = parseCursor(url.searchParams.get("contactsCursor"));
   const leadsCursor = parseCursor(url.searchParams.get("leadsCursor"));
 
@@ -77,7 +83,7 @@ export async function GET(req: Request) {
           updatedAt: true,
         },
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-        take: take + 1,
+        take: contactsFetchTake,
       }),
       (prisma as any).portalContact.count({ where: { ownerId } }),
     ]);
@@ -107,8 +113,21 @@ export async function GET(req: Request) {
     });
   }
 
-  const contactsHasMore = contactsRaw.length > take;
-  const contacts = contactsHasMore ? contactsRaw.slice(0, take) : contactsRaw;
+  const [archivedContactIds, archivedContactsCount] = await Promise.all([
+    getActiveArchivedEntityIdSet({
+      ownerId,
+      entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT,
+      entityIds: contactsRaw.map((row) => String(row.id || "")).filter(Boolean),
+    }),
+    countActiveArchivedEntities({ ownerId, entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT }),
+  ]);
+
+  const visibleContactsRaw = archivedContactIds.size
+    ? contactsRaw.filter((row) => !archivedContactIds.has(String(row.id || "")))
+    : contactsRaw;
+
+  const contactsHasMore = visibleContactsRaw.length > take;
+  const contacts = contactsHasMore ? visibleContactsRaw.slice(0, take) : visibleContactsRaw;
   const contactsNextCursor = contactsHasMore
     ? (() => {
         const last = contacts[contacts.length - 1];
@@ -193,7 +212,7 @@ export async function GET(req: Request) {
 
   const payload: any = {
     ok: true,
-    totalContacts,
+    totalContacts: Math.max(0, totalContacts - archivedContactsCount),
     totalUnlinkedLeads,
     contactsNextCursor,
     unlinkedLeadsNextCursor,

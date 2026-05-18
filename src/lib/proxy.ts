@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { decode, getToken } from "next-auth/jwt";
 
+import {
+  canAccessHrWorkspace,
+  canAccessTeamOpsWorkspace,
+} from "@/lib/internalCapabilities";
+
 const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
 const CREDIT_PORTAL_SESSION_COOKIE_NAME = "pa.credit.session";
 const PORTAL_VARIANT_HEADER = "x-portal-variant";
@@ -559,23 +564,19 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/app/dialer", req.url));
   }
 
-  if ((path === "/app/hr" || path.startsWith("/app/hr/")) && role !== "HR" && role !== "MANAGER" && role !== "ADMIN") {
+  if ((path === "/app/hr" || path.startsWith("/app/hr/")) && !canAccessHrWorkspace(role)) {
     return NextResponse.redirect(new URL("/app", req.url));
   }
 
-  if (path.startsWith("/app/manager/admin") && role !== "MANAGER" && role !== "ADMIN") {
-    return NextResponse.redirect(new URL("/app", req.url));
-  }
-
-  if (path.startsWith("/app/manager/portal-overrides") && role !== "MANAGER" && role !== "ADMIN") {
-    return NextResponse.redirect(new URL("/app", req.url));
+  if (path.startsWith("/app/manager/admin") || path.startsWith("/app/manager/portal-overrides")) {
+    return NextResponse.next();
   }
 
   if (path.startsWith("/app/manager/blogs") && role !== "MANAGER" && role !== "ADMIN") {
     return NextResponse.redirect(new URL("/app", req.url));
   }
 
-  if (path.startsWith("/app/manager") && role !== "MANAGER" && role !== "HR" && role !== "ADMIN") {
+  if (path.startsWith("/app/manager") && !canAccessTeamOpsWorkspace(role)) {
     return NextResponse.redirect(new URL("/app", req.url));
   }
 

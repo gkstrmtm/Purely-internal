@@ -1769,7 +1769,7 @@ export function PortalLeadScrapingClient() {
                     AI outbound agent
                   </div>
                   <div className="mt-1 text-xs text-zinc-600">
-                    When enabled, your AI outbound agent will automatically reach out to these leads.
+                    When enabled, approved leads can route into your AI outbound agent after your campaign and trigger rules are ready.
                   </div>
                 </div>
 
@@ -1831,7 +1831,7 @@ export function PortalLeadScrapingClient() {
                     </div>
 
                     {!aiCampaignsBusy && aiCampaigns && aiCampaigns.length === 0 ? (
-                      <div className="mt-2 text-xs text-zinc-500">No campaigns found.</div>
+                      <div className="mt-2 text-xs text-zinc-500">No AI outbound campaigns found yet. Set one up in AI Outbound Calls before you automate follow-up here.</div>
                     ) : null}
                   </label>
                 </div>
@@ -2246,6 +2246,7 @@ export function PortalLeadScrapingClient() {
               ) : (
                 <div className="rounded-2xl border border-dashed border-zinc-200 px-3 py-4 text-sm text-zinc-500">
                   No pulled leads yet.
+                  <div className="mt-2 text-xs text-zinc-400">Save your niche and location, then click Pull now. Leads stay inside Purely until you review them and approve any follow-up.</div>
                 </div>
               )}
             </div>
@@ -2269,8 +2270,14 @@ export function PortalLeadScrapingClient() {
   if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-6xl">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-          Loading…
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="space-y-3">
+            <div className="pa-skeleton h-4 w-40 rounded-full bg-zinc-200" />
+            <div className="pa-skeleton h-7 w-64 max-w-full rounded-full bg-zinc-200" />
+            <div className="pa-skeleton h-4 w-full rounded-full bg-zinc-200" />
+            <div className="pa-skeleton h-4 w-5/6 rounded-full bg-zinc-200" />
+            <div className="pt-1 text-sm text-zinc-600">Loading lead-scraping settings and recent pull state…</div>
+          </div>
         </div>
       </div>
     );
@@ -2292,7 +2299,7 @@ export function PortalLeadScrapingClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Lead Scraping</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            Pull hundreds of leads in any niche or area and reach out instantly.
+            Pull targeted leads by niche and location, then review and approve outreach when you are ready.
           </p>
           {refreshing ? (
             <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
@@ -2318,7 +2325,7 @@ export function PortalLeadScrapingClient() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="text-base font-semibold text-brand-ink">B2B pulls</div>
-                    <div className="mt-1 text-sm text-zinc-600">Search businesses by niche/keywords + location.</div>
+                    <div className="mt-1 text-sm text-zinc-600">Search businesses by niche/keywords and location, then review the results before anything goes out.</div>
                   </div>
                   <div className="text-right text-xs text-zinc-500">
                     Est. max cost per run:{" "}
@@ -2633,7 +2640,7 @@ export function PortalLeadScrapingClient() {
                       ? plannedBatchesUi > 1
                         ? `Pulling ${plannedBatchesUi} batches…`
                         : "Pulling…"
-                      : "Run now"}
+                      : "Pull now"}
                   </button>
 
                   <button
@@ -2728,7 +2735,8 @@ export function PortalLeadScrapingClient() {
                     ))
                   ) : (
                     <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
-                      No leads yet. Run your first pull.
+                      No leads yet. Save your search, then click Pull now to collect the first batch.
+                      <div className="mt-2 text-xs text-zinc-500">Outbound remains approval-gated unless you explicitly enable and configure it.</div>
                     </div>
                   )}
                 </div>
@@ -2738,7 +2746,7 @@ export function PortalLeadScrapingClient() {
             <div className="mt-0">
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
                 <div className="text-base font-semibold text-brand-ink">B2B settings</div>
-                <div className="mt-1 text-sm text-zinc-600">Manage exclusions, scheduling, and auto-outbound.</div>
+                <div className="mt-1 text-sm text-zinc-600">Manage exclusions, scheduling, and approval-gated outbound follow-up.</div>
 
                 <div className="mt-6 space-y-4">
                   <SettingsSection

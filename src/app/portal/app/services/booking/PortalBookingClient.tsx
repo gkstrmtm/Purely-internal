@@ -2915,6 +2915,103 @@ export function PortalBookingClient() {
 
       {topTab === "settings" ? (
         <>
+          {/* Activation sequence — visible at the top of Settings to show where the operator stands */}
+          {(() => {
+            const hasAvailability = blocks.length > 0;
+            const hasCalendar = calendars.length > 0;
+            const hasSite = Boolean(site);
+            const hasReminders = Boolean(reminderSettings?.steps?.length);
+            const hasPublicLink = Boolean(previewBookingUrl);
+            const isCredit = appBase.startsWith("/credit");
+
+            const steps: Array<{ label: string; done: boolean; href: string; cta: string }> = [
+              {
+                label: "Set up availability",
+                done: hasAvailability,
+                href: `${appBase}/services/booking/availability`,
+                cta: hasAvailability ? "Edit availability" : "Set availability",
+              },
+              {
+                label: "Configure booking details and intake form",
+                done: hasCalendar && hasSite,
+                href: `${appBase}/services/booking?tab=settings`,
+                cta: "Review settings",
+              },
+              {
+                label: "Add reminders or follow-up (optional but recommended)",
+                done: hasReminders,
+                href: `${appBase}/services/booking?tab=reminders`,
+                cta: hasReminders ? "Edit reminders" : "Set up reminders",
+              },
+              {
+                label: "Enable your public booking link",
+                done: hasPublicLink,
+                href: `${appBase}/services/booking?tab=settings`,
+                cta: hasPublicLink ? "Link is active" : "Finish setup to enable link",
+              },
+              {
+                label: "Test the live booking link",
+                done: false,
+                href: previewBookingUrl ?? `${appBase}/services/booking?tab=settings`,
+                cta: previewBookingUrl ? "Open booking link" : "Complete setup first",
+              },
+            ];
+
+            const completedCount = steps.filter((s) => s.done).length;
+            const nextStep = steps.find((s) => !s.done);
+
+            return (
+              <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Activation sequence</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">
+                      {completedCount >= steps.length - 1
+                        ? isCredit ? "Booking is active — test the link" : "Booking is active — test the link"
+                        : `${completedCount} of ${steps.length - 1} setup steps complete`}
+                    </div>
+                  </div>
+                  {nextStep && nextStep.href ? (
+                    <a
+                      href={nextStep.href}
+                      target={nextStep.label.startsWith("Test") ? "_blank" : undefined}
+                      rel={nextStep.label.startsWith("Test") ? "noreferrer" : undefined}
+                      className="shrink-0 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                    >
+                      {nextStep.cta}
+                    </a>
+                  ) : null}
+                </div>
+                <ol className="mt-4 space-y-2">
+                  {steps.map((step, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <span
+                        className={
+                          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-semibold " +
+                          (step.done
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : i === steps.findIndex((s) => !s.done)
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : "border-zinc-200 bg-zinc-50 text-zinc-500")
+                        }
+                      >
+                        {step.done ? "✓" : i + 1}
+                      </span>
+                      <span className={"text-sm " + (step.done ? "text-zinc-500 line-through" : "text-zinc-700")}>
+                        {step.label}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <div className="mt-4 border-t border-zinc-100 pt-4 text-xs text-zinc-500">
+                  {isCredit
+                    ? "Once availability and details are saved, the booking link is visible in the sidebar. Clients cannot book until availability is set."
+                    : "Once availability and details are saved, your booking link becomes active. Reminders help reduce no-shows significantly."}
+                </div>
+              </div>
+            );
+          })()}
+
           <PortalSettingsSection
             title="Calendars"
             description="Edit and manage your calendars."

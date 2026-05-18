@@ -10,6 +10,7 @@ import { IconEdit } from "@/app/portal/PortalIcons";
 import { formatSavedTime } from "@/lib/formatSavedTime";
 import { buildDashboardLayout, type DashboardLayoutItem as SharedDashboardLayoutItem, type DashboardWidgetId } from "@/lib/portalDashboardLayout";
 import { reportPortalActionFailure } from "@/lib/portalDiagnostics.client";
+import { buildGuidanceItems, guidanceStatusColors, guidanceStatusLabel, type GuidanceItem } from "@/lib/portalGuidance";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
@@ -135,6 +136,22 @@ type ReportingPayload = {
 
 type MediaStatsPayload =
   | { ok: true; itemsCount: number; foldersCount: number }
+  | { ok: false; error?: string };
+
+type DashboardServicesStatus =
+  | {
+      ok: true;
+      statuses: Record<
+        string,
+        {
+          state: "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled";
+          readiness: {
+            state: "ready" | "needs_setup" | "needs_connection" | "empty" | "blocked";
+            href: string | null;
+          };
+        }
+      >;
+    }
   | { ok: false; error?: string };
 
 type SalesIntegrationStatusPayload =
@@ -423,6 +440,7 @@ export function PortalDashboardClient() {
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationStatusPayload | null>(null);
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
   const [salesError, setSalesError] = useState<string | null>(null);
+  const [servicesStatus, setServicesStatus] = useState<DashboardServicesStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -516,9 +534,10 @@ export function PortalDashboardClient() {
         const optionalTimeout = window.setTimeout(() => optionalController.abort(), 15000);
 
         try {
-          const [repRes, statsRes] = await Promise.all([
+          const [repRes, statsRes, svcRes] = await Promise.all([
             fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
             fetch("/api/portal/media/stats", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
+            fetch("/api/portal/services/status", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
           ]);
 
           if (!mounted) return;
@@ -539,6 +558,11 @@ export function PortalDashboardClient() {
           if (statsRes?.ok) {
             const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
             if (stats) setMediaStats(stats);
+          }
+
+          if (svcRes?.ok) {
+            const svc = (await svcRes.json().catch(() => null)) as DashboardServicesStatus | null;
+            if (svc) setServicesStatus(svc);
           }
         } finally {
           window.clearTimeout(optionalTimeout);
@@ -632,6 +656,36 @@ export function PortalDashboardClient() {
     const current = new Set((dashboard?.widgets ?? []).map((widget) => widget.id));
     return (["puraAttention", "activityPulse", "successRate", "dailyActivity"] as DashboardWidgetId[]).filter((id) => !current.has(id));
   }, [dashboard]);
+
+  const guidanceItems = useMemo((): GuidanceItem[] => {
+    if (!data) return [];
+    const isCredit = portalBase === "/credit";
+    const svcStatuses =
+      servicesStatus && servicesStatus.ok ? servicesStatus.statuses : {};
+    return buildGuidanceItems({
+      isCreditWorkspace: isCredit,
+      portalBase,
+      billingConfigured: Boolean(data.billing?.configured),
+      statuses: svcStatuses,
+      kpis: reporting?.kpis
+        ? {
+            leadsCreated: reporting.kpis.leadsCreated ?? 0,
+            contactsCreated: reporting.kpis.contactsCreated ?? 0,
+            bookingsCreated: reporting.kpis.bookingsCreated ?? 0,
+            aiCalls: reporting.kpis.aiCalls ?? 0,
+            textsSent: reporting.kpis.textsSent ?? 0,
+            missedCalls: reporting.kpis.missedCalls ?? 0,
+            nurtureEnrollmentsCreated: reporting.kpis.nurtureEnrollmentsCreated ?? 0,
+            newsletterSentCount: reporting.kpis.newsletterSentCount ?? 0,
+            reviewsCollected: reporting.kpis.reviewsCollected ?? 0,
+            blogGenerations: reporting.kpis.blogGenerations ?? 0,
+            tasksOpenNow: reporting.kpis.tasksOpenNow ?? 0,
+            inboxMessagesIn: reporting.kpis.inboxMessagesIn ?? 0,
+            inboxMessagesOut: reporting.kpis.inboxMessagesOut ?? 0,
+          }
+        : null,
+    });
+  }, [data, portalBase, reporting, servicesStatus]);
 
   const hasStripeSalesWidget = useMemo(
     () => Boolean(dashboard?.widgets?.some((w) => w.id === "stripeSales")),
@@ -763,9 +817,42 @@ export function PortalDashboardClient() {
   }
 
   if (loading) {
+    const isCreditLoading = portalBase === "/credit";
     return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading…
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-sm font-semibold text-zinc-900">{isCreditLoading ? "Credit workspace" : "Your workspace"}</div>
+          <div className="mt-1 text-sm text-zinc-600">
+            {isCreditLoading
+              ? "Loading your credit dashboard — services, workflow status, and billing will appear here."
+              : "Loading your dashboard — services, activity, and billing will appear here."}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <a
+              href={`${portalBase}/app/services`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              View services
+            </a>
+            <a
+              href={`${portalBase}/app/billing`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              View billing
+            </a>
+            {!isCreditLoading ? (
+              <a
+                href={`${portalBase}/app/services/reporting`}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                View reporting
+              </a>
+            ) : null}
+          </div>
+        </div>
+        <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-500">
+          Dashboard data is loading. If this takes more than a few seconds, try refreshing the page.
+        </div>
       </div>
     );
   }
@@ -1977,6 +2064,80 @@ export function PortalDashboardClient() {
 
   const showEditControls = Boolean(dashboard);
 
+  // Compact inline guidance panel — shown above the widget grid when items exist.
+  function renderGuidancePanel() {
+    if (guidanceItems.length === 0) return null;
+    // Show top 4 items.
+    const visible = guidanceItems.slice(0, 4);
+    const topItem = visible[0];
+    if (!topItem) return null;
+    const topColors = guidanceStatusColors(topItem.status);
+
+    return (
+      <div className="mb-5 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              {isCreditWorkspace ? "Credit workspace guidance" : "Business next steps"}
+            </div>
+            <div className="mt-1 text-sm text-zinc-600">
+              Based on what this workspace has and hasn't set up yet.
+            </div>
+          </div>
+          <Link
+            href={`${portalBase}/app/services`}
+            className="shrink-0 text-xs font-semibold text-brand-ink hover:underline"
+          >
+            All services
+          </Link>
+        </div>
+
+        {/* Top item — featured */}
+        <div className={`rounded-2xl border p-4 ${topColors.border} ${topColors.bg}`}>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${topColors.badge}`}>
+                  {guidanceStatusLabel(topItem.status)}
+                </span>
+              </div>
+              <div className="mt-2 text-sm font-semibold text-zinc-900">{topItem.title}</div>
+              <div className="mt-1 text-sm text-zinc-600">{topItem.reason}</div>
+            </div>
+            <Link
+              href={topItem.href}
+              className="shrink-0 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+            >
+              {topItem.nextActionLabel}
+            </Link>
+          </div>
+        </div>
+
+        {/* Secondary items — compact row */}
+        {visible.length > 1 ? (
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {visible.slice(1).map((item) => {
+              const colors = guidanceStatusColors(item.status);
+              return (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className={`rounded-2xl border p-3 transition-colors duration-100 hover:bg-zinc-50 ${colors.border}`}
+                >
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${colors.badge}`}>
+                    {guidanceStatusLabel(item.status)}
+                  </span>
+                  <div className="mt-1.5 text-xs font-semibold text-zinc-900 leading-snug">{item.title}</div>
+                  <div className="mt-1 text-xs font-semibold text-brand-ink">{item.nextActionLabel} →</div>
+                </Link>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -2024,6 +2185,8 @@ export function PortalDashboardClient() {
           </div>
         ) : null}
       </div>
+
+      {renderGuidancePanel()}
 
       <div ref={setContainerEl}>
         {width > 0 ? (

@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted, platformAdminAuthError } from "@/lib/platformAdminGrants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,20 +12,37 @@ export const revalidate = 0;
 
 const DELETED_ACCOUNT_SETUP_SLUG = "__portal_deleted_account";
 
-function requireManager(session: any) {
+function parseDeletedAccountTombstone(dataJson: unknown): { originalEmail: string | null; originalName: string | null; deletedAtIso: string | null } {
+  if (!dataJson || typeof dataJson !== "object" || Array.isArray(dataJson)) {
+    return { originalEmail: null, originalName: null, deletedAtIso: null };
+  }
+  const record = dataJson as Record<string, unknown>;
+  const originalEmail = typeof record.originalEmail === "string" ? record.originalEmail.trim().slice(0, 320) : "";
+  const originalName = typeof record.originalName === "string" ? record.originalName.trim().slice(0, 200) : "";
+  const deletedAtIso = typeof record.deletedAtIso === "string" ? record.deletedAtIso.trim().slice(0, 64) : "";
+  return {
+    originalEmail: originalEmail || null,
+    originalName: originalName || null,
+    deletedAtIso: deletedAtIso || null,
+  };
+}
+
+async function requirePlatformAdmin(session: any) {
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return { ok: false as const, status: 401 as const, userId: null as any };
-  if (role !== "MANAGER" && role !== "ADMIN") return { ok: false as const, status: 403 as const, userId };
+  if (!hasPlatformAdminCapability(role, await isPlatformAdminGranted(userId).catch(() => false))) {
+    return { ok: false as const, status: 403 as const, userId };
+  }
   return { ok: true as const, status: 200 as const, userId };
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ ownerId: string }> }) {
   const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
+  const auth = await requirePlatformAdmin(session);
   if (!auth.ok) {
     return NextResponse.json(
-      { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { error: platformAdminAuthError(auth.status) },
       { status: auth.status },
     );
   }
@@ -88,6 +107,85 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ owne
         active: false,
         email: tombstoneEmail,
         name: originalName ? `[Deleted] ${originalName}`.slice(0, 120) : "[Deleted]",
+      },
+      select: { id: true },
+    });
+  });
+
+  return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(_req: Request, { params }: { params: Promise<{ ownerId: string }> }) {
+  const session = await getServerSession(authOptions);
+  const auth = await requirePlatformAdmin(session);
+  if (!auth.ok) {
+    return NextResponse.json(
+      { error: platformAdminAuthError(auth.status) },
+      { status: auth.status },
+    );
+  }
+
+  const ownerId = String((await params)?.ownerId || "").trim();
+  if (!ownerId) return NextResponse.json({ error: "Invalid ownerId" }, { status: 400 });
+
+  const [user, tombstone] = await Promise.all([
+    prisma.user.findUnique({ where: { id: ownerId }, select: { id: true, email: true, name: true, role: true, active: true } }),
+    prisma.portalServiceSetup.findUnique({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: DELETED_ACCOUNT_SETUP_SLUG } },
+      select: { id: true, status: true, dataJson: true },
+    }),
+  ]);
+
+  if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+  if (user.role !== "CLIENT") {
+    return NextResponse.json({ error: "Only client accounts can be restored from portal overrides." }, { status: 400 });
+  }
+  if (!tombstone || tombstone.status !== "COMPLETE") {
+    return NextResponse.json({ error: "This account is not archived." }, { status: 400 });
+  }
+
+  const parsed = parseDeletedAccountTombstone(tombstone.dataJson);
+  const restoreEmail = String(parsed.originalEmail || "").trim().toLowerCase();
+  const restoreName = String(parsed.originalName || "").trim() || user.name.replace(/^\[Deleted\]\s*/, "").trim() || "Portal User";
+
+  if (!restoreEmail) {
+    return NextResponse.json({ error: "Archived email is missing, so this account cannot be restored." }, { status: 400 });
+  }
+
+  const conflict = await prisma.user.findFirst({
+    where: { email: restoreEmail, NOT: { id: ownerId } },
+    select: { id: true },
+  });
+  if (conflict) {
+    return NextResponse.json({ error: "Original email is already in use. Restore is blocked." }, { status: 409 });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: ownerId },
+      data: {
+        active: true,
+        email: restoreEmail,
+        name: restoreName,
+      },
+      select: { id: true },
+    });
+
+    const existingData = tombstone.dataJson && typeof tombstone.dataJson === "object" && !Array.isArray(tombstone.dataJson)
+      ? (tombstone.dataJson as Record<string, unknown>)
+      : {};
+
+    await tx.portalServiceSetup.update({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: DELETED_ACCOUNT_SETUP_SLUG } },
+      data: {
+        status: "NOT_STARTED",
+        dataJson: {
+          ...existingData,
+          restoredAtIso: new Date().toISOString(),
+          restoredByUserId: auth.userId,
+          originalEmail: restoreEmail,
+          originalName: restoreName,
+        } as any,
       },
       select: { id: true },
     });

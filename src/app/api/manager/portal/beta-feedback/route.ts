@@ -7,7 +7,7 @@ import {
   PORTAL_FEEDBACK_SETUP_SLUG,
   updatePortalFeedbackItemTriage,
 } from "@/lib/betaFeedback";
-import { requireManagerSession } from "@/lib/apiAuth";
+import { requirePlatformAdminSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -28,7 +28,7 @@ const patchSchema = z
   .strict();
 
 export async function PATCH(req: Request) {
-  const auth = await requireManagerSession();
+  const auth = await requirePlatformAdminSession();
   if (!auth.ok) {
     return NextResponse.json(
       { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

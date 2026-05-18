@@ -6,6 +6,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
 import { MODULE_KEYS, MODULE_LABELS, type ModuleKey } from "@/lib/entitlements.shared";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted, platformAdminAuthError } from "@/lib/platformAdminGrants";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
 
@@ -13,11 +15,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function requireManager(session: any) {
+async function requirePlatformAdmin(session: any) {
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return { ok: false as const, status: 401 as const };
-  if (role !== "MANAGER" && role !== "ADMIN") return { ok: false as const, status: 403 as const };
+  if (!hasPlatformAdminCapability(role, await isPlatformAdminGranted(userId).catch(() => false))) {
+    return { ok: false as const, status: 403 as const };
+  }
   return { ok: true as const, userId };
 }
 
@@ -158,8 +162,8 @@ const upsertSchema = z.object({
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
-  if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  const auth = await requirePlatformAdmin(session);
+  if (!auth.ok) return NextResponse.json({ error: platformAdminAuthError(auth.status) }, { status: auth.status });
 
   const url = new URL(req.url);
   const q = (url.searchParams.get("q") ?? "").trim();
@@ -303,7 +307,7 @@ export async function GET(req: Request) {
   if (q) {
     try {
       const rows = await prisma.portalServiceSetup.findMany({
-        where: { serviceSlug: DELETED_ACCOUNT_SETUP_SLUG },
+        where: { serviceSlug: DELETED_ACCOUNT_SETUP_SLUG, status: "COMPLETE" },
         select: { ownerId: true, dataJson: true },
         take: 5000,
       });
@@ -462,7 +466,7 @@ export async function GET(req: Request) {
     ? await safeFindMany(
         async () =>
           prisma.portalServiceSetup.findMany({
-            where: { ownerId: { in: ownerIds }, serviceSlug: DELETED_ACCOUNT_SETUP_SLUG },
+            where: { ownerId: { in: ownerIds }, serviceSlug: DELETED_ACCOUNT_SETUP_SLUG, status: "COMPLETE" },
             select: { ownerId: true, dataJson: true },
           }),
         [],
@@ -605,8 +609,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
-  if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  const auth = await requirePlatformAdmin(session);
+  if (!auth.ok) return NextResponse.json({ error: platformAdminAuthError(auth.status) }, { status: auth.status });
 
   const json = await req.json().catch(() => null);
   const parsed = upsertSchema.safeParse(json);
@@ -644,8 +648,8 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
-  if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  const auth = await requirePlatformAdmin(session);
+  if (!auth.ok) return NextResponse.json({ error: platformAdminAuthError(auth.status) }, { status: auth.status });
 
   const json = await req.json().catch(() => null);
   const parsed = upsertSchema.safeParse(json);

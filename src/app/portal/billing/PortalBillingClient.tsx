@@ -1041,8 +1041,22 @@ export function PortalBillingClient({
 
   if (loading) {
     return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading…
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-sm font-semibold text-zinc-900">Loading billing</div>
+          <div className="mt-1 text-sm text-zinc-600">
+            Fetching your subscription status, credit balance, and service entitlements. This usually takes a moment.
+          </div>
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+            <div className="font-semibold text-zinc-800">What billing controls</div>
+            <ul className="mt-2 space-y-1">
+              <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span>Which services and credit tools are active</span></li>
+              <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span>Your credit balance and top-up options</span></li>
+              <li className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" /><span>Subscription status and renewal dates</span></li>
+            </ul>
+          </div>
+          <div className="mt-4 text-xs text-zinc-500">If this is taking too long, try refreshing the page.</div>
+        </div>
       </div>
     );
   }

@@ -8,6 +8,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers, tryNotifyPortalUserIds } from "@/lib/portalNotifications";
+import { getActiveArchivedEntityIdSet, RECOVERABILITY_ENTITY_TYPES } from "@/lib/recoverability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,7 +63,8 @@ export async function GET(req: Request) {
     whereParts.push(`(t."assignedToUserId" = $2 OR t."assignedToUserId" IS NULL)`);
   }
 
-  params.push(limit);
+  const fetchLimit = Math.min(500, limit * 3 + 5);
+  params.push(fetchLimit);
 
   const sql = `
     SELECT
@@ -88,11 +90,19 @@ export async function GET(req: Request) {
   `;
 
   const rows = (await prisma.$queryRawUnsafe(sql, ...params).catch(() => [])) as any[];
+  const archivedTaskIds = await getActiveArchivedEntityIdSet({
+    ownerId,
+    entityType: RECOVERABILITY_ENTITY_TYPES.TASK,
+    entityIds: rows.map((row) => String(row.id || "")).filter(Boolean),
+  });
+  const visibleRows = archivedTaskIds.size
+    ? rows.filter((row) => !archivedTaskIds.has(String(row.id || "")))
+    : rows;
 
   return NextResponse.json({
     ok: true,
     viewerUserId: String(memberId),
-    tasks: rows.map((r) => ({
+    tasks: visibleRows.slice(0, limit).map((r) => ({
       id: String(r.id),
       title: String(r.title || ""),
       description: r.description ? String(r.description) : null,

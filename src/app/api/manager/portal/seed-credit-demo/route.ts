@@ -5,6 +5,8 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { deriveCreditReportItemAudit } from "@/lib/creditReports";
 import { prisma } from "@/lib/db";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted, platformAdminAuthError } from "@/lib/platformAdminGrants";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 
 export const runtime = "nodejs";
@@ -52,11 +54,13 @@ function toErrorMessage(err: unknown) {
   }
 }
 
-function requireManager(session: any) {
+async function requirePlatformAdmin(session: any) {
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return { ok: false as const, status: 401 as const, userId: null as any };
-  if (role !== "MANAGER" && role !== "ADMIN") return { ok: false as const, status: 403 as const, userId };
+  if (!hasPlatformAdminCapability(role, await isPlatformAdminGranted(userId).catch(() => false))) {
+    return { ok: false as const, status: 403 as const, userId };
+  }
   return { ok: true as const, status: 200 as const, userId };
 }
 
@@ -191,7 +195,6 @@ async function createLetter(input: {
     data: {
       ownerId: input.ownerId,
       contactId: input.contactId,
-      creditPullId: input.creditPullId || null,
       subject: input.subject,
       bodyText: input.bodyText,
       promptText: "Demo seeded record",
@@ -307,10 +310,10 @@ function seededLetterBody(contactName: string, recipientName: string, disputeLin
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    const auth = requireManager(session);
+    const auth = await requirePlatformAdmin(session);
     if (!auth.ok) {
       return NextResponse.json(
-        { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+        { error: platformAdminAuthError(auth.status) },
         { status: auth.status, headers: { "cache-control": "no-store" } },
       );
     }

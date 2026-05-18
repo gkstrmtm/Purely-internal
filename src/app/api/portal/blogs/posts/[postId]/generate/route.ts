@@ -41,7 +41,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
   }
 
   const post = await prisma.clientBlogPost.findFirst({
-    where: { id: postId, site: { ownerId } },
+    where: { id: postId, site: { ownerId }, archivedAt: null },
     select: { id: true, status: true, siteId: true },
   });
 

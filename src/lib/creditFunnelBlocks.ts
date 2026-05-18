@@ -2750,9 +2750,9 @@ export function renderCreditFunnelBlocks({
                 { className: "mt-1 text-xs text-zinc-600" },
                 agentId
                   ? previewUsesEmbedPlaceholders
-                    ? "Launcher preview is paused in builder preview. Open the live page to test the real chat widget."
-                    : "Floating widget preview is shown on the page. Click the launcher to select."
-                  : "Set an Agent ID in the sidebar to enable live chat.",
+                    ? "Launcher preview is paused in builder preview. Open the live page to test the real chat widget. Conversation behavior comes from the linked AI Receptionist chat agent."
+                    : "Floating launcher placement is shown on the page. Test the real conversation on the live page."
+                  : "Link an AI Receptionist chat agent before expecting this widget to render on the live page.",
               ),
             ),
           );

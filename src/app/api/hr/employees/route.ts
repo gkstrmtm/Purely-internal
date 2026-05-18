@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireStaffSession } from "@/lib/apiAuth";
+import { listActivePlatformAdminGrantUserIds } from "@/lib/platformAdminGrants";
 
 export async function GET() {
   const auth = await requireStaffSession();
@@ -23,5 +24,13 @@ export async function GET() {
     },
   });
 
-  return NextResponse.json({ ok: true, employees: users });
+  const grantUserIds = await listActivePlatformAdminGrantUserIds().catch(() => new Set<string>());
+
+  return NextResponse.json({
+    ok: true,
+    employees: users.map((user) => ({
+      ...user,
+      platformAdminGranted: user.role === "ADMIN" || grantUserIds.has(user.id),
+    })),
+  });
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { getActiveArchivedEntityIdSet, RECOVERABILITY_ENTITY_TYPES } from "@/lib/recoverability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,11 +35,21 @@ export async function GET(req: Request) {
     const rows = await (prisma as any).portalContact.findMany({
       where,
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      take,
+      take: Math.min(150, take * 3),
       select: { id: true, name: true, email: true, phone: true, updatedAt: true },
     });
 
-    const contacts = (rows || []).map((c: any) => ({
+    const archivedIds = await getActiveArchivedEntityIdSet({
+      ownerId,
+      entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT,
+      entityIds: (rows || []).map((row: any) => String(row?.id || "")).filter(Boolean),
+    });
+
+    const visibleRows = archivedIds.size
+      ? (rows || []).filter((row: any) => !archivedIds.has(String(row?.id || "")))
+      : rows || [];
+
+    const contacts = visibleRows.slice(0, take).map((c: any) => ({
       id: String(c.id),
       name: String(c.name || "").trim(),
       email: c.email ? String(c.email) : null,

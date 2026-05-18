@@ -19,7 +19,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ postId: string
   const ownerId = auth.session.user.id;
 
   const post = await prisma.clientBlogPost.findFirst({
-    where: { id: postId, site: { ownerId } },
+    where: { id: postId, site: { ownerId }, archivedAt: null },
     select: { title: true, slug: true, excerpt: true, content: true },
   });
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
+import { getActiveArchivedEntityIdSet, RECOVERABILITY_ENTITY_TYPES } from "@/lib/recoverability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,7 +34,7 @@ export async function GET(req: Request) {
         : {}),
     },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }, { id: "asc" }],
-    take: 50,
+    take: 150,
     select: {
       id: true,
       name: true,
@@ -44,5 +45,16 @@ export async function GET(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, contacts });
+  const archivedIds = await getActiveArchivedEntityIdSet({
+    ownerId: session.session.user.id,
+    entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT,
+    entityIds: contacts.map((contact) => String(contact.id || "")).filter(Boolean),
+  });
+
+  return NextResponse.json({
+    ok: true,
+    contacts: archivedIds.size
+      ? contacts.filter((contact) => !archivedIds.has(String(contact.id || ""))).slice(0, 50)
+      : contacts.slice(0, 50),
+  });
 }

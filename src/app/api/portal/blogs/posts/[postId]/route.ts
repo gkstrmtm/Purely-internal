@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { slugify } from "@/lib/slugify";
+import { archiveEntity, RECOVERABILITY_ENTITY_TYPES } from "@/lib/recoverability";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,6 +40,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ postId: string
     where: {
       id: postId,
       site: { ownerId },
+      archivedAt: null,
     },
     select: {
       id: true,
@@ -93,9 +95,13 @@ export async function PUT(req: Request, ctx: { params: Promise<{ postId: string 
 
   const existing = await prisma.clientBlogPost.findFirst({
     where: { id: postId, site: { ownerId } },
-    select: { id: true, siteId: true, status: true },
+    select: { id: true, siteId: true, status: true, archivedAt: true },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (existing.archivedAt) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (parsed.data.archived === false) {
+    return NextResponse.json({ error: "Archived posts can only be restored by platform admin." }, { status: 403 });
+  }
 
   const slug = await uniqueSlug(existing.siteId, parsed.data.slug, existing.id);
 
@@ -107,7 +113,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ postId: string 
       excerpt: parsed.data.excerpt ?? "",
       content: parsed.data.content ?? "",
       seoKeywords: parsed.data.seoKeywords?.length ? parsed.data.seoKeywords : Prisma.DbNull,
-      archivedAt: parsed.data.archived ? new Date() : null,
+      ...(parsed.data.archived ? { archivedAt: new Date() } : {}),
       ...(typeof parsed.data.publishedAt !== "undefined"
         ? { publishedAt: parsed.data.publishedAt ? new Date(parsed.data.publishedAt) : null }
         : {}),
@@ -126,6 +132,20 @@ export async function PUT(req: Request, ctx: { params: Promise<{ postId: string 
     },
   });
 
+  if (parsed.data.archived) {
+    await archiveEntity({
+      ownerId,
+      entityType: RECOVERABILITY_ENTITY_TYPES.BLOG_POST,
+      entityId: updated.id,
+      actorUserId: ownerId,
+      metadata: {
+        title: updated.title,
+        slug: updated.slug,
+        status: updated.status,
+      },
+    });
+  }
+
   return NextResponse.json({ ok: true, post: updated });
 }
 
@@ -143,11 +163,29 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ postId: str
 
   const existing = await prisma.clientBlogPost.findFirst({
     where: { id: postId, site: { ownerId } },
-    select: { id: true },
+    select: { id: true, title: true, slug: true, status: true, archivedAt: true },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await prisma.clientBlogPost.delete({ where: { id: existing.id } });
+  if (!existing.archivedAt) {
+    await prisma.clientBlogPost.update({
+      where: { id: existing.id },
+      data: { archivedAt: new Date() },
+      select: { id: true },
+    });
+  }
 
-  return NextResponse.json({ ok: true });
+  await archiveEntity({
+    ownerId,
+    entityType: RECOVERABILITY_ENTITY_TYPES.BLOG_POST,
+    entityId: existing.id,
+    actorUserId: ownerId,
+    metadata: {
+      title: existing.title,
+      slug: existing.slug,
+      status: existing.status,
+    },
+  });
+
+  return NextResponse.json({ ok: true, archived: true });
 }

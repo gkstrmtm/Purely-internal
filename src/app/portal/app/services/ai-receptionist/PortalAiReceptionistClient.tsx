@@ -1414,8 +1414,14 @@ export function PortalAiReceptionistClient() {
 
   if (loading && !hasLoadedOnceRef.current) {
     return (
-      <div className="mx-auto w-full max-w-6xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading…
+      <div className="mx-auto w-full max-w-6xl rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className="space-y-3">
+          <div className="pa-skeleton h-4 w-36 rounded-full bg-zinc-200" />
+          <div className="pa-skeleton h-7 w-60 max-w-full rounded-full bg-zinc-200" />
+          <div className="pa-skeleton h-4 w-full rounded-full bg-zinc-200" />
+          <div className="pa-skeleton h-4 w-2/3 rounded-full bg-zinc-200" />
+          <div className="pt-1 text-sm text-zinc-600">Loading AI Receptionist readiness, settings, and recent activity…</div>
+        </div>
       </div>
     );
   }
@@ -1444,7 +1450,7 @@ export function PortalAiReceptionistClient() {
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="font-semibold">Connect Twilio to take calls</div>
           <div className="mt-1 text-amber-900/80">
-            Add your Twilio details in your Profile to enable inbound calls.
+            AI Receptionist cannot receive live calls until Twilio is configured. Add your Twilio details in Profile, then use Testing for a safe check before relying on inbound traffic.
             <span className="ml-2">
               <Link href={`${portalBase}/app/profile`} className="underline">
                 Open Profile
@@ -2641,7 +2647,30 @@ export function PortalAiReceptionistClient() {
 
           {!selectedCall ? (
             <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              No calls yet.
+              <div className="font-semibold text-zinc-900">No activity yet.</div>
+              <div className="mt-1 text-sm text-zinc-600">
+                {twilioConfigured
+                  ? "Use Testing for a safe internal check, or wait for inbound calls to start appearing here."
+                  : "Connect Twilio first, then use Testing or wait for inbound calls to populate this activity feed."}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {twilioConfigured ? (
+                  <button
+                    type="button"
+                    onClick={() => setTabWithUrl("testing")}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Open testing
+                  </button>
+                ) : (
+                  <Link
+                    href={`${portalBase}/app/profile`}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Open Profile
+                  </Link>
+                )}
+              </div>
             </div>
           ) : (
             <div className="mt-4">

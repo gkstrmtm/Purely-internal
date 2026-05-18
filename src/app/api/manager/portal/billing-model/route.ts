@@ -4,17 +4,21 @@ import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted, platformAdminAuthError } from "@/lib/platformAdminGrants";
 import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function requireManager(session: any) {
+async function requirePlatformAdmin(session: any) {
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return { ok: false as const, status: 401 as const };
-  if (role !== "MANAGER" && role !== "ADMIN") return { ok: false as const, status: 403 as const };
+  if (!hasPlatformAdminCapability(role, await isPlatformAdminGranted(userId).catch(() => false))) {
+    return { ok: false as const, status: 403 as const };
+  }
   return { ok: true as const, userId };
 }
 
@@ -37,9 +41,9 @@ function encodeCreditsOnlyOverride(updatedByUserId: string) {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
+  const auth = await requirePlatformAdmin(session);
   if (!auth.ok) {
-    return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+    return NextResponse.json({ error: platformAdminAuthError(auth.status) }, { status: auth.status });
   }
 
   const json = await req.json().catch(() => null);

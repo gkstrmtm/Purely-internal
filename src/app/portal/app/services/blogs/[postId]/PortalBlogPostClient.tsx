@@ -214,6 +214,27 @@ function validateMarkdownForPublish(md: string): string | null {
   return null;
 }
 
+function normalizeDraftText(value: string) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function isPlaceholderHeadline(value: string) {
+  const normalized = normalizeDraftText(value);
+  return normalized === "untitled" || normalized === "untitled post";
+}
+
+function hasMeaningfulHeadline(value: string) {
+  const trimmed = String(value || "").trim();
+  return trimmed.length >= 8 && !isPlaceholderHeadline(trimmed);
+}
+
+function hasMeaningfulBrief(brief: string, headline: string) {
+  const trimmed = String(brief || "").trim();
+  if (trimmed.length < 12) return false;
+  if (isPlaceholderHeadline(trimmed)) return false;
+  return normalizeDraftText(trimmed) !== normalizeDraftText(headline);
+}
+
 export function PortalBlogPostClient({ postId }: { postId: string }) {
   const toast = useToast();
   const setSidebarOverride = useSetPortalSidebarOverride();
@@ -456,18 +477,21 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       .trim();
     return text ? text.split(" ").filter(Boolean).length : 0;
   }, [content]);
+  const headlineReady = useMemo(() => hasMeaningfulHeadline(title), [title]);
+  const briefReady = useMemo(() => hasMeaningfulBrief(aiPrompt, title), [aiPrompt, title]);
+  const displayTitle = headlineReady ? title.trim() : "New draft";
   const completionItems = useMemo(() => {
     return [
-      { label: "Brief", done: aiPrompt.trim().length >= 12, hint: "State the angle, audience, and offer." },
-      { label: "Headline", done: title.trim().length >= 8, hint: "Use a clear title people would click." },
+      { label: "Brief", done: briefReady, hint: "State the angle, audience, and offer in more than the headline alone." },
+      { label: "Headline", done: headlineReady, hint: "Use a clear public headline, not a draft placeholder." },
       { label: "Summary", done: excerpt.trim().length >= 24, hint: "Give the preview card a complete summary." },
       { label: "Body", done: bodyWordCount >= 120, hint: "Aim for a developed article, not just notes." },
       { label: "Focus points", done: keywords.length >= 2, hint: "Add a few search terms or message anchors." },
       { label: "Header image", done: Boolean(coverImage), hint: "Use the first image as the dedicated hero." },
     ];
-  }, [aiPrompt, bodyWordCount, coverImage, excerpt, keywords.length, title]);
+  }, [bodyWordCount, briefReady, coverImage, excerpt, headlineReady, keywords.length]);
   const completionCount = completionItems.filter((item) => item.done).length;
-  const completionReady = completionCount >= 5 && title.trim() && excerpt.trim() && bodyWordCount >= 120;
+  const completionReady = completionCount >= 5 && headlineReady && excerpt.trim() && bodyWordCount >= 120;
   const completionMessage = completionReady
     ? "This reads as publish-ready. Save, preview, then publish when the final scan feels clean."
     : completionItems.find((item) => !item.done)?.hint ?? "Finish the remaining checks before you publish.";
@@ -901,7 +925,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               <span className="sr-only">Edit</span>
             </span>
           </div>
-          <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{post.title || "Untitled"}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{displayTitle}</h1>
+            {!headlineReady ? (
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800">
+                Draft placeholder
+              </span>
+            ) : null}
+          </div>
           <div className="mt-1 text-sm text-zinc-600">
             Status: {post.status === "PUBLISHED" ? "Published" : "Draft"}
             {post.publishedAt ? ` • Published ${formatDate(post.publishedAt)}` : ""}
@@ -909,6 +940,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             {post.updatedAt ? ` • Last saved ${formatLastSaved(post.updatedAt)}` : ""}
             {isDirty ? " • Unsaved changes" : ""}
           </div>
+          {!headlineReady ? <div className="mt-2 text-sm text-zinc-500">Add an AI brief, a real headline, and body copy before this draft is ready to review.</div> : null}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {uiPreview ? (
               <button
@@ -1159,7 +1191,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           <div className="space-y-4">
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-sm font-semibold text-zinc-900">AI brief</div>
-              <div className="mt-1 text-sm text-zinc-600">Describe the audience, angle, and offer. This is the input that should make the rest of the draft feel inevitable.</div>
+              <div className="mt-1 text-sm text-zinc-600">Describe the audience, angle, and offer. This is separate from the public headline below and should give AI enough context to write the draft.</div>
               <textarea
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
@@ -1188,13 +1220,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-zinc-600">Title</label>
+              <label className="text-xs font-semibold text-zinc-600">Title / headline</label>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                 placeholder="The headline people will click"
               />
+              <div className="mt-1 text-xs text-zinc-500">This is the public headline. Draft placeholders like "Untitled post" do not count as complete.</div>
             </div>
 
             <div>

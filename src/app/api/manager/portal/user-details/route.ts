@@ -7,6 +7,8 @@ import { bugReportSummariesFromFeedback, parsePortalFeedbackPayload } from "@/li
 import { prisma } from "@/lib/db";
 import { hasPublicTable } from "@/lib/dbSchema";
 import { MODULE_KEYS, type ModuleKey } from "@/lib/entitlements.shared";
+import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+import { isPlatformAdminGranted, platformAdminAuthError } from "@/lib/platformAdminGrants";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
 
@@ -14,11 +16,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function requireManager(session: any) {
+async function requirePlatformAdmin(session: any) {
   const userId = session?.user?.id;
   const role = session?.user?.role;
   if (!userId) return { ok: false as const, status: 401 as const };
-  if (role !== "MANAGER" && role !== "ADMIN") return { ok: false as const, status: 403 as const };
+  if (!hasPlatformAdminCapability(role, await isPlatformAdminGranted(userId).catch(() => false))) {
+    return { ok: false as const, status: 403 as const };
+  }
   return { ok: true as const, userId };
 }
 
@@ -317,8 +321,8 @@ function maxDate(dates: Array<Date | null | undefined>) {
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  const auth = requireManager(session);
-  if (!auth.ok) return NextResponse.json({ error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  const auth = await requirePlatformAdmin(session);
+  if (!auth.ok) return NextResponse.json({ error: platformAdminAuthError(auth.status) }, { status: auth.status });
 
   const url = new URL(req.url);
   const parsed = querySchema.safeParse({ ownerId: url.searchParams.get("ownerId") ?? "" });
@@ -379,12 +383,13 @@ export async function GET(req: Request) {
             ],
           },
         },
-        select: { serviceSlug: true, dataJson: true },
+        select: { serviceSlug: true, status: true, dataJson: true },
       }),
     [],
   );
 
   const getSetup = (slug: string) => setups.find((s) => s.serviceSlug === slug)?.dataJson;
+  const getDeletedSetup = () => setups.find((s) => s.serviceSlug === DELETED_ACCOUNT_SETUP_SLUG && s.status === "COMPLETE")?.dataJson;
 
   const overrides = Array.from(parseOverrides(getSetup(OVERRIDES_SETUP_SLUG)));
   const creditsOnlyOverride = parseCreditsOnlyOverride(getSetup(BILLING_MODEL_SETUP_SLUG));
@@ -467,7 +472,7 @@ export async function GET(req: Request) {
     incrementMap(feedbackStatusMap, item.triage.status, 1);
   }
 
-  const deletedTombstone = parseDeletedAccountTombstone(getSetup(DELETED_ACCOUNT_SETUP_SLUG));
+  const deletedTombstone = parseDeletedAccountTombstone(getDeletedSetup());
   const displayEmail = deletedTombstone.originalEmail ?? user.email;
   const displayName = deletedTombstone.originalName ?? user.name;
 

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { getActiveArchivedEntityIdSet, RECOVERABILITY_ENTITY_TYPES } from "@/lib/recoverability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,12 +88,22 @@ export async function GET(req: Request) {
       },
     },
     orderBy: { updatedAt: "desc" },
-    take,
+    take: Math.min(400, take * 3),
   });
+
+  const archivedIds = await getActiveArchivedEntityIdSet({
+    ownerId,
+    entityType: RECOVERABILITY_ENTITY_TYPES.CONTACT,
+    entityIds: contacts.map((contact) => String(contact.id || "")).filter(Boolean),
+  });
+
+  const visibleContacts = archivedIds.size
+    ? contacts.filter((contact) => !archivedIds.has(String(contact.id || "")))
+    : contacts;
 
   return NextResponse.json({
     ok: true,
-    contacts: contacts.map((c) => ({
+    contacts: visibleContacts.slice(0, take).map((c) => ({
       id: c.id,
       name: c.name,
       email: c.email,

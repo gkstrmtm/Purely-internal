@@ -208,6 +208,41 @@ function safeEmailFromPeer(raw: string) {
   return m ? m[0] : "";
 }
 
+function buildInboxEmptyState(input: { tab: Channel; emailBox: EmailBox; twilioConfigured: boolean }) {
+  if (input.tab === "sms") {
+    if (!input.twilioConfigured) {
+      return {
+        title: "No text conversations yet.",
+        detail: "Connect Twilio in Integrations first. After that, click New text or wait for inbound SMS.",
+      };
+    }
+
+    return {
+      title: "No text conversations yet.",
+      detail: "Click New text to draft the first message, or wait for inbound SMS to land here.",
+    };
+  }
+
+  if (input.emailBox === "sent") {
+    return {
+      title: "No sent email yet.",
+      detail: "Click New email to draft the first message. Sent or scheduled threads show up here after you create one.",
+    };
+  }
+
+  if (input.emailBox === "unread") {
+    return {
+      title: "No unread email right now.",
+      detail: "New inbound replies appear here. Use Inbox to review all threads or New email to start one.",
+    };
+  }
+
+  return {
+    title: "No email conversations yet.",
+    detail: "Click New email to draft the first message. You can start from a contact or type any email address.",
+  };
+}
+
 const EMAIL_DRAFT_STORAGE_KEY = "pa.portal.inbox.emailDraft.v1";
 const EMAIL_RECENT_SEARCHES_STORAGE_KEY = "pa.portal.inbox.emailRecentSearches.v1";
 const EMAIL_READ_THREAD_IDS_STORAGE_KEY = "pa.portal.inbox.emailReadThreadIds.v1";
@@ -1597,6 +1632,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             ? `Unread (${unreadEmailCount})`
             : "Inbox"
         : "Texts";
+    const emptyState = buildInboxEmptyState({
+      tab,
+      emailBox,
+      twilioConfigured: Boolean(settings?.twilio.configured),
+    });
 
     return (
       <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
@@ -1717,15 +1757,15 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               </div>
             ) : (
               <div className="px-3 py-3 text-xs text-zinc-500">
-                No conversations yet.
-                <div className="mt-1 text-[11px] text-zinc-400">Send something, or enable inbound webhooks.</div>
+                {emptyState.title}
+                <div className="mt-1 text-[11px] text-zinc-400">{emptyState.detail}</div>
               </div>
             )}
           </div>
         </div>
       </div>
     );
-  }, [activeThreadId, emailBox, filteredThreads, isDesktop, loadingThreads, markThreadRead, openEmailComposer, openSmsComposer, setChannel, tab, unreadEmailCount]);
+  }, [activeThreadId, emailBox, filteredThreads, isDesktop, loadingThreads, markThreadRead, openEmailComposer, openSmsComposer, setChannel, settings?.twilio.configured, tab, unreadEmailCount]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -2126,7 +2166,15 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     >
                       + New email
                     </button>
-                  ) : null}
+                  ) : (
+                    <button
+                      type="button"
+                      className="rounded-xl bg-[#007aff] px-3 py-2 text-xs font-semibold text-white hover:bg-[#006ae6]"
+                      onClick={openSmsComposer}
+                    >
+                      + New text
+                    </button>
+                  )}
                   {refreshingThreads ? (
                     <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600">
                       <InlineSpinner /> Refreshing…
@@ -2231,12 +2279,20 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 );
               })}
             </div>
-          ) : (
-            <div className="px-3 py-4 text-sm text-zinc-600">
-              No conversations yet.
-              <div className="mt-2 text-xs text-zinc-500">Send something, or enable inbound webhooks.</div>
-            </div>
-          )}
+          ) : (() => {
+            const emptyState = buildInboxEmptyState({
+              tab,
+              emailBox,
+              twilioConfigured: Boolean(settings?.twilio.configured),
+            });
+
+            return (
+              <div className="px-3 py-4 text-sm text-zinc-600">
+                {emptyState.title}
+                <div className="mt-2 text-xs text-zinc-500">{emptyState.detail}</div>
+              </div>
+            );
+          })()}
           </div>
         ) : null}
 

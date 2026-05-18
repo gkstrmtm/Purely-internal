@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { archiveEntity, RECOVERABILITY_ENTITY_TYPES } from "@/lib/recoverability";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,10 +29,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
+  if (!parsed.data.archived) {
+    return NextResponse.json({ error: "Archived posts can only be restored by platform admin." }, { status: 403 });
+  }
 
   const existing = await prisma.clientBlogPost.findFirst({
     where: { id: postId, site: { ownerId } },
-    select: { id: true, archivedAt: true },
+    select: { id: true, archivedAt: true, title: true, slug: true, status: true },
   });
 
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -45,6 +49,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
       id: true,
       archivedAt: true,
       updatedAt: true,
+    },
+  });
+
+  await archiveEntity({
+    ownerId,
+    entityType: RECOVERABILITY_ENTITY_TYPES.BLOG_POST,
+    entityId: updated.id,
+    actorUserId: ownerId,
+    metadata: {
+      title: existing.title,
+      slug: existing.slug,
+      status: existing.status,
     },
   });
 
