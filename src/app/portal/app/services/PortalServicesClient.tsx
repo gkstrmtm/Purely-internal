@@ -158,6 +158,11 @@ function canViewFromPermissions(portalMe: PortalMe | null, key: PortalServiceKey
   return Boolean(p?.view);
 }
 
+function hrefForServiceCard(basePath: "/portal" | "/credit", slug: string) {
+  if (basePath === "/credit" && slug === "dispute-letters") return `${basePath}/app/disputes`;
+  return `${basePath}/app/services/${slug}`;
+}
+
 export function PortalServicesClient() {
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
   const [statusRes, setStatusRes] = useState<StatusResponse | null>(null);
@@ -290,7 +295,7 @@ export function PortalServicesClient() {
                 return (
                   <Link
                     key={s.slug}
-                    href={`${basePath}/app/services/${s.slug}`}
+                    href={hrefForServiceCard(basePath, s.slug)}
                     data-service-card={s.slug}
                     className="group rounded-3xl border border-zinc-200 bg-white p-6 hover:bg-zinc-50"
                   >

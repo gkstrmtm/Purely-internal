@@ -3,6 +3,8 @@
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -70,7 +72,7 @@ export function AppModal({
       <div className="fixed inset-0" style={{ zIndex: baseZ }}>
         <button
           type="button"
-          className={classNames("pa-app-modal-backdrop absolute inset-0 cursor-default bg-black/30", backdropClassName)}
+          className={classNames("pa-app-modal-backdrop absolute inset-0 cursor-default", portalGlassBackdropClass, backdropClassName)}
           onClick={onClose}
           aria-label="Close modal"
         />
@@ -90,28 +92,32 @@ export function AppModal({
         >
           <div
             className={classNames(
-              "pa-app-modal-panel flex w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-2xl",
+              "pa-app-modal-panel flex w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl",
               "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)]",
+              portalGlassPanelClass,
               widthClassName,
             )}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
-            <div className={classNames("pa-app-modal-header shrink-0 p-5", hideHeaderDivider ? "" : "border-b border-zinc-100")}>
+            <div className={classNames("pa-app-modal-header shrink-0 p-5", hideHeaderDivider ? "" : "border-b border-white/30")}>
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="pa-app-modal-title text-base font-semibold text-zinc-900">{title}</div>
                   {description ? <div className="pa-app-modal-description mt-1 text-sm text-zinc-600">{description}</div> : null}
                 </div>
-                <div className="flex shrink-0 items-start gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   {headerActions ? <div className="flex items-center gap-2">{headerActions}</div> : null}
                   <button
                     type="button"
                     className={classNames(
                       "pa-app-modal-close shrink-0 select-none transition-all duration-150 hover:-translate-y-0.5",
                       closeVariant === "x"
-                        ? "grid h-10 w-10 place-items-center rounded-2xl border border-transparent bg-white text-lg leading-none font-semibold text-zinc-500 hover:scale-105 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
-                        : "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50",
+                        ? classNames(
+                            "grid h-10 w-10 place-items-center rounded-full border border-white/70 bg-white/78 text-lg leading-none font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:scale-105 hover:bg-white hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
+                            portalGlassButtonClass,
+                          )
+                        : classNames("rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass),
                     )}
                     onClick={onClose}
                     aria-label="Close"
@@ -124,7 +130,7 @@ export function AppModal({
 
             <div className={classNames("pa-app-modal-body min-h-0 flex-1 overflow-y-auto p-5", bodyClassName)}>{children}</div>
 
-            {footer ? <div className={classNames("pa-app-modal-footer shrink-0 p-4", hideFooterDivider ? "" : "border-t border-zinc-100")}>{footer}</div> : null}
+            {footer ? <div className={classNames("pa-app-modal-footer shrink-0 p-4", hideFooterDivider ? "" : "border-t border-white/30")}>{footer}</div> : null}
           </div>
         </div>
       </div>
@@ -166,7 +172,7 @@ export function AppConfirmModal({
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
             onClick={onClose}
           >
             {cancelLabel || "Cancel"}

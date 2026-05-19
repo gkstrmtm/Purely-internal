@@ -16,7 +16,7 @@ export default async function DisputesAliasPage() {
   const session = await requireCreditClientSession();
   if (!session.ok) {
     const base = portalBasePath(variant);
-    redirect(`/credit/login?from=${encodeURIComponent(`${base}/app/services/dispute-letters`)}`);
+    redirect(`/credit/login?from=${encodeURIComponent(`${base}/app/disputes`)}`);
   }
 
   return <DisputeLettersClient mode="list" />;

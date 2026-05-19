@@ -79,13 +79,17 @@ export function PortalTopbarClient(props: {
     typeof pathname === "string" &&
     ((pathname.startsWith("/portal/app/services/funnel-builder/forms/") && pathname.endsWith("/edit")) ||
       (pathname.startsWith("/credit/app/services/funnel-builder/forms/") && pathname.endsWith("/edit")));
+  const isFunnelBuilderFunnelEditor =
+    typeof pathname === "string" &&
+    ((pathname.startsWith("/portal/app/services/funnel-builder/funnels/") && pathname.endsWith("/edit")) ||
+      (pathname.startsWith("/credit/app/services/funnel-builder/funnels/") && pathname.endsWith("/edit")));
   const isAutomationsEditor =
     typeof pathname === "string" &&
     (pathname.startsWith("/portal/app/services/automations/editor") || pathname.startsWith("/credit/app/services/automations/editor"));
   const isHostedPageEditor = typeof pathname === "string" && pathname.includes("/page-editor");
   const isMobileApp = (searchParams?.get("pa_mobileapp") || "").trim() === "1";
   const hidden =
-    isAiChat || isFunnelBuilderFormEditor || isAutomationsEditor || isHostedPageEditor || isMobileApp || (isPortalAppRoute && isSmallScreen);
+    isAiChat || isFunnelBuilderFormEditor || isFunnelBuilderFunnelEditor || isAutomationsEditor || isHostedPageEditor || isMobileApp || (isPortalAppRoute && isSmallScreen);
   const effectiveHidden = intentHidden ?? hidden;
   const signedInLabel = (businessName || userEmail || "").trim();
   const animatedHeight = useMemo(() => (effectiveHidden ? 0 : measuredHeight), [effectiveHidden, measuredHeight]);

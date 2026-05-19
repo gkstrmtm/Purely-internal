@@ -440,6 +440,12 @@ export async function schedulePortalInboxMessage(
     const peer = normalizeSmsPeerKey(to);
     if (peer.error) return { ok: false, error: peer.error };
     if (!peer.peer || !peer.peerKey) return { ok: false, error: "Invalid phone" };
+    if (looksLikePlaceholderSmsNumber(peer.peer)) {
+      return {
+        ok: false,
+        error: "This contact has a demo phone number on file. Add a real mobile number before scheduling a text.",
+      };
+    }
     toNormalized = peer.peer;
   }
 

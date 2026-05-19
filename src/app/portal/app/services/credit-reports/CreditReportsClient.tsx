@@ -224,7 +224,7 @@ function reportRoutesFor(pathname: string | null) {
     return {
       listHref: "/credit/app/services/credit-reports",
       detailHref: (reportId: string) => `/credit/app/services/credit-reports/${encodeURIComponent(reportId)}`,
-      disputeHref: "/credit/app/services/dispute-letters",
+      disputeHref: "/credit/app/disputes",
     };
   }
   return {

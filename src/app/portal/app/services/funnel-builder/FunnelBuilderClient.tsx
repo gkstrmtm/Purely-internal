@@ -181,6 +181,18 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+const builderActionMenuLabelClass = "px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500";
+const builderActionMenuSectionClass = "px-2 pb-2";
+const builderActionMenuItemClass =
+  "flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/55";
+const builderActionMenuIconClass =
+  "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-2xl bg-white/70 text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]";
+const builderActionMenuTitleClass = "min-w-0 flex-1 truncate";
+const builderActionMenuMutedClass = "text-zinc-500 hover:bg-transparent";
+const builderActionMenuSuccessClass = "text-emerald-700";
+const builderActionMenuDangerClass = "text-red-600";
+const builderActionMenuSeparatorClass = "my-2 h-px bg-white/55";
+
 function normalizeBusinessProfileGoals(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -2169,49 +2181,47 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 : undefined
                             }
                           >
-                            <div className="pa-portal-menu-panel">
-                            <div className="pa-portal-menu-label">
-                              Actions
-                            </div>
+                            <div>
+                            <div className={builderActionMenuLabelClass}>Actions</div>
 
-                            <div className="pa-portal-menu-section">
+                            <div className={builderActionMenuSectionClass}>
                               <Link
                                 href={builderHref}
                                 target="_blank"
-                                className="pa-portal-menu-item"
+                                className={builderActionMenuItemClass}
                                 onClick={() => setOpenFunnelMenuId(null)}
                                 aria-label="Edit"
                                 title="Edit"
                               >
-                                <span className="pa-portal-menu-item-icon" aria-hidden="true">
+                                <span className={builderActionMenuIconClass} aria-hidden="true">
                                   <IconEdit size={16} />
                                 </span>
-                                <span className="pa-portal-menu-item-title">Edit</span>
+                                <span className={builderActionMenuTitleClass}>Edit</span>
                               </Link>
 
                               <Link
                                 href={previewHref}
                                 target="_blank"
-                                className="pa-portal-menu-item"
+                                className={builderActionMenuItemClass}
                                 onClick={() => setOpenFunnelMenuId(null)}
                               >
-                                <span className="pa-portal-menu-item-icon" aria-hidden="true">↗</span>
-                                <span className="pa-portal-menu-item-title">Preview</span>
+                                <span className={builderActionMenuIconClass} aria-hidden="true">↗</span>
+                                <span className={builderActionMenuTitleClass}>Preview</span>
                               </Link>
 
                               {liveHref ? (
                                 <Link
                                   href={liveHref}
                                   target="_blank"
-                                  className="pa-portal-menu-item"
+                                  className={builderActionMenuItemClass}
                                   onClick={() => setOpenFunnelMenuId(null)}
                                 >
-                                  <span className="pa-portal-menu-item-icon" aria-hidden="true">●</span>
-                                  <span className="pa-portal-menu-item-title">Open live</span>
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                  <span className={builderActionMenuTitleClass}>Open live</span>
                                 </Link>
                               ) : (
                                 <div
-                                  className="pa-portal-menu-item pa-portal-menu-item-muted"
+                                  className={classNames(builderActionMenuItemClass, builderActionMenuMutedClass)}
                                   title={
                                     f.status !== "ACTIVE"
                                       ? "Set this funnel to Live to enable the live link."
@@ -2220,12 +2230,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                         : "Live link is currently unavailable."
                                   }
                                 >
-                                    <span className="pa-portal-menu-item-icon" aria-hidden="true">●</span>
-                                    <span className="pa-portal-menu-item-title">Open live</span>
+                                    <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                    <span className={builderActionMenuTitleClass}>Open live</span>
                                 </div>
                               )}
 
-                                <div className="pa-portal-menu-separator" />
+                                <div className={builderActionMenuSeparatorClass} />
 
                               {f.status !== "ARCHIVED" ? (
                                 <button
@@ -2239,22 +2249,22 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                     })();
                                   }}
                                   className={classNames(
-                                    "pa-portal-menu-item",
-                                    f.status === "ACTIVE" ? "" : "pa-portal-menu-item-success",
+                                    builderActionMenuItemClass,
+                                    f.status === "ACTIVE" ? "" : builderActionMenuSuccessClass,
                                     funnelStatusBusy[f.id] ? "opacity-60" : "",
                                   )}
                                 >
-                                  <span className="pa-portal-menu-item-icon" aria-hidden="true">⇄</span>
-                                  <span className="pa-portal-menu-item-title">{f.status === "ACTIVE" ? "Set status: Draft" : "Set status: Live"}</span>
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">⇄</span>
+                                  <span className={builderActionMenuTitleClass}>{f.status === "ACTIVE" ? "Set status: Draft" : "Set status: Live"}</span>
                                 </button>
                               ) : (
-                                <div className="pa-portal-menu-item pa-portal-menu-item-muted">
-                                  <span className="pa-portal-menu-item-icon" aria-hidden="true">•</span>
-                                  <span className="pa-portal-menu-item-title">Status: Archived</span>
+                                <div className={classNames(builderActionMenuItemClass, builderActionMenuMutedClass)}>
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">•</span>
+                                  <span className={builderActionMenuTitleClass}>Status: Archived</span>
                                 </div>
                               )}
 
-                              <div className="pa-portal-menu-separator" />
+                              <div className={builderActionMenuSeparatorClass} />
 
                               <button
                                 type="button"
@@ -2265,12 +2275,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                   setOpenFunnelMenuId(null);
                                 }}
                                 className={classNames(
-                                  "pa-portal-menu-item pa-portal-menu-item-danger",
+                                  builderActionMenuItemClass,
+                                  builderActionMenuDangerClass,
                                   funnelDeleteBusy[f.id] ? "opacity-60" : "",
                                 )}
                               >
-                                <span className="pa-portal-menu-item-icon" aria-hidden="true">×</span>
-                                <span className="pa-portal-menu-item-title">Delete</span>
+                                <span className={builderActionMenuIconClass} aria-hidden="true">×</span>
+                                <span className={builderActionMenuTitleClass}>Delete</span>
                               </button>
                             </div>
                             </div>
@@ -2353,62 +2364,62 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               : undefined
                           }
                         >
-                          <div className="pa-portal-menu-panel">
-                          <div className="pa-portal-menu-label">Actions</div>
-                          <div className="pa-portal-menu-section">
+                          <div>
+                          <div className={builderActionMenuLabelClass}>Actions</div>
+                          <div className={builderActionMenuSectionClass}>
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
                               target="_blank"
-                              className="pa-portal-menu-item"
+                              className={builderActionMenuItemClass}
                               onClick={() => setOpenFormMenuId(null)}
                               aria-label="Edit"
                               title="Edit"
                             >
-                              <span className="pa-portal-menu-item-icon" aria-hidden="true">
+                              <span className={builderActionMenuIconClass} aria-hidden="true">
                                 <IconEdit size={16} />
                               </span>
-                              <span className="pa-portal-menu-item-title">Edit</span>
+                              <span className={builderActionMenuTitleClass}>Edit</span>
                             </Link>
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}
                               target="_blank"
-                              className="pa-portal-menu-item"
+                              className={builderActionMenuItemClass}
                               onClick={() => setOpenFormMenuId(null)}
                             >
-                              <span className="pa-portal-menu-item-icon" aria-hidden="true">#</span>
-                              <span className="pa-portal-menu-item-title">Responses</span>
+                              <span className={builderActionMenuIconClass} aria-hidden="true">#</span>
+                              <span className={builderActionMenuTitleClass}>Responses</span>
                             </Link>
                             <Link
                               href={getFormPreviewHref(f.slug, f.id) || toRuntimeHostedUrl(`/forms/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                               target="_blank"
-                              className="pa-portal-menu-item"
+                              className={builderActionMenuItemClass}
                               onClick={() => setOpenFormMenuId(null)}
                             >
-                              <span className="pa-portal-menu-item-icon" aria-hidden="true">↗</span>
-                              <span className="pa-portal-menu-item-title">Preview</span>
+                              <span className={builderActionMenuIconClass} aria-hidden="true">↗</span>
+                              <span className={builderActionMenuTitleClass}>Preview</span>
                             </Link>
 
                             {f.status === "ACTIVE" ? (
                               <Link
                                 href={getFormLiveHref(f.slug, f.id) || toRuntimeHostedUrl(`/forms/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                                 target="_blank"
-                                className="pa-portal-menu-item"
+                                className={builderActionMenuItemClass}
                                 onClick={() => setOpenFormMenuId(null)}
                               >
-                                <span className="pa-portal-menu-item-icon" aria-hidden="true">●</span>
-                                <span className="pa-portal-menu-item-title">Open live</span>
+                                <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                <span className={builderActionMenuTitleClass}>Open live</span>
                               </Link>
                             ) : (
                               <div
-                                className="pa-portal-menu-item pa-portal-menu-item-muted"
+                                className={classNames(builderActionMenuItemClass, builderActionMenuMutedClass)}
                                 title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Set this form to Live to enable the public hosted link."}
                               >
-                                <span className="pa-portal-menu-item-icon" aria-hidden="true">●</span>
-                                <span className="pa-portal-menu-item-title">Open live</span>
+                                <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                <span className={builderActionMenuTitleClass}>Open live</span>
                               </div>
                             )}
 
-                            <div className="pa-portal-menu-separator" />
+                            <div className={builderActionMenuSeparatorClass} />
 
                             <button
                               type="button"
@@ -2419,12 +2430,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "pa-portal-menu-item",
+                                builderActionMenuItemClass,
                                 formSaveBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
-                              <span className="pa-portal-menu-item-icon" aria-hidden="true">⇄</span>
-                              <span className="pa-portal-menu-item-title">Route & status</span>
+                              <span className={builderActionMenuIconClass} aria-hidden="true">⇄</span>
+                              <span className={builderActionMenuTitleClass}>Route & status</span>
                             </button>
 
                             <button
@@ -2436,12 +2447,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "pa-portal-menu-item pa-portal-menu-item-danger",
+                                builderActionMenuItemClass,
+                                builderActionMenuDangerClass,
                                 formDeleteBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
-                              <span className="pa-portal-menu-item-icon" aria-hidden="true">×</span>
-                              <span className="pa-portal-menu-item-title">Delete</span>
+                              <span className={builderActionMenuIconClass} aria-hidden="true">×</span>
+                              <span className={builderActionMenuTitleClass}>Delete</span>
                             </button>
                           </div>
                           </div>

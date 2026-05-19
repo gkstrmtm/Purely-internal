@@ -360,6 +360,8 @@ function formatServiceSlugLabel(slug: string) {
 function inferSuggestedSetupServiceSlug(pathname: string) {
   const cleanPath = String(pathname || "").replace(/^\/(portal|credit)/, "") || "";
   if (cleanPath === "/app" || cleanPath === "/app/" || cleanPath.startsWith("/app/dashboard")) return "dashboard";
+  if (cleanPath.startsWith("/app/tasks")) return "tasks";
+  if (cleanPath.startsWith("/app/disputes")) return "dispute-letters";
   const match = cleanPath.match(/^\/app\/services\/([^/]+)/);
   return match?.[1] ?? null;
 }
@@ -460,11 +462,12 @@ export function PortalFloatingTools() {
   const router = useRouter();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
   const portalVariant = portalBase === "/credit" ? "credit" : "portal";
-  const isDashboardRoute = pathname === `${portalBase}/app`;
+  const isDashboardRoute = pathname === `${portalBase}/app` || pathname.startsWith(`${portalBase}/app/onboarding`);
   const isSettingsRoute =
     pathname.startsWith(`${portalBase}/app/settings`) ||
     pathname.startsWith(`${portalBase}/app/profile`) ||
-    pathname.startsWith(`${portalBase}/app/billing`);
+    pathname.startsWith(`${portalBase}/app/billing`) ||
+    pathname.startsWith(`${portalBase}/app/discount`);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const [minimized, setMinimized] = useState(true);
   const [compactDock, setCompactDock] = useState(false);
@@ -792,9 +795,11 @@ export function PortalFloatingTools() {
   const feedbackArea = useMemo(() => {
     if (feedbackServiceSlug) return feedbackServiceSlug;
     if (pathname === `${portalBase}/app`) return "dashboard";
+    if (pathname.startsWith(`${portalBase}/app/onboarding`)) return "onboarding";
     if (pathname.startsWith(`${portalBase}/app/settings`)) return "settings";
     if (pathname.startsWith(`${portalBase}/app/profile`)) return "profile";
     if (pathname.startsWith(`${portalBase}/app/billing`)) return "billing";
+    if (pathname.startsWith(`${portalBase}/app/discount`)) return "billing";
     return portalVariant;
   }, [feedbackServiceSlug, pathname, portalBase, portalVariant]);
   const feedbackWorkspaceLabel = portalVariant === "credit" ? "Credit workspace" : "Portal workspace";

@@ -216,6 +216,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
   const sidebarLogoSrc = "/brand/purelylogo.png";
+  const isOnboardingRoute = typeof pathname === "string" && (pathname === `${basePath}/app/onboarding` || pathname.startsWith(`${basePath}/app/onboarding/`));
+  const isTasksAliasRoute = typeof pathname === "string" && (pathname === `${basePath}/app/tasks` || pathname.startsWith(`${basePath}/app/tasks/`));
+  const isDisputesAliasRoute =
+    variant === "credit" && typeof pathname === "string" && (pathname === `${basePath}/app/disputes` || pathname.startsWith(`${basePath}/app/disputes/`));
+  const isDiscountRoute = typeof pathname === "string" && (pathname === `${basePath}/app/discount` || pathname.startsWith(`${basePath}/app/discount/`));
+  const aliasedServiceSlug = isTasksAliasRoute ? "tasks" : isDisputesAliasRoute ? "dispute-letters" : null;
 
   useEffect(() => {
     if (!pathname) return;
@@ -229,6 +235,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       sectionTitle = "Pura";
     } else if (pathname.startsWith(`${appRoot}/people`)) {
       sectionTitle = "People";
+    } else if (pathname.startsWith(`${appRoot}/onboarding`)) {
+      sectionTitle = "Onboarding";
+    } else if (pathname.startsWith(`${appRoot}/tasks`)) {
+      sectionTitle = "Tasks";
+    } else if (pathname.startsWith(`${appRoot}/disputes`)) {
+      sectionTitle = "Dispute Letters";
+    } else if (pathname.startsWith(`${appRoot}/discount`)) {
+      sectionTitle = "Discount checkout";
     } else if (pathname.startsWith(`${appRoot}/billing`)) {
       sectionTitle = "Billing";
     } else if (pathname.startsWith(`${appRoot}/profile`)) {
@@ -1122,14 +1136,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const derivedTopKey = useMemo<"pura" | "dashboard" | "services" | "settings">(() => {
     if (isAiChat) return "pura";
     if (pathname === `${basePath}/app` || pathname === `${basePath}/app/`) return "dashboard";
+    if (isOnboardingRoute) return "dashboard";
     if (
       typeof pathname === "string" &&
-      (pathname.startsWith(`${basePath}/app/services`) || pathname.startsWith(`${basePath}/app/people`))
+      (pathname.startsWith(`${basePath}/app/services`) || pathname.startsWith(`${basePath}/app/people`) || Boolean(aliasedServiceSlug))
     ) {
       return "services";
     }
     return "settings";
-  }, [basePath, isAiChat, pathname]);
+  }, [aliasedServiceSlug, basePath, isAiChat, isOnboardingRoute, pathname]);
 
   const [sidebarModeOverride, setSidebarModeOverride] = useState<null | "pura" | "dashboard" | "services" | "settings">(null);
   useEffect(() => {
@@ -1160,12 +1175,17 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const activeServiceSlug = useMemo(() => {
     if (typeof pathname !== "string") return null;
+    if (aliasedServiceSlug) return aliasedServiceSlug;
     const prefix = `${basePath}/app/services/`;
     if (!pathname.startsWith(prefix)) return null;
     const rest = pathname.slice(prefix.length);
     const slug = rest.split("/").filter(Boolean)[0] || "";
     return slug || null;
-  }, [basePath, pathname]);
+  }, [aliasedServiceSlug, basePath, pathname]);
+
+  function isServiceRouteActive(slug: string) {
+    return activeServiceSlug === slug;
+  }
 
   // Track service usage for “top 5” defaults.
   useEffect(() => {
@@ -1351,6 +1371,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const mobileHeaderTitle = useMemo(() => {
     if (activeTopKey === "pura") return "Pura";
     if (pathname === `${basePath}/app` || pathname === `${basePath}/app/`) return "Dashboard";
+    if (isOnboardingRoute) return "Onboarding";
+    if (isDiscountRoute) return "Billing";
     if (pathname === `${basePath}/app/people` || pathname.startsWith(`${basePath}/app/people/`)) return "People";
     if (pathname.startsWith(`${basePath}/app/profile`)) return "Profile";
     if (pathname.startsWith(`${basePath}/app/billing`)) return "Billing";
@@ -1361,20 +1383,24 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     if (pathname.startsWith(`${basePath}/app/services/`) && activeServiceSlug) {
       return PORTAL_SERVICE_TITLE_BY_SLUG.get(activeServiceSlug) || "Services";
     }
+    if (activeServiceSlug) return PORTAL_SERVICE_TITLE_BY_SLUG.get(activeServiceSlug) || "Services";
     if (pathname.startsWith(`${basePath}/app/services`)) return "Services";
     return sidebarHeaderLabel ? sidebarHeaderLabel.charAt(0).toUpperCase() + sidebarHeaderLabel.slice(1) : "Portal";
-  }, [activeServiceSlug, activeTopKey, basePath, pathname, sidebarHeaderLabel]);
+  }, [activeServiceSlug, activeTopKey, basePath, isDiscountRoute, isOnboardingRoute, pathname, sidebarHeaderLabel]);
 
   const dashboardShortcutCandidates = PORTAL_SERVICES.filter((s) => !s.hidden)
     .filter((s) => canViewServiceSlug(s.slug))
     .filter((s) => !s.variants || s.variants.includes(variant));
 
   function isActive(href: string) {
-    if (href === `${basePath}/app`) return pathname === `${basePath}/app`;
+    if (href === `${basePath}/app`) {
+      return pathname === `${basePath}/app` || isOnboardingRoute;
+    }
     if (href === `${basePath}/app/services`) {
       return (
         pathname === href ||
         pathname.startsWith(href + "/") ||
+        Boolean(aliasedServiceSlug) ||
         pathname === `${basePath}/app/people` ||
         pathname.startsWith(`${basePath}/app/people/`)
       );
@@ -1383,6 +1409,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       return (
         pathname === href ||
         pathname.startsWith(href + "/") ||
+        isDiscountRoute ||
         pathname === `${basePath}/app/profile` ||
         pathname.startsWith(`${basePath}/app/profile/`) ||
         pathname === `${basePath}/app/billing` ||
@@ -1395,7 +1422,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   function renderSidebarServiceLink(s: PortalService) {
     const lockBadge = serviceLockBadge(s.slug);
     const unlocked = serviceUnlocked(s);
-    const active = pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`);
+    const active = isServiceRouteActive(s.slug);
 
     return (
       <PortalNavLink
@@ -1639,7 +1666,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               onClick={() => setMobileOpen(false)}
                               className={classNames(
                                 "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
-                                pathname.startsWith(`${basePath}/app/services/${s.slug}`)
+                                isServiceRouteActive(s.slug)
                                   ? "bg-zinc-100 text-zinc-900"
                                   : `text-zinc-700 ${portalSecondaryActionClass}`,
                               )}
@@ -2236,10 +2263,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         onClick={() => setMobileOpen(false)}
                         className={classNames(
                           "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
-                          pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                          pathname.startsWith(`${basePath}/app/billing`) || isDiscountRoute ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                         )}
                       >
-                        <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/billing`))} aria-hidden>
+                        <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/billing`) || isDiscountRoute)} aria-hidden>
                           <IconBillingGlyph />
                         </span>
                         <span className="truncate">Billing</span>
@@ -2687,7 +2714,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={`${basePath}/app/services`}
                     title="See all"
                     aria-label="See all"
-                    className={sidebarIconButtonClass(pathname === `${basePath}/app/services`)}
+                      className={sidebarIconButtonClass(pathname === `${basePath}/app/services` && !activeServiceSlug)}
                   >
                     <IconEyeGlyph />
                   </PortalNavLink>
@@ -2703,7 +2730,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               href={`${basePath}/app/services/${svc.slug}`}
                               title={svc.title}
                               aria-label={svc.title}
-                              className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/services/${svc.slug}`))}
+                              className={sidebarIconButtonClass(isServiceRouteActive(svc.slug))}
                             >
                               <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
                                 <IconServiceGlyph slug={svc.slug} />
@@ -2736,7 +2763,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             href={`${basePath}/app/services/${svc.slug}`}
                             title={svc.title}
                             aria-label={svc.title}
-                            className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/services/${svc.slug}`))}
+                            className={sidebarIconButtonClass(isServiceRouteActive(svc.slug))}
                           >
                             <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
                               <IconServiceGlyph slug={svc.slug} />
@@ -2755,10 +2782,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={`${basePath}/app/services`}
                     className={classNames(
                       "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
-                      pathname === `${basePath}/app/services` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      pathname === `${basePath}/app/services` && !activeServiceSlug ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
-                    <span className={sidebarIconChipClass(pathname === `${basePath}/app/services`)} aria-hidden>
+                    <span className={sidebarIconChipClass(pathname === `${basePath}/app/services` && !activeServiceSlug)} aria-hidden>
                       <IconEyeGlyph />
                     </span>
                     <span className="truncate">See all</span>
@@ -2825,7 +2852,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       href={`${basePath}/app/billing`}
                       title="Billing"
                       aria-label="Billing"
-                      className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/billing`))}
+                      className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/billing`) || isDiscountRoute)}
                     >
                       <IconBillingGlyph />
                     </PortalNavLink>
@@ -2893,10 +2920,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       href={`${basePath}/app/billing`}
                       className={classNames(
                         "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
-                        pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                          pathname.startsWith(`${basePath}/app/billing`) || isDiscountRoute ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
-                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/billing`))} aria-hidden>
+                        <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/billing`) || isDiscountRoute)} aria-hidden>
                         <IconBillingGlyph />
                       </span>
                       <span className="truncate">Billing</span>

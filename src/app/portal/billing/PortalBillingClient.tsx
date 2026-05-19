@@ -1196,6 +1196,7 @@ export function PortalBillingClient({
     const l = String(label || "").toLowerCase();
     if (slug === "booking") return `${portalBase}/app/services/booking/settings`;
     if (slug === "tasks") return `${portalBase}/app/tasks`;
+    if (slug === "dispute-letters") return portalBase === "/credit" ? `${portalBase}/app/disputes` : `${portalBase}/app/services/dispute-letters`;
     if (slug === "automations") return `${portalBase}/app/services/automations`;
     if (slug === "blogs") return `${portalBase}/app/services/blogs`;
     if (slug === "reviews") return `${portalBase}/app/services/reviews/setup`;
