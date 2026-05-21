@@ -7639,10 +7639,11 @@ export function FunnelEditorClient({
     return h === "localhost" || h.endsWith(".local") || h === "127.0.0.1";
   }, [platformTargetHost]);
 
-  const runtimeHostedOrigin = useMemo(() => {
-    if (typeof window !== "undefined") return window.location.origin || null;
-    const raw = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
-    return raw || null;
+  const [runtimeHostedOrigin, setRuntimeHostedOrigin] = useState<string | null>((process.env.NEXT_PUBLIC_APP_URL || "").trim() || null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setRuntimeHostedOrigin(window.location.origin || (process.env.NEXT_PUBLIC_APP_URL || "").trim() || null);
   }, []);
 
   const allFontPreviewGoogleCss = useMemo(() => {

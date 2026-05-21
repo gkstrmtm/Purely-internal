@@ -2130,7 +2130,11 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         await updateCampaign({ chatAgentConfig: cfg });
       }
 
-      toast.success((json as any).warning ? "Generated (fallback)" : "Generated");
+      if ((json as any).warning) {
+        toast.info("Generated draft in fallback mode. Review it before using it with contacts.");
+      } else {
+        toast.success("Generated");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate");
     } finally {

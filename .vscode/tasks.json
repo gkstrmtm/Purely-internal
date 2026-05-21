@@ -112,7 +112,7 @@
 		{
 			"label": "Dev: next dev insecure tls abs",
 			"type": "shell",
-			"command": "/opt/homebrew/bin/npm",
+			"command": "npm",
 			"args": [
 				"run",
 				"dev"
@@ -132,7 +132,7 @@
 		{
 			"label": "Dev: next dev absolute",
 			"type": "shell",
-			"command": "/opt/homebrew/bin/npm",
+			"command": "npm",
 			"args": [
 				"run",
 				"dev"

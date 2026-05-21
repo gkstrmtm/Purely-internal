@@ -10,6 +10,7 @@ import {
   shortSubmissionId,
   type CreditFormField,
 } from "@/lib/creditFormSchema";
+import { hostedFormPath } from "@/lib/publicHostedKeys";
 
 type CreditForm = {
   id: string;
@@ -39,6 +40,12 @@ type SubmissionDetailsResponse = {
   ok: true;
   form: { id: string; slug: string; name: string };
   submission: SubmissionDetails;
+  matchedContact: {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+  } | null;
   device: {
     fingerprint: string | null;
     ip: string | null;
@@ -125,6 +132,8 @@ function prettyJson(value: unknown): string {
 
 export function FormResponsesClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
+  const peopleHref = useMemo(() => `${basePath}/app/people/contacts`, [basePath]);
+  const reportingHref = useMemo(() => `${basePath}/app/services/reporting`, [basePath]);
   const [form, setForm] = useState<CreditForm | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -164,6 +173,11 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
     }
     return fallbackKeys.map((k) => ({ key: k, label: k, field: null as any }));
   }, [fallbackKeys, questionFields]);
+
+  const previewPath = useMemo(() => {
+    if (!form?.slug || !form?.id) return null;
+    return hostedFormPath(form.slug, form.id);
+  }, [form?.id, form?.slug]);
 
   const loadForm = useCallback(async () => {
     const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
@@ -384,7 +398,37 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         </div>
 
         {submissions.length === 0 ? (
-          <div className="p-6 text-sm text-zinc-600">{busy ? "Loading submissions…" : "No submissions yet."}</div>
+          <div className="p-6">
+            <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5">
+              <div className="text-sm font-semibold text-zinc-900">{busy ? "Loading submissions…" : "No submissions yet."}</div>
+              <div className="mt-2 max-w-2xl text-sm text-zinc-600">
+                Use Preview to test the capture flow, then come back here to review the response. After the first submission lands, open People to verify the contact handoff and Reporting to confirm activity.
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {previewPath ? (
+                  <Link
+                    href={previewPath}
+                    target="_blank"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    Preview form
+                  </Link>
+                ) : null}
+                <Link
+                  href={peopleHref}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open People
+                </Link>
+                <Link
+                  href={reportingHref}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open Reporting
+                </Link>
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="w-full overflow-auto">
             <table className="min-w-full border-separate border-spacing-0">
@@ -610,6 +654,65 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
 
                 {!selectedBusy && selectedSubmission ? (
                   <>
+                    {(() => {
+                      const data =
+                        selectedSubmission.submission.dataJson &&
+                        typeof selectedSubmission.submission.dataJson === "object" &&
+                        !Array.isArray(selectedSubmission.submission.dataJson)
+                          ? (selectedSubmission.submission.dataJson as Record<string, unknown>)
+                          : {};
+                      const email = firstString(data.email);
+                      const phone = firstString(data.phone);
+                      const matchedContactHref = selectedSubmission.matchedContact
+                        ? `${peopleHref}?contactId=${encodeURIComponent(selectedSubmission.matchedContact.id)}`
+                        : peopleHref;
+                      const emailHref = email
+                        ? `${basePath}/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(email)}`
+                        : null;
+                      const smsHref = phone
+                        ? `${basePath}/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(phone)}`
+                        : null;
+
+                      return (
+                        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Next steps</div>
+                          <div className="mt-2 text-sm text-blue-950">
+                            This response is the handoff point into People, follow-up, and reporting.
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Link
+                              href={matchedContactHref}
+                              className="rounded-2xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100"
+                            >
+                              {selectedSubmission.matchedContact ? "Open contact" : "Check People"}
+                            </Link>
+                            {emailHref ? (
+                              <Link
+                                href={emailHref}
+                                className="rounded-2xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100"
+                              >
+                                Follow up by email
+                              </Link>
+                            ) : null}
+                            {smsHref ? (
+                              <Link
+                                href={smsHref}
+                                className="rounded-2xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100"
+                              >
+                                Follow up by SMS
+                              </Link>
+                            ) : null}
+                            <Link
+                              href={reportingHref}
+                              className="rounded-2xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100"
+                            >
+                              Open Reporting
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <div className="space-y-3">
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Fields</div>
                       <div className="space-y-3">

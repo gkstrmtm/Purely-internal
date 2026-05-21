@@ -21,7 +21,7 @@ import { SalesCheckoutButton } from "@/components/funnel/SalesCheckoutButton";
 import { SyncedReviewsBlock } from "@/components/funnel/SyncedReviewsBlock";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
-import { appendCreditFunnelTrackingParams } from "@/lib/funnelEventTracking";
+import { appendCreditFunnelTrackingParams } from "@/lib/funnelEventTracking.shared";
 import { resolveFunnelOffer, type FunnelOffer } from "@/lib/funnelOffers";
 import {
   resolveFunnelBookingSurfaceContext,

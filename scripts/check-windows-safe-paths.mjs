@@ -1,4 +1,6 @@
 import { execSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+import path from "node:path";
 
 const INVALID_SEGMENT_CHARS = /[<>:"\\|?*\u0000-\u001f]/;
 const RESERVED_WINDOWS_NAMES = new Set([
@@ -27,12 +29,43 @@ const RESERVED_WINDOWS_NAMES = new Set([
 ]);
 
 function listTrackedFiles() {
-  const output = execSync("git ls-files -z", {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  });
+  try {
+    const output = execSync("git ls-files -z", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
 
-  return output.split("\0").filter(Boolean);
+    return output.split("\0").filter(Boolean);
+  } catch {
+    return listWorkspaceFiles(process.cwd());
+  }
+}
+
+function listWorkspaceFiles(rootDir) {
+  const ignoredDirs = new Set([".git", ".next", ".vercel", "node_modules"]);
+  const files = [];
+  const pendingDirs = [rootDir];
+
+  while (pendingDirs.length) {
+    const currentDir = pendingDirs.pop();
+    if (!currentDir) continue;
+
+    for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (ignoredDirs.has(entry.name)) continue;
+        pendingDirs.push(path.join(currentDir, entry.name));
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+
+      const absolutePath = path.join(currentDir, entry.name);
+      const relativePath = path.relative(rootDir, absolutePath);
+      files.push(relativePath.split(path.sep).join("/"));
+    }
+  }
+
+  return files;
 }
 
 function validateSegment(segment) {

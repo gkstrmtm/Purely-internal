@@ -959,8 +959,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
             <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
               <div className="min-w-0">
-                <div className="font-medium text-zinc-800">Enabled</div>
-                <div className="mt-0.5 text-xs text-zinc-500">Turn follow-up automation on/off.</div>
+                <div className="font-medium text-zinc-800">Automatic follow-ups</div>
+                <div className="mt-0.5 text-xs text-zinc-500">Turn automatic follow-ups on or off.</div>
               </div>
               <ToggleSwitch
                 checked={Boolean(settings?.enabled)}
@@ -1538,7 +1538,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                 setVarPickerOpen(true);
                                               }}
                                             >
-                                              Insert variable
+                                              Insert field
                                             </button>
                                           </div>
                                           <input
@@ -1597,7 +1597,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                   setVarPickerOpen(true);
                                                 }}
                                               >
-                                                Insert variable
+                                                Insert field
                                               </button>
                                               <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
                                                 {uploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
@@ -1755,7 +1755,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                 setVarPickerOpen(true);
                                               }}
                                             >
-                                              Insert variable
+                                              Insert field
                                             </button>
                                           </div>
                                         </div>
@@ -2240,7 +2240,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   setVarPickerOpen(true);
                 }}
               >
-                Insert variable
+                Insert field
               </button>
             </div>
             <textarea
@@ -2260,7 +2260,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           ) : null}
 
           <div className="text-xs text-zinc-500">
-            Tip: you can reference variables like {"{contactName}"} and {"{businessName}"}.
+            Tip: you can personalize the draft with fields like {"{contactName}"} and {"{businessName}"}.
           </div>
         </div>
       </AppModal>

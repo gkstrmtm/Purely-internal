@@ -23,6 +23,7 @@ import { PortalSalesReportingClient } from "@/app/portal/app/services/reporting/
 import { PortalStripeSalesClient } from "@/app/portal/app/services/reporting/stripe/PortalStripeSalesClient";
 import PortalReviewsClient from "@/app/portal/app/services/reviews/setup/PortalReviewsClient";
 import { PortalAppearanceSettingsClient } from "@/app/portal/app/settings/appearance/PortalAppearanceSettingsClient";
+import { ProviderSetupWizardPanel } from "@/app/portal/app/settings/integrations/ProviderSetupWizardPanel";
 import { PortalBillingClient } from "@/app/portal/billing/PortalBillingClient";
 import { PortalDashboardClient } from "@/app/portal/PortalDashboardClient";
 import { PortalPeopleContactsClient } from "@/app/portal/app/people/contacts/PortalPeopleContactsClient";
@@ -176,6 +177,9 @@ export default async function CreditAppCatchallPage({
       <div className="mx-auto w-full max-w-6xl">
         <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Integrations</h1>
         <div className="mt-6">
+          <ProviderSetupWizardPanel />
+        </div>
+        <div id="provider-setup-controls" className="mt-6">
           <PortalProfileClient embedded mode="integrations" />
         </div>
       </div>

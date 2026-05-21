@@ -4,6 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { MARKETING_LEGAL_LINKS } from "@/components/marketing/legalLinks";
+
 type SuggestedSlot = { startAt: string; endAt: string; closerCount: number };
 
 type DemoRequestPayload = {
@@ -563,10 +565,12 @@ function BookingWidget({
   initialRequestId,
   onRequestId,
   prefill,
+  onRequestCallback,
 }: {
   initialRequestId: string | null;
   onRequestId?: (id: string) => void;
   prefill?: Partial<{ name: string; company: string; email: string; phone: string; goals: string }> | null;
+  onRequestCallback?: () => void;
 }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [now, setNow] = useState(() => new Date());
@@ -700,6 +704,15 @@ function BookingWidget({
   }, [selectedDay, slotsByLocalYmd]);
 
   const selectedIsAvailable = times.length > 0;
+  const hasAnyAvailableSlot = useMemo(() => {
+    return days.some((day) => {
+      const list = slotsByLocalYmd.get(toLocalYmd(day)) ?? [];
+      return list.some((slot) => {
+        const dt = new Date(slot.startAt);
+        return !Number.isNaN(dt.getTime()) && dt.getTime() >= minBookableAt.getTime();
+      });
+    });
+  }, [days, minBookableAt, slotsByLocalYmd]);
 
   const userTimeZone = useMemo(() => getTimeZoneLabel(), []);
 
@@ -1076,7 +1089,31 @@ function BookingWidget({
           <div className="mt-4 text-center text-sm text-zinc-700">Loading availability…</div>
         ) : null}
         {!selectedIsAvailable ? (
-          <div className="mt-4 text-center text-sm text-zinc-700">No availability this day.</div>
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-center text-sm text-zinc-700">
+            <div>{hasAnyAvailableSlot ? "No availability this day." : "No live booking times are available right now."}</div>
+            <div className="mt-2 text-xs text-zinc-500">
+              {hasAnyAvailableSlot
+                ? "Try another day, or request a callback instead of waiting on this calendar."
+                : "Request a callback and Purely will follow up directly by email or text instead of pretending a slot is open."}
+            </div>
+            <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+              {onRequestCallback ? (
+                <button
+                  type="button"
+                  onClick={onRequestCallback}
+                  className="rounded-xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Request a callback instead
+                </button>
+              ) : null}
+              <Link
+                href="/book-a-call"
+                className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                Open booking page
+              </Link>
+            </div>
+          </div>
         ) : (
           <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
             {timeItems.map(({ t, disabled }) => (
@@ -1398,6 +1435,12 @@ export function MarketingLanding() {
               initialRequestId={requestId}
               onRequestId={(id) => setRequestId(id)}
               prefill={prefill}
+              onRequestCallback={() => {
+                setExpanded(true);
+                setTimeout(() => {
+                  formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 50);
+              }}
             />
           </section>
 
@@ -1408,11 +1451,20 @@ export function MarketingLanding() {
 
         <footer className="pb-10">
           <div className="mx-auto max-w-6xl px-6 pt-10">
-            <div className="flex flex-col items-center justify-between gap-3 border-t border-zinc-200 pt-8 text-base font-semibold text-zinc-700 sm:flex-row">
-              <div>© {new Date().getFullYear()} Purely Automation. All rights reserved.</div>
-              <Link className="underline underline-offset-4 hover:text-brand-ink" href="/employeelogin">
-                employee? log in here
-              </Link>
+            <div className="border-t border-zinc-200 pt-8">
+              <div className="flex flex-col items-center justify-between gap-3 text-base font-semibold text-zinc-700 sm:flex-row">
+                <div>© {new Date().getFullYear()} Purely Automation. All rights reserved.</div>
+                <Link className="underline underline-offset-4 hover:text-brand-ink" href="/employeelogin">
+                  employee? log in here
+                </Link>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm font-semibold text-zinc-600 sm:justify-start">
+                {MARKETING_LEGAL_LINKS.map((link) => (
+                  <Link key={link.href} className="underline underline-offset-4 hover:text-brand-ink" href={link.href}>
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
             </div>
           </div>
         </footer>

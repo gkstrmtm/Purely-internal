@@ -1898,7 +1898,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               ) : null}
 
               {showIntegrationSections && (canViewTwilio || canViewWebhooks) ? (
-                <div ref={twilioRef} className="scroll-mt-24">
+                <div id="twilio-controls" ref={twilioRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Twilio & webhooks"
                     description="Connection status up front, with Twilio credentials and webhook copy/paste tools tucked under the same dropdown."
@@ -2069,7 +2069,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               ) : null}
 
               {showIntegrationSections ? (
-                <div ref={salesReportingRef} className="scroll-mt-24">
+                <div id="sales-reporting-controls" ref={salesReportingRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Sales Reporting"
                     description="Connect your payment processor to unlock a sales dashboard."
@@ -2628,7 +2628,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               ) : null}
 
               {showBusinessSections && portalMe?.ok === true ? (
-                <div ref={businessEmailRef} className="scroll-mt-24">
+                <div id="business-email-controls" ref={businessEmailRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Business email"
                     description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."

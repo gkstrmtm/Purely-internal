@@ -20,7 +20,7 @@ export default async function ManagerInvitesPage() {
       <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
         <h1 className="text-2xl font-semibold tracking-tight">Employee invites</h1>
         <p className="mt-2 text-sm text-zinc-600">
-          Create one-time invite codes for new employees. Share the signup link or the code directly.
+          Creating an invite generates a one-time code. Sending the invite email is a separate step after the code exists.
         </p>
         <div className="mt-6">
           <ManagerInvitesClient currentRole={role} canCreateElevatedInviteRoles={role === "ADMIN" || canCreateElevatedInviteRoles} />

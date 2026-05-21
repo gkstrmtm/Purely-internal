@@ -7,7 +7,12 @@ import { decode } from "next-auth/jwt";
 import { prisma } from "@/lib/db";
 import { hasPortalServiceCapability, type PortalServiceCapability } from "@/lib/portalPermissions";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
-import { normalizePortalVariant, PORTAL_VARIANT_HEADER, portalBasePath, type PortalVariant } from "@/lib/portalVariant";
+import {
+  normalizePortalVariant,
+  portalBasePath,
+  resolvePortalVariantFromRequestHeaders,
+  type PortalVariant,
+} from "@/lib/portalVariant";
 
 export const PORTAL_SESSION_COOKIE_NAME = "pa.portal.session";
 export const CREDIT_PORTAL_SESSION_COOKIE_NAME = "pa.credit.session";
@@ -36,23 +41,10 @@ async function bearerTokenFromHeaders(): Promise<string | null> {
 
 async function portalVariantFromRequestContext(): Promise<PortalVariant | null> {
   const h = await headers();
-
-  const explicit = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
-  if (explicit) return explicit;
-
-  const referer = String(h.get("referer") || "").trim();
-  if (referer) {
-    try {
-      const pathname = new URL(referer).pathname || "";
-      if (pathname === "/credit" || pathname.startsWith("/credit/")) return "credit";
-      if (pathname === "/portal" || pathname.startsWith("/portal/")) return "portal";
-    } catch {
-      if (referer === "/credit" || referer.startsWith("/credit/")) return "credit";
-      if (referer === "/portal" || referer.startsWith("/portal/")) return "portal";
-    }
-  }
-
-  return null;
+  return resolvePortalVariantFromRequestHeaders(h, {
+    portalCookieName: PORTAL_SESSION_COOKIE_NAME,
+    creditCookieName: CREDIT_PORTAL_SESSION_COOKIE_NAME,
+  });
 }
 
 async function portalBaseFromHeaders(): Promise<string> {

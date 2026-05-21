@@ -29,6 +29,18 @@ type Site = {
 
   hostedTheme?: HostedBrandThemeInput["overrides"] | null;
 
+  externalHandoff?: {
+    enabled: boolean;
+    handoffMode: "direct_book" | "lead_first";
+    offerName: string;
+    providerKey: string;
+    providerLabel: string;
+    detectionConfidence: "high" | "low";
+    destinationHost: string;
+    handoffPath: string;
+    portalVariant?: "portal" | "credit" | null;
+  } | null;
+
   form?: {
     version: 1;
     thankYouMessage?: string;
@@ -166,6 +178,7 @@ export function PublicBookingClient({
   const [loading, setLoading] = useState(true);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [bookingBusy, setBookingBusy] = useState(false);
+  const [handoffBusy, setHandoffBusy] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<Booking | null>(null);
@@ -204,6 +217,11 @@ export function PublicBookingClient({
     }
     return true;
   }, [answers, email, name, notes, phone, selected, site?.form]);
+
+  const externalHandoff = site?.externalHandoff ?? null;
+  const externalHandoffEnabled = Boolean(externalHandoff?.enabled && externalHandoff.handoffPath);
+  const leadFirstHandoff = externalHandoff?.handoffMode === "lead_first";
+  const canSubmitLeadFirstHandoff = Boolean(name.trim() && (email.trim() || phone.trim()));
 
   const theme = useMemo(() => {
     const prefersFunnelTheme = site?.hostedThemeSource === "funnel";
@@ -427,6 +445,13 @@ export function PublicBookingClient({
   useEffect(() => {
     // When changing months, reset selection and load a fresh 30-day window.
     if (!site) return;
+    if (site.externalHandoff?.enabled) {
+      setSlots([]);
+      setSelected(null);
+      setSelectedDate(null);
+      setStep("date");
+      return;
+    }
     if (!site.enabled) {
       setSlots([]);
       setSelected(null);
@@ -440,6 +465,59 @@ export function PublicBookingClient({
     loadSlots(month.toISOString()).catch((e) => setError(e instanceof Error ? e.message : "Failed to load times"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month.getTime(), site?.slug, site?.durationMinutes]);
+
+  function continueToDirectHandoff() {
+    if (!externalHandoff?.handoffPath || handoffBusy) return;
+    setHandoffBusy(true);
+    setError(null);
+    window.location.assign(externalHandoff.handoffPath);
+  }
+
+  async function submitLeadFirstHandoff() {
+    if (!externalHandoff?.handoffPath || handoffBusy) return;
+    if (!name.trim()) {
+      setError("Please enter your name.");
+      return;
+    }
+    if (!email.trim() && !phone.trim()) {
+      setError("Please add an email or phone number before continuing.");
+      return;
+    }
+
+    setHandoffBusy(true);
+    setError(null);
+
+    try {
+      const res = await fetch(externalHandoff.handoffPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name,
+          email,
+          phone,
+        }),
+      });
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(getApiError(body) ?? "Could not continue to the external booking page.");
+        setHandoffBusy(false);
+        return;
+      }
+
+      const redirectTo = typeof (body as any)?.redirectTo === "string" ? String((body as any).redirectTo).trim() : "";
+      if (!redirectTo) {
+        setError("Could not continue to the external booking page.");
+        setHandoffBusy(false);
+        return;
+      }
+
+      window.location.assign(redirectTo);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not continue to the external booking page.");
+      setHandoffBusy(false);
+    }
+  }
 
   async function book() {
     if (!selected) return;
@@ -661,6 +739,152 @@ export function PublicBookingClient({
                 <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
                   Create your own booking link
                 </Link>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (site && externalHandoffEnabled) {
+    const externalHandoffData = externalHandoff!;
+    const handoffTitle = externalHandoffData.offerName.trim() || site.title || "Booking handoff";
+    const providerLabel = externalHandoffData.providerLabel || "External booking page";
+
+    return (
+      <div
+        className={isInlinePresentation ? "w-full" : "min-h-screen"}
+        style={{
+          ...(bookingStyleVars as any),
+          backgroundColor: isInlinePresentation ? "transparent" : "var(--booking-bg)",
+          color: "var(--booking-text)",
+        }}
+      >
+        <div className={isInlinePresentation ? "w-full" : "mx-auto max-w-4xl px-6 py-12"}>
+          <div className={isInlinePresentation ? inlineOuterCardClassName : "rounded-3xl border p-8"} style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
+            {inlineContextPanel}
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,360px)] lg:items-start">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--booking-link)" }}>
+                  External booking handoff
+                </div>
+                <h1 className="mt-3 text-3xl font-bold tracking-tight" style={{ color: "var(--booking-text)" }}>
+                  {handoffTitle}
+                </h1>
+                <p className="mt-3 max-w-[62ch] text-sm leading-6" style={{ color: "var(--booking-muted)" }}>
+                  {leadFirstHandoff
+                    ? `Tell us where to follow up, then Purely will send you to ${providerLabel}. Capturing your details does not confirm a completed booking.`
+                    : `Purely can track this handoff, then send you to ${providerLabel}. A click does not prove the appointment was completed.`}
+                </p>
+
+                <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--booking-border)", backgroundColor: "color-mix(in srgb, var(--booking-soft) 72%, var(--booking-surface))" }}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--booking-link)" }}>
+                      Provider
+                    </div>
+                    <div className="mt-2 text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
+                      {providerLabel}
+                    </div>
+                    <div className="mt-1 text-xs" style={{ color: "var(--booking-muted)" }}>
+                      {externalHandoffData.detectionConfidence === "high" ? "High-confidence match" : "Custom or lower-confidence match"}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--booking-border)", backgroundColor: "color-mix(in srgb, var(--booking-soft) 72%, var(--booking-surface))" }}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--booking-link)" }}>
+                      Destination
+                    </div>
+                    <div className="mt-2 text-sm font-semibold break-all" style={{ color: "var(--booking-text)" }}>
+                      {externalHandoffData.destinationHost}
+                    </div>
+                    <div className="mt-1 text-xs" style={{ color: "var(--booking-muted)" }}>
+                      {leadFirstHandoff ? "Lead-first handoff" : "Direct tracked handoff"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-2xl border px-4 py-4 text-sm leading-6" style={{ borderColor: "var(--booking-border)", backgroundColor: "color-mix(in srgb, var(--booking-bg) 94%, var(--booking-soft))", color: "var(--booking-text)" }}>
+                  Purely tracks the handoff truthfully. It does not claim booking confirmation, calendar sync, or double-booking prevention unless a real provider redirect, webhook, API, or platform-owned booking flow confirms that outcome.
+                </div>
+              </div>
+
+              <div className="rounded-[28px] border p-5 sm:p-6" style={{ borderColor: "var(--booking-border)", backgroundColor: "color-mix(in srgb, var(--booking-surface) 96%, var(--booking-soft))" }}>
+                <div className="text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
+                  {leadFirstHandoff ? "Before you continue" : "Continue to booking"}
+                </div>
+                <div className="mt-2 text-sm leading-6" style={{ color: "var(--booking-muted)" }}>
+                  {leadFirstHandoff
+                    ? "Share your name and at least one contact method so this handoff can be measured and tied to the right workspace."
+                    : "Open the tracked handoff to continue to the external scheduler."}
+                </div>
+
+                {leadFirstHandoff ? (
+                  <div className="mt-5 space-y-3">
+                    <input
+                      className="w-full rounded-2xl border bg-(--booking-surface) px-4 py-3 text-sm text-(--booking-text) placeholder:text-(--booking-muted)"
+                      style={{ borderColor: "var(--booking-border)" }}
+                      placeholder="Name"
+                      autoComplete="name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
+                    <input
+                      className="w-full rounded-2xl border bg-(--booking-surface) px-4 py-3 text-sm text-(--booking-text) placeholder:text-(--booking-muted)"
+                      style={{ borderColor: "var(--booking-border)" }}
+                      placeholder="Email"
+                      inputMode="email"
+                      autoComplete="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                    <input
+                      className="w-full rounded-2xl border bg-(--booking-surface) px-4 py-3 text-sm text-(--booking-text) placeholder:text-(--booking-muted)"
+                      style={{ borderColor: "var(--booking-border)" }}
+                      placeholder="Phone (optional)"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void submitLeadFirstHandoff()}
+                      disabled={!canSubmitLeadFirstHandoff || handoffBusy}
+                      className="inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                      style={{ backgroundColor: "var(--booking-primary)", color: "var(--booking-on-primary)" }}
+                    >
+                      {handoffBusy ? "Saving and continuing..." : `Continue to ${providerLabel}`}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-5">
+                    <button
+                      type="button"
+                      onClick={continueToDirectHandoff}
+                      disabled={handoffBusy}
+                      className="inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                      style={{ backgroundColor: "var(--booking-primary)", color: "var(--booking-on-primary)" }}
+                    >
+                      {handoffBusy ? "Opening scheduler..." : `Open ${providerLabel}`}
+                    </button>
+                  </div>
+                )}
+
+                {error ? (
+                  <div className="mt-4 rounded-2xl border px-4 py-3 text-sm" style={{ borderColor: "#fecaca", backgroundColor: "#fef2f2", color: "#991b1b" }}>
+                    {error}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {showBranding ? (
+              <div className="mt-8 border-t pt-6 text-center text-xs" style={{ borderColor: "var(--booking-border)", color: "var(--booking-muted)" }}>
+                <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
+                  Powered by Purely Automation
+                </Link>
+                <span className="px-2">•</span>
+                <span>Clicks and lead capture do not prove a completed booking.</span>
               </div>
             ) : null}
           </div>

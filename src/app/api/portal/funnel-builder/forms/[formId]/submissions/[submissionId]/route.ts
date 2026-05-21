@@ -3,12 +3,25 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import { normalizeEmailKey, normalizePhoneKey } from "@/lib/portalContacts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 function fingerprintDevice(ip: string, userAgent: string): string {
   return crypto.createHash("sha256").update(`${ip}|${userAgent}`).digest("hex").slice(0, 12);
+}
+
+function firstString(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    const trimmed = String(value[0]).trim();
+    return trimmed ? trimmed : null;
+  }
+  return null;
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ formId: string; submissionId: string }> }) {
@@ -40,6 +53,25 @@ export async function GET(_req: Request, ctx: { params: Promise<{ formId: string
   const ip = submission.ip || null;
   const userAgent = submission.userAgent || null;
   const deviceFingerprint = ip && userAgent ? fingerprintDevice(ip, userAgent) : null;
+  const submissionData = submission.dataJson && typeof submission.dataJson === "object" && !Array.isArray(submission.dataJson)
+    ? (submission.dataJson as Record<string, unknown>)
+    : {};
+  const emailKey = normalizeEmailKey(firstString(submissionData.email) || "");
+  const phoneKey = normalizePhoneKey(firstString(submissionData.phone) || "").phoneKey;
+
+  const matchedContact = emailKey || phoneKey
+    ? await prisma.portalContact.findFirst({
+        where: {
+          ownerId: auth.session.user.id,
+          OR: [
+            ...(emailKey ? [{ emailKey }] : []),
+            ...(phoneKey ? [{ phoneKey }] : []),
+          ],
+        },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, name: true, email: true, phone: true },
+      })
+    : null;
 
   let otherSubmissionCount: number | null = null;
   let recentOtherSubmissions:
@@ -94,5 +126,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ formId: string
       otherSubmissionCount,
       recentOtherSubmissions,
     },
+    matchedContact,
   });
 }

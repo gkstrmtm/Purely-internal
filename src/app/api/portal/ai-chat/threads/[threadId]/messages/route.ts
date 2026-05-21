@@ -7662,6 +7662,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           canvasUrl,
           assistantChoices: (exec as any)?.assistantChoices ?? null,
           clientUiActions: Array.isArray((exec as any)?.clientUiAction) ? (exec as any).clientUiAction : (exec as any)?.clientUiAction ? [(exec as any).clientUiAction] : [],
+          fallbackMode: "heuristic_action",
+          fallbackNotice: "Pura used a fallback action path because the primary planner was unavailable. Review the result before acting on it.",
           runTrace,
           followUpSuggestions,
         });
@@ -7746,6 +7748,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           canvasUrl: null,
           assistantChoices: null,
           clientUiActions: [],
+          fallbackMode: "support_reply",
+          fallbackNotice: "Pura used a fallback reply because the primary planner did not complete. Review the response before acting on it.",
         });
       }
     } catch (error) {

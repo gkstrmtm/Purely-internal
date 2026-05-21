@@ -67,6 +67,23 @@ export type GuidanceInput = {
     tasksOpenNow: number;
     inboxMessagesIn: number;
     inboxMessagesOut: number;
+    externalBookingHandoff?: {
+      enabled: boolean;
+      providerConfirmationAvailable: boolean;
+      providerConfirmationConnected: boolean;
+      totalHandoffs: number;
+      directHandoffs: number;
+      leadFirstCaptures: number;
+      confirmedViaRedirect: number;
+      providerConfirmedBookings: number;
+      providerCanceledBookings: number;
+      providerRescheduledBookings: number;
+      guidance: {
+        state: "disabled" | "provider_not_connected" | "no_handoffs" | "handoffs_only" | "captured_leads" | "redirect_confirmed" | "provider_confirmed";
+        title: string;
+        detail: string;
+      };
+    } | null;
   } | null;
 };
 
@@ -107,6 +124,7 @@ export function buildGuidanceItems(input: GuidanceInput): GuidanceItem[] {
     tasksOpenNow: 0,
     inboxMessagesIn: 0,
     inboxMessagesOut: 0,
+    externalBookingHandoff: null,
   };
 
   const hasLeads = k.leadsCreated > 0 || k.contactsCreated > 0;
@@ -216,6 +234,47 @@ export function buildGuidanceItems(input: GuidanceInput): GuidanceItem[] {
         ? "Without a booking link, credit clients can't schedule consultations and the intake-to-appointment flow can't run."
         : "Without a live booking link, prospects can't self-schedule and appointment automation can't fire.",
       nextActionLabel: "Finish booking setup",
+      href: serviceHref(statuses, "booking", portalBase),
+    });
+  }
+
+  if (
+    !serviceLocked(statuses, "booking") &&
+    k.externalBookingHandoff &&
+    (k.externalBookingHandoff.enabled || k.externalBookingHandoff.totalHandoffs > 0) &&
+    k.externalBookingHandoff.guidance.state !== "disabled"
+  ) {
+    items.push({
+      id: "booking-handoff-guidance",
+      priority: 4,
+      category: "reporting",
+      status:
+        k.externalBookingHandoff.providerConfirmedBookings > 0 || k.externalBookingHandoff.confirmedViaRedirect > 0
+          ? "ready"
+          : k.externalBookingHandoff.leadFirstCaptures > 0
+          ? "follow-up"
+          : k.externalBookingHandoff.totalHandoffs > 0
+            ? "opportunity"
+            : "ready",
+      title: k.externalBookingHandoff.guidance.title,
+      reason:
+        k.externalBookingHandoff.guidance.state === "no_handoffs"
+          ? "The tracked booking handoff is configured, but no visits have been recorded yet. Share it from a funnel, landing page, or CTA before expecting results."
+          : k.externalBookingHandoff.guidance.state === "provider_not_connected"
+            ? "Purely can accept verified provider booking events for this setup, but the provider connection is not complete yet. Until it is connected, confirmed bookings will stay separate from handoffs only in theory."
+          : k.externalBookingHandoff.guidance.state === "provider_confirmed"
+            ? "Purely is receiving verified provider booking events. Those counts are stronger than redirects and should stay separated from raw handoffs when you review follow-up."
+          : k.externalBookingHandoff.guidance.state === "redirect_confirmed"
+            ? "Purely is recording returns to the hosted confirmation page after the provider flow. That is useful follow-up proof, but it still is not the same as an API or webhook-confirmed appointment."
+          : k.externalBookingHandoff.guidance.state === "handoffs_only"
+            ? "Purely is counting sends to the booking page, but clicks alone do not confirm a completed booking. Lead-first capture or provider confirmation is the next visibility step."
+            : "Lead-first handoffs are being captured, but Purely still cannot confirm completed bookings without a real provider confirmation signal.",
+      nextActionLabel:
+        k.externalBookingHandoff.guidance.state === "provider_not_connected"
+          ? "Connect provider confirmation"
+          : k.externalBookingHandoff.guidance.state === "captured_leads" || k.externalBookingHandoff.guidance.state === "redirect_confirmed" || k.externalBookingHandoff.guidance.state === "provider_confirmed"
+          ? "Review booking follow-up"
+          : "Open booking settings",
       href: serviceHref(statuses, "booking", portalBase),
     });
   }

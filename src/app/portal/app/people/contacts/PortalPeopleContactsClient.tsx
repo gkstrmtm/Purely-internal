@@ -2931,7 +2931,7 @@ export function PortalPeopleContactsClient() {
 
                 {!isCreditApp ? (
                 <div className="mt-4">
-                  <div className="text-xs font-semibold text-zinc-700">Custom variables</div>
+                  <div className="text-xs font-semibold text-zinc-700">Custom fields</div>
                   <div className="mt-2 space-y-2">
                     {manualCustomVarRows.length ? (
                       manualCustomVarRows.map((row, idx) => (
@@ -2945,7 +2945,7 @@ export function PortalPeopleContactsClient() {
                                 return next;
                               })
                             }
-                            placeholder="key (e.g. city)"
+                            placeholder="field name (e.g. city)"
                             className="md:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           />
                           <input
@@ -2972,7 +2972,7 @@ export function PortalPeopleContactsClient() {
                         </div>
                       ))
                     ) : (
-                      <div className="text-sm text-zinc-600">No custom variables saved yet. Add one below.</div>
+                      <div className="text-sm text-zinc-600">No custom fields saved yet. Add one below.</div>
                     )}
                     <button
                       type="button"
@@ -3500,7 +3500,7 @@ export function PortalPeopleContactsClient() {
                           <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.businessName || "N/A"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono break-all">{`{contact.custom.business_name}`}</span>
+                          Use in messages: <span className="font-mono break-all">{`{contact.custom.business_name}`}</span>
                         </div>
                       </div>
                       <div>
@@ -3522,7 +3522,7 @@ export function PortalPeopleContactsClient() {
                           <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.ssnLastFour || "N/A"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono break-all">{`{contact.custom.ssn_last_four}`}</span>
+                          Use in messages: <span className="font-mono break-all">{`{contact.custom.ssn_last_four}`}</span>
                         </div>
                       </div>
                       <div>
@@ -3539,7 +3539,7 @@ export function PortalPeopleContactsClient() {
                           <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.birthDate || "N/A"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono break-all">{`{contact.custom.birth_date}`}</span>
+                          Use in messages: <span className="font-mono break-all">{`{contact.custom.birth_date}`}</span>
                         </div>
                       </div>
                       <div className="sm:col-span-2">
@@ -3555,7 +3555,7 @@ export function PortalPeopleContactsClient() {
                           <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">{creditDetailValues.address || "N/A"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono break-all">{`{contact.custom.address}`}</span>
+                          Use in messages: <span className="font-mono break-all">{`{contact.custom.address}`}</span>
                         </div>
                       </div>
                       <div className="sm:col-span-2">
@@ -3615,7 +3615,7 @@ export function PortalPeopleContactsClient() {
                           </div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono break-all">{`{contact.custom.signature}`}</span>
+                          Use in messages: <span className="font-mono break-all">{`{contact.custom.signature}`}</span>
                         </div>
                       </div>
                     </div>
@@ -3623,7 +3623,8 @@ export function PortalPeopleContactsClient() {
                 ) : null}
 
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template variables</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Personalization fields</div>
+                  <div className="mt-1 text-[11px] text-zinc-500">Use these in emails or texts to pull this contact's saved details into the message.</div>
                   <div className="mt-2 space-y-1 text-xs text-zinc-700">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-semibold text-zinc-600">Name</span>
@@ -3646,7 +3647,7 @@ export function PortalPeopleContactsClient() {
 
                 {!isCreditApp ? (
                 <>
-                <div className="mt-3 text-xs font-semibold text-zinc-600">Custom variables</div>
+                <div className="mt-3 text-xs font-semibold text-zinc-600">Custom fields</div>
                 {editingContact ? (
                   <div className="mt-2 space-y-2">
                     {visibleEditCustomVarRows.length ? (
@@ -3668,7 +3669,7 @@ export function PortalPeopleContactsClient() {
                                 return next;
                               })
                             }
-                            placeholder="key (e.g. city)"
+                            placeholder="field name (e.g. city)"
                           />
                           <input
                             className="sm:col-span-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"

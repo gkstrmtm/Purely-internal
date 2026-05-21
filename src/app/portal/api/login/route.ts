@@ -29,6 +29,12 @@ const portalVariantToCookieName: Record<PortalVariant, string> = {
   credit: CREDIT_PORTAL_SESSION_COOKIE_NAME,
 };
 
+function isDemoRepairAllowed() {
+  if (process.env.NODE_ENV !== "production") return true;
+  const raw = String(process.env.ALLOW_PORTAL_DEMO_LOGIN_REPAIR || "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 function isSecureRequest(req: Request): boolean {
   const xfProto = req.headers.get("x-forwarded-proto");
   if (xfProto) return xfProto.split(",")[0].trim().toLowerCase() === "https";
@@ -79,6 +85,7 @@ export async function POST(req: Request) {
     ].filter(Boolean),
   );
   const isPortalDemoLogin = variant === "portal" && demoEmailAllowlist.has(email);
+  const allowDemoRepair = isPortalDemoLogin && isDemoRepairAllowed();
 
   const userSelect: any = {
     id: true,
@@ -92,9 +99,12 @@ export async function POST(req: Request) {
 
   let user: any = await prisma.user.findUnique({ where: { email }, select: userSelect });
 
-  // Safety valve: if the demo account is missing (or its password got reset),
-  // allow recreating/resetting it on login so the portal doesn't get bricked.
-  if ((!user || !user.active) && isPortalDemoLogin) {
+  if ((!user || !user.active) && allowDemoRepair) {
+    console.warn("[portal-login] demo account repair: recreating or reactivating demo user", {
+      email,
+      variant,
+      mode: process.env.NODE_ENV !== "production" ? "non-production" : "explicit-flag",
+    });
     const passwordHash = await hashPassword(parsed.data.password);
     user = await prisma.user.upsert({
       where: { email },
@@ -133,8 +143,12 @@ export async function POST(req: Request) {
   }
 
   let ok = await verifyPassword(parsed.data.password, user.passwordHash);
-  if (!ok && isPortalDemoLogin) {
-    // Demo recovery: accept the provided password and reset the demo hash.
+  if (!ok && allowDemoRepair) {
+    console.warn("[portal-login] demo account repair: resetting demo password from login request", {
+      email,
+      variant,
+      mode: process.env.NODE_ENV !== "production" ? "non-production" : "explicit-flag",
+    });
     const passwordHash = await hashPassword(parsed.data.password);
     user = await prisma.user.update({ where: { id: user.id }, data: { passwordHash }, select: userSelect });
     ok = true;

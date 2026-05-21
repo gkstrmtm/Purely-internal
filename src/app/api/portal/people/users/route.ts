@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { baseUrlFromRequest, sendEmail } from "@/lib/leadOutbound";
 import {
   createPortalAccountInvite,
   getPortalAccountMemberRole,
   listPortalAccountInvites,
   listPortalAccountMembers,
 } from "@/lib/portalAccounts";
+import { sendPortalAccountInviteEmail } from "@/lib/portalAccountInviteEmail";
 import { normalizePortalPermissions, portalPermissionsInputSchema } from "@/lib/portalPermissions";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 
@@ -97,19 +97,25 @@ export async function POST(req: Request) {
   const invite = await createPortalAccountInvite({ ownerId, email, role, permissionsJson }).catch(() => null);
   if (!invite) return NextResponse.json({ ok: false, error: "Failed to create invite" }, { status: 500 });
 
-  const base = process.env.NODE_ENV === "production" ? "https://purelyautomation.com" : baseUrlFromRequest(req);
-  const link = `${base}/portalinvite/${invite.token}`;
+  const emailResult = await sendPortalAccountInviteEmail({
+    email,
+    token: invite.token,
+    expiresAt: invite.expiresAt,
+  });
 
-  // Best-effort invite email.
-  try {
-    await sendEmail({
-      to: email,
-      subject: "You’ve been invited to Purely Automation",
-      text: `You’ve been invited to access a Purely Automation client portal.\n\nAccept invite: ${link}\n\nThis invite expires on ${new Date(invite.expiresAt).toLocaleString()}.`,
-    });
-  } catch {
-    // ignore
-  }
-
-  return NextResponse.json({ ok: true, invite, link });
+  return NextResponse.json({
+    ok: true,
+    invite,
+    link: emailResult.link,
+    emailDelivery: emailResult.ok
+      ? {
+          ok: true,
+          provider: emailResult.provider,
+          providerMessageId: emailResult.providerMessageId,
+        }
+      : {
+          ok: false,
+          reason: emailResult.reason,
+        },
+  });
 }

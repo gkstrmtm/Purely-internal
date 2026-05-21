@@ -162,6 +162,7 @@ model User {
   clientBlogSite      ClientBlogSite?
 
   portalBookingSite   PortalBookingSite?
+  portalBookingExternalLinkEvents PortalBookingExternalLinkEvent[]
 
   portalReviews PortalReview[]
   portalReviewQuestions PortalReviewQuestion[]
@@ -195,6 +196,7 @@ model User {
 
   portalMediaFolders PortalMediaFolder[]
   portalMediaItems   PortalMediaItem[]
+  portalMediaGrowthProfiles PortalMediaGrowthProfile[]
 
   portalNurtureCampaigns  PortalNurtureCampaign[]
   portalNurtureSteps      PortalNurtureStep[]
@@ -885,9 +887,66 @@ model PortalMediaItem {
 
   owner  User @relation(fields: [ownerId], references: [id])
   folder PortalMediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  growthProfile PortalMediaGrowthProfile?
 
   @@unique([ownerId, tag])
   @@index([ownerId, folderId, createdAt])
+}
+
+model PortalMediaGrowthProfile {
+  id String @id
+
+  ownerId String
+  mediaItemId String @unique
+
+  workflowState String @default("needs_review")
+  assetPurpose String?
+  relatedOffer String?
+  targetPlatform String?
+  campaignLabel String?
+  captionDraft String?
+  ctaLabel String?
+  ctaHref String?
+  notes String?
+  bookingLinkUrl String?
+  funnelId String?
+  funnelName String?
+  funnelSlug String?
+  funnelPageId String?
+  funnelPageTitle String?
+  funnelPageSlug String?
+  plannedForAt DateTime?
+  approvedAt DateTime?
+  postedAt DateTime?
+  postedUrl String?
+  distributionProvider String?
+  providerConnectionState String?
+  providerPublishState String?
+  providerAccountLabel String?
+  queueOrder Int?
+  dailyPostCap Int?
+  providerPostId String?
+  providerLastError String?
+  providerLastAttemptAt DateTime?
+  providerPublishedAt DateTime?
+  metricsImpressions Int?
+  metricsReach Int?
+  metricsEngagementCount Int?
+  metricsClickCount Int?
+  metricsSyncedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  mediaItem PortalMediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, workflowState, updatedAt])
+  @@index([ownerId, campaignLabel])
+  @@index([ownerId, targetPlatform])
+  @@index([ownerId, plannedForAt])
+  @@index([ownerId, postedAt])
+  @@index([ownerId, distributionProvider])
+  @@index([ownerId, providerPublishState])
 }
 
 enum PortalLeadScrapeKind {
@@ -1006,6 +1065,7 @@ model PortalContact {
   portalAiOutboundMessageEnrollments PortalAiOutboundMessageEnrollment[]
 
   portalServiceTriggers PortalContactServiceTrigger[]
+  portalBookingExternalLinkEvents PortalBookingExternalLinkEvent[]
 
   creditPulls          CreditPull[]
   creditDisputeLetters CreditDisputeLetter[]
@@ -2388,6 +2448,42 @@ model PortalBookingSite {
 
   owner    User            @relation(fields: [ownerId], references: [id])
   bookings PortalBooking[]
+  externalLinkEvents PortalBookingExternalLinkEvent[]
+}
+
+model PortalBookingExternalLinkEvent {
+  id String @id @default(cuid())
+
+  ownerId   String
+  siteId    String?
+  contactId String?
+
+  portalVariant ClientPortalVariant?
+
+  handoffMode     String
+  providerKey     String
+  providerLabel   String
+  externalUrlHost String
+
+  sourceRoute    String?
+  sourceCampaign String?
+  referrerHost   String?
+
+  ipHash    String?
+  userAgent String?
+  metaJson  Json?
+
+  clickedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  owner   User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  site    PortalBookingSite? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  contact PortalContact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, clickedAt])
+  @@index([ownerId, siteId, clickedAt])
+  @@index([ownerId, contactId, clickedAt])
+  @@index([ownerId, providerKey, clickedAt])
 }
 
 model PortalBooking {

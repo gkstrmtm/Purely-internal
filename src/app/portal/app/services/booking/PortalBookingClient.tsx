@@ -37,6 +37,7 @@ import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEdit
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
+import { buildExternalBookingHandoffPath } from "@/lib/externalBookingHandoff.shared";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
@@ -109,6 +110,114 @@ type HostedSite = {
   primaryDomain: string | null;
   verifiedAt: string | null;
   verificationToken?: string;
+};
+
+type ExternalBookingLinkConfig = {
+  version: 1;
+  enabled: boolean;
+  sourceUrl: string;
+  normalizedUrl: string;
+  providerKey: string;
+  providerLabel: string;
+  detectionConfidence: "high" | "low";
+  offerName: string;
+  goal: "more_bookings" | "more_leads" | "fewer_no_shows" | "more_reviews" | "more_repeat_visits";
+  handoffMode: "direct_book" | "lead_first";
+};
+
+type ExternalBookingHandoffSummary = {
+  enabled: boolean;
+  handoffMode: "direct_book" | "lead_first";
+  providerKey: string;
+  providerLabel: string;
+  destinationHost: string;
+  confirmationState: "handoff_only" | "redirect_confirmed" | "provider_confirmed";
+  providerConfirmationAvailable: boolean;
+  providerConfirmationConnected: boolean;
+  totalHandoffs: number;
+  directHandoffs: number;
+  leadFirstCaptures: number;
+  distinctCapturedContacts: number;
+  confirmedViaRedirect: number;
+  distinctConfirmedContacts: number;
+  providerConfirmedBookings: number;
+  distinctProviderConfirmedContacts: number;
+  providerCanceledBookings: number;
+  providerRescheduledBookings: number;
+  latestHandoffAt: string | null;
+  latestConfirmedAt: string | null;
+  latestProviderConfirmedAt: string | null;
+  latestActivityAt: string | null;
+  providerBreakdown: Array<{ providerKey: string; providerLabel: string; handoffs: number }>;
+  guidance: {
+    state: "disabled" | "provider_not_connected" | "no_handoffs" | "handoffs_only" | "captured_leads" | "redirect_confirmed" | "provider_confirmed";
+    title: string;
+    detail: string;
+  };
+};
+
+type ExternalBookingConfirmationSetup = {
+  enabled: boolean;
+  level: "handoff_only" | "redirect_return_ready";
+  url: string | null;
+  path: string | null;
+  expiresAt: string | null;
+  detail: string;
+  providerCapabilities: {
+    redirectReturn: "likely" | "possible" | "unknown";
+    webhook: "planned" | "unknown";
+    api: "planned" | "unknown";
+    note: string;
+  };
+};
+
+type ExternalBookingProviderCapabilitySupport = "supported" | "possible" | "derived" | "manual" | "unknown";
+
+type ExternalBookingProviderCapability = {
+  providerKey: string;
+  providerLabel: string;
+  supportsRedirectReturn: ExternalBookingProviderCapabilitySupport;
+  supportsWebhook: ExternalBookingProviderCapabilitySupport;
+  supportsApiPolling: ExternalBookingProviderCapabilitySupport;
+  supportsOAuth: ExternalBookingProviderCapabilitySupport;
+  supportsBookingCreated: ExternalBookingProviderCapabilitySupport;
+  supportsBookingCanceled: ExternalBookingProviderCapabilitySupport;
+  supportsBookingRescheduled: ExternalBookingProviderCapabilitySupport;
+  setupNotes: string[];
+  confidenceLevel: "high" | "medium" | "low";
+  implementedPath: string | null;
+  recommendedFirstPath: boolean;
+  selectionReason?: string | null;
+};
+
+type ExternalBookingProviderConnectionReadiness = {
+  providerKey: string;
+  providerLabel: string;
+  capability: ExternalBookingProviderCapability;
+  implemented: boolean;
+  implementedPath: string | null;
+  recommendedFirstPath: boolean;
+  selectionReason: string | null;
+  connectionMode: "manual_webhook" | null;
+  webhookUrl: string | null;
+  webhookPath: string | null;
+  signingKeyConfigured: boolean;
+  encryptionConfigured: boolean;
+  connected: boolean;
+  connectedAtIso: string | null;
+  expectedEnvVar: string | null;
+  blocker: string | null;
+  nextAction: string;
+};
+
+type BookingTopTab = "settings" | "appointments" | "bookings" | "reminders" | "follow-up";
+
+type FetchJsonResult<T> = {
+  ok: boolean;
+  status: number;
+  json: T;
+  timedOut: boolean;
+  networkError: boolean;
 };
 
 type BookingCalendar = {
@@ -362,6 +471,116 @@ function portalBasePrefixFromPathname(pathname: string): "/portal" | "/credit" {
   return pathname.startsWith("/credit/") ? "/credit" : "/portal";
 }
 
+function parseBookingTopTab(value: string | null | undefined): BookingTopTab {
+  return value === "settings" || value === "bookings" || value === "reminders" || value === "follow-up"
+    ? value
+    : "appointments";
+}
+
+function defaultExternalBookingLinkConfig(): ExternalBookingLinkConfig {
+  return {
+    version: 1,
+    enabled: false,
+    sourceUrl: "",
+    normalizedUrl: "",
+    providerKey: "unknown",
+    providerLabel: "External booking page",
+    detectionConfidence: "low",
+    offerName: "",
+    goal: "more_bookings",
+    handoffMode: "direct_book",
+  };
+}
+
+function formatExternalBookingActivityTime(value: string | null): string {
+  if (!value) return "No tracked booking activity yet";
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return "No tracked booking activity yet";
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatExternalBookingConfirmationExpiry(value: string | null): string {
+  if (!value) return "No expiry available";
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return "No expiry available";
+  return parsed.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatProviderCapabilitySupport(value: ExternalBookingProviderCapabilitySupport): string {
+  switch (value) {
+    case "supported":
+      return "Supported";
+    case "possible":
+      return "Possible";
+    case "derived":
+      return "Derived";
+    case "manual":
+      return "Manual";
+    default:
+      return "Unknown";
+  }
+}
+
+function externalBookingConfirmationLevelLabel(
+  confirmation: ExternalBookingConfirmationSetup | null,
+  readiness: ExternalBookingProviderConnectionReadiness | null,
+): string {
+  if (readiness?.implemented) {
+    return readiness.connected ? "Verified booking updates connected" : "Verified booking updates need setup";
+  }
+  return confirmation?.level === "redirect_return_ready" ? "Return-to-site tracking" : "Booking page click tracking";
+}
+
+function externalBookingConfirmationLevelDetail(
+  confirmation: ExternalBookingConfirmationSetup | null,
+  readiness: ExternalBookingProviderConnectionReadiness | null,
+): string {
+  if (readiness?.implemented) {
+    return readiness.connected
+      ? "Purely can now receive confirmed, canceled, and rescheduled updates from this booking tool. Confirmed bookings stay separate from simple clicks and returns."
+      : "Purely supports confirmed booking updates for this booking tool, but setup is not finished yet.";
+  }
+  return confirmation?.level === "redirect_return_ready"
+    ? "Purely can tell when someone comes back to your site after the booking flow sends them away."
+    : "Right now Purely can only track that someone clicked through to your booking page.";
+}
+
+async function fetchJsonWithTimeout<T>(url: string, init?: RequestInit, timeoutMs = 7000): Promise<FetchJsonResult<T>> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: "no-store", ...init, signal: controller.signal });
+    const json = (await response.json().catch(() => ({}))) as T;
+    return {
+      ok: response.ok,
+      status: response.status,
+      json,
+      timedOut: false,
+      networkError: false,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.name : String(error);
+    return {
+      ok: false,
+      status: 0,
+      json: {} as T,
+      timedOut: message === "AbortError",
+      networkError: true,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function toBookingPathname(pathname: string) {
   return `${portalBasePrefixFromPathname(pathname)}${BOOKING_PATH_SUFFIX}`;
 }
@@ -440,11 +659,17 @@ export function PortalBookingClient() {
     };
   }, []);
 
-  const [, setForm] = useState<BookingFormConfig | null>(null);
-
   const [funnelDomains, setFunnelDomains] = useState<FunnelDomain[]>([]);
   const [, setFunnelDomainsBusy] = useState(false);
   const [hostedSite, setHostedSite] = useState<HostedSite | null>(null);
+  const [externalBookingLink, setExternalBookingLink] = useState<ExternalBookingLinkConfig | null>(null);
+  const [externalBookingSummary, setExternalBookingSummary] = useState<ExternalBookingHandoffSummary | null>(null);
+  const [externalBookingConfirmation, setExternalBookingConfirmation] = useState<ExternalBookingConfirmationSetup | null>(null);
+  const [externalBookingProviderReadiness, setExternalBookingProviderReadiness] = useState<ExternalBookingProviderConnectionReadiness | null>(null);
+  const [externalBookingProviderCapabilities, setExternalBookingProviderCapabilities] = useState<ExternalBookingProviderCapability[]>([]);
+  const [externalBookingProviderSigningKey, setExternalBookingProviderSigningKey] = useState("");
+  const [externalBookingSaving, setExternalBookingSaving] = useState(false);
+  const [externalBookingProviderSaving, setExternalBookingProviderSaving] = useState(false);
 
   const [calendars, setCalendars] = useState<BookingCalendar[]>([]);
   const [calSaving, setCalSaving] = useState(false);
@@ -502,7 +727,10 @@ export function PortalBookingClient() {
   const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(() => toYmd(new Date()));
   const [weekDayModalYmd, setWeekDayModalYmd] = useState<string | null>(null);
 
-  const [topTab, setTopTab] = useState<"settings" | "appointments" | "bookings" | "reminders" | "follow-up">("appointments");
+  const [topTab, setTopTab] = useState<BookingTopTab>(() => {
+    if (typeof window === "undefined") return "appointments";
+    return parseBookingTopTab(new URLSearchParams(window.location.search).get("tab"));
+  });
   const [appointmentsView, setAppointmentsView] = useState<"week" | "month">("week");
 
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
@@ -832,8 +1060,85 @@ export function PortalBookingClient() {
     reminderCalendarIdRef.current = reminderCalendarId;
   }, [reminderCalendarId]);
 
+  const remindersUrl = useCallback((calendarId: string | null) => {
+    const q = calendarId ? `?calendarId=${encodeURIComponent(calendarId)}` : "";
+    return `/api/portal/booking/reminders/settings${q}`;
+  }, []);
+
+  async function loadReminders(calendarId: string | null) {
+    const remindersRes = await fetch(remindersUrl(calendarId), { cache: "no-store" });
+    const remindersJson = await remindersRes.json().catch(() => ({}));
+    if (!remindersRes.ok) {
+      setError(getApiError(remindersJson) ?? "Failed to load appointment reminders");
+      return;
+    }
+    const settings = ((remindersJson as any)?.settings as AppointmentReminderSettings) ?? null;
+    setReminderSettings(settings);
+    setReminderDraft(settings);
+    setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+    setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
+    setReminderProviderStatus(parseReminderProviderStatus(remindersJson));
+  }
+
   const [reminderMediaPickerStepId, setReminderMediaPickerStepId] = useState<string | null>(null);
   const [reminderUploadBusyStepId, setReminderUploadBusyStepId] = useState<string | null>(null);
+
+  function maxValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
+    switch (unit) {
+      case "weeks":
+        return 12;
+      case "days":
+        return 30;
+      case "hours":
+        return 168;
+      default:
+        return 10080;
+    }
+  }
+
+  function minValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
+    return unit === "minutes" ? 5 : 1;
+  }
+
+  function leadTimeFromMinutes(minutes: number): AppointmentReminderSettings["steps"][number]["leadTime"] {
+    const safeMinutes = Math.max(5, Math.floor(minutes || 0));
+    const units: Array<{ unit: "weeks" | "days" | "hours" | "minutes"; factor: number }> = [
+      { unit: "weeks", factor: 60 * 24 * 7 },
+      { unit: "days", factor: 60 * 24 },
+      { unit: "hours", factor: 60 },
+      { unit: "minutes", factor: 1 },
+    ];
+
+    for (const { unit, factor } of units) {
+      if (factor !== 1 && safeMinutes % factor !== 0) continue;
+      const raw = Math.floor(safeMinutes / factor);
+      return {
+        unit,
+        value: Math.max(minValueForUnit(unit), Math.min(maxValueForUnit(unit), raw)),
+      };
+    }
+
+    return { unit: "minutes", value: Math.max(minValueForUnit("minutes"), Math.min(maxValueForUnit("minutes"), safeMinutes)) };
+  }
+
+  function applyReminderTemplate(template: ReminderTemplate) {
+    const next: AppointmentReminderSettings = {
+      version: 4,
+      enabled: true,
+      customVariables: reminderDraft?.customVariables ?? {},
+      steps: template.steps.slice(0, 8).map((step) => ({
+        id: makeClientId("rem_"),
+        enabled: true,
+        kind: step.kind,
+        leadTime: leadTimeFromMinutes(step.leadMinutes),
+        subjectTemplate: step.kind === "EMAIL" ? String(step.subject || "") : undefined,
+        messageBody: String(step.body || ""),
+        emailAttachments: step.kind === "EMAIL" ? [] : undefined,
+        tagId: step.kind === "TAG" ? "" : undefined,
+      })),
+    };
+    setReminderDraft(next);
+  }
 
   function updateBookingTags(bookingId: string, next: ContactTag[]) {
     setUpcoming((prev) => prev.map((b) => (b.id === bookingId ? { ...b, contactTags: next } : b)));
@@ -860,10 +1165,7 @@ export function PortalBookingClient() {
 
   useEffect(() => {
     try {
-      const tab = new URLSearchParams(window.location.search).get("tab");
-      if (tab === "appointments" || tab === "bookings" || tab === "reminders" || tab === "follow-up" || tab === "settings") {
-        setTopTab(tab);
-      }
+      setTopTab(parseBookingTopTab(new URLSearchParams(window.location.search).get("tab")));
     } catch {
       // ignore
     }
@@ -883,82 +1185,6 @@ export function PortalBookingClient() {
     return () => window.removeEventListener("popstate", syncBookingDeepLinkFromUrl);
   }, [syncBookingDeepLinkFromUrl]);
 
-  useEffect(() => {
-    tryApplyBookingDeepLink();
-  }, [tryApplyBookingDeepLink]);
-
-  function maxValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
-    if (unit === "weeks") return 2;
-    if (unit === "days") return 14;
-    if (unit === "hours") return 24 * 14;
-    return 60 * 24 * 14;
-  }
-
-  function minValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
-    return unit === "minutes" ? 5 : 1;
-  }
-
-  function bestLeadTimeForMinutes(minutes: number): { value: number; unit: "minutes" | "hours" | "days" | "weeks" } {
-    const m = Math.max(0, Math.floor(Number(minutes) || 0));
-    const units: Array<{ unit: "weeks" | "days" | "hours" | "minutes"; factor: number }> = [
-      { unit: "weeks", factor: 60 * 24 * 7 },
-      { unit: "days", factor: 60 * 24 },
-      { unit: "hours", factor: 60 },
-      { unit: "minutes", factor: 1 },
-    ];
-
-    for (const { unit, factor } of units) {
-      if (factor !== 1 && m % factor !== 0) continue;
-      const raw = Math.floor(m / factor);
-      const value = Math.max(minValueForUnit(unit), Math.min(maxValueForUnit(unit), raw));
-      return { unit, value };
-    }
-
-    return { unit: "minutes", value: Math.max(minValueForUnit("minutes"), Math.min(maxValueForUnit("minutes"), m)) };
-  }
-
-  function applyReminderTemplate(t: ReminderTemplate) {
-    if (!reminderDraft) return;
-
-    const next: AppointmentReminderSettings = {
-      ...reminderDraft,
-      version: 4,
-      customVariables: reminderDraft.customVariables ?? {},
-      steps: t.steps.slice(0, 8).map((s) => ({
-        id: makeClientId("rem_"),
-        enabled: true,
-        kind: s.kind === "EMAIL" ? "EMAIL" : "SMS",
-        leadTime: bestLeadTimeForMinutes(s.leadMinutes),
-        subjectTemplate: s.kind === "EMAIL" ? String(s.subject || "Appointment reminder") : undefined,
-        messageBody: s.kind === "EMAIL" || s.kind === "SMS" ? String(s.body || "") : undefined,
-      })),
-    };
-
-    setReminderDraft(next);
-    setStatus("Loaded template (not saved yet)");
-    window.setTimeout(() => setStatus(null), 1500);
-  }
-
-  const remindersUrl = useCallback((calendarId: string | null) => {
-    const q = calendarId ? `?calendarId=${encodeURIComponent(calendarId)}` : "";
-    return `/api/portal/booking/reminders/settings${q}`;
-  }, []);
-
-  async function loadReminders(calendarId: string | null) {
-    const remindersRes = await fetch(remindersUrl(calendarId), { cache: "no-store" });
-    const remindersJson = await remindersRes.json().catch(() => ({}));
-    if (!remindersRes.ok) {
-      setError(getApiError(remindersJson) ?? "Failed to load appointment reminders");
-      return;
-    }
-    const settings = ((remindersJson as any)?.settings as AppointmentReminderSettings) ?? null;
-    setReminderSettings(settings);
-    setReminderDraft(settings);
-    setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
-    setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
-    setReminderProviderStatus(parseReminderProviderStatus(remindersJson));
-  }
-
   const verifiedBookingDomain = useMemo(() => {
     if (!hostedSite?.primaryDomain) return null;
     if (hostedSite.verifiedAt) return hostedSite.primaryDomain;
@@ -973,11 +1199,163 @@ export function PortalBookingClient() {
     return toPurelyHostedUrl(`/book/${encodeURIComponent(site.slug)}`);
   }, [site?.slug]);
 
+  const externalBookingUrl = useMemo(() => {
+    if (!externalBookingLink?.enabled) return null;
+    return externalBookingLink.normalizedUrl || externalBookingLink.sourceUrl || null;
+  }, [externalBookingLink]);
+
+  const portalVariantHeader = pathname.startsWith("/credit") ? "credit" : "portal";
+
+  const trackedExternalBookingUrl = useMemo(() => {
+    if (!site?.slug || !externalBookingLink?.enabled) return null;
+    const url = new URL(toPurelyHostedUrl(buildExternalBookingHandoffPath(site.slug)));
+    url.searchParams.set("source", portalVariantHeader === "credit" ? "credit_booking_settings" : "portal_booking_settings");
+    url.searchParams.set("variant", portalVariantHeader);
+    return url.toString();
+  }, [externalBookingLink?.enabled, portalVariantHeader, site?.slug]);
+
+  const refreshAll = useCallback(async () => {
+    setError(null);
+
+    const availabilityUrl = selectedCalendarId ? `/api/availability?calendarId=${encodeURIComponent(selectedCalendarId)}` : "/api/availability";
+    const [meRes, settingsRes, calendarsRes, blocksRes, siteRes, externalBookingRes] = await Promise.all([
+      fetchJsonWithTimeout<Me>("/api/customer/me", {
+        headers: {
+          "x-pa-app": "portal",
+          "x-portal-variant": portalVariantHeader,
+        },
+      }),
+      fetchJsonWithTimeout<{ site: Site }>("/api/portal/booking/settings"),
+      fetchJsonWithTimeout<any>("/api/portal/booking/calendars"),
+      fetchJsonWithTimeout<{ blocks?: AvailabilityBlock[] }>(availabilityUrl),
+      fetchJsonWithTimeout<any>("/api/portal/booking/site"),
+      fetchJsonWithTimeout<{
+        ok?: boolean;
+        externalLink?: ExternalBookingLinkConfig;
+        summary?: ExternalBookingHandoffSummary;
+        confirmation?: ExternalBookingConfirmationSetup;
+        providerReadiness?: ExternalBookingProviderConnectionReadiness;
+        providerCapabilities?: ExternalBookingProviderCapability[];
+      }>("/api/portal/booking/external-link"),
+    ]);
+
+    if (meRes.ok) {
+      setMe(meRes.json as Me);
+    }
+
+    if (settingsRes.ok) {
+      setSite((settingsRes.json as { site: Site }).site);
+    }
+
+    if (calendarsRes.ok) {
+      setCalendars((((calendarsRes.json as any)?.config?.calendars as BookingCalendar[]) ?? []).slice(0, 50));
+    }
+
+    if (blocksRes.ok) {
+      setBlocks(((blocksRes.json as any)?.blocks as AvailabilityBlock[]) ?? []);
+    }
+
+    const hostedSiteData = siteRes.ok && (siteRes.json as any)?.ok
+      ? (((siteRes.json as any)?.site as HostedSite) ?? null)
+      : null;
+    setHostedSite(hostedSiteData);
+
+    if (externalBookingRes.ok && (externalBookingRes.json as any)?.ok) {
+      setExternalBookingLink(((externalBookingRes.json as any)?.externalLink as ExternalBookingLinkConfig) ?? defaultExternalBookingLinkConfig());
+      setExternalBookingSummary(((externalBookingRes.json as any)?.summary as ExternalBookingHandoffSummary) ?? null);
+      setExternalBookingConfirmation(((externalBookingRes.json as any)?.confirmation as ExternalBookingConfirmationSetup) ?? null);
+      setExternalBookingProviderReadiness(((externalBookingRes.json as any)?.providerReadiness as ExternalBookingProviderConnectionReadiness) ?? null);
+      setExternalBookingProviderCapabilities((((externalBookingRes.json as any)?.providerCapabilities as ExternalBookingProviderCapability[]) ?? []).slice(0, 20));
+      setExternalBookingProviderSigningKey("");
+    } else if (topTab === "settings") {
+      setExternalBookingLink(defaultExternalBookingLinkConfig());
+      setExternalBookingSummary(null);
+      setExternalBookingConfirmation(null);
+      setExternalBookingProviderReadiness(null);
+      setExternalBookingProviderCapabilities([]);
+      setExternalBookingProviderSigningKey("");
+    }
+
+    const needsBookings = topTab === "appointments" || topTab === "bookings";
+    const needsReminders = topTab === "settings" || topTab === "reminders";
+    const needsDomains = Boolean(hostedSiteData?.primaryDomain);
+
+    if (!needsBookings) {
+      setUpcoming([]);
+      setRecent([]);
+    }
+
+    if (!needsDomains) {
+      setFunnelDomains([]);
+    }
+
+    const [bookingsRes, remindersRes, funnelDomainsRes] = await Promise.all([
+      needsBookings ? fetchJsonWithTimeout<{ upcoming?: Booking[]; recent?: Booking[] }>("/api/portal/booking/bookings") : Promise.resolve(null),
+      needsReminders ? fetchJsonWithTimeout<any>(remindersUrl(reminderCalendarIdRef.current)) : Promise.resolve(null),
+      needsDomains ? fetchJsonWithTimeout<any>("/api/portal/funnel-builder/domains") : Promise.resolve(null),
+    ]);
+
+    if (bookingsRes?.ok) {
+      setUpcoming((bookingsRes.json as { upcoming?: Booking[] }).upcoming ?? []);
+      setRecent((bookingsRes.json as { recent?: Booking[] }).recent ?? []);
+    }
+
+    if (remindersRes?.ok) {
+      const settings = ((remindersRes.json as any)?.settings as AppointmentReminderSettings) ?? null;
+      setReminderSettings(settings);
+      setReminderDraft(settings);
+      setReminderEvents((((remindersRes.json as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+      setReminderBuiltinVariables((((remindersRes.json as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
+      setReminderProviderStatus(parseReminderProviderStatus(remindersRes.json));
+    }
+
+    if (needsDomains) {
+      setFunnelDomainsBusy(true);
+      try {
+        if (funnelDomainsRes?.ok && (funnelDomainsRes.json as any)?.ok === true && Array.isArray((funnelDomainsRes.json as any)?.domains)) {
+          setFunnelDomains(
+            (funnelDomainsRes.json as any).domains
+              .map((d: any) => ({ domain: String(d?.domain || "").trim(), status: String(d?.status || "").trim() }))
+              .filter((d: any) => d.domain),
+          );
+        }
+      } finally {
+        setFunnelDomainsBusy(false);
+      }
+    }
+
+    if (!meRes.ok || !settingsRes.ok || !calendarsRes.ok || !blocksRes.ok) {
+      const timeoutMessage = meRes.timedOut || settingsRes.timedOut || calendarsRes.timedOut || blocksRes.timedOut
+        ? "Booking settings took too long to load. The page is showing what it could load first."
+        : undefined;
+
+      setError(
+        timeoutMessage ??
+          getApiError(meRes.json) ??
+          getApiError(settingsRes.json) ??
+          getApiError(calendarsRes.json) ??
+          getApiError(blocksRes.json) ??
+          "Failed to load booking automation",
+      );
+    }
+  }, [portalVariantHeader, remindersUrl, selectedCalendarId, topTab]);
+
   const liveBookingUrl = useMemo(() => {
     if (!site?.slug) return null;
     if (verifiedBookingDomain) return `https://${verifiedBookingDomain}/book/${encodeURIComponent(site.slug)}`;
     return previewBookingUrl;
   }, [previewBookingUrl, site?.slug, verifiedBookingDomain]);
+
+  const externalBookingOpenUrl = useMemo(() => {
+    if (!externalBookingLink?.enabled) return null;
+    if (externalBookingLink.handoffMode === "lead_first") return previewBookingUrl ?? null;
+    return trackedExternalBookingUrl ?? null;
+  }, [externalBookingLink, previewBookingUrl, trackedExternalBookingUrl]);
+
+  const testBookingLinkUrl = useMemo(() => {
+    if (externalBookingLink?.enabled) return previewBookingUrl ?? externalBookingOpenUrl ?? externalBookingUrl;
+    return previewBookingUrl ?? liveBookingUrl ?? externalBookingOpenUrl;
+  }, [externalBookingLink?.enabled, externalBookingOpenUrl, externalBookingUrl, liveBookingUrl, previewBookingUrl]);
 
   const setSidebarOverride = useSetPortalSidebarOverride();
   const bookingSidebar = useMemo(() => {
@@ -1024,7 +1402,7 @@ export function PortalBookingClient() {
           </div>
         </div>
 
-        {liveBookingUrl || previewBookingUrl ? (
+        {liveBookingUrl || previewBookingUrl || externalBookingOpenUrl ? (
           <div>
             <div className={portalSidebarSectionTitleClass}>Links</div>
             <div className={portalSidebarSectionStackClass}>
@@ -1050,12 +1428,23 @@ export function PortalBookingClient() {
                   <span>Live</span>
                 </span>
               </a>
+              <a
+                href={externalBookingOpenUrl ?? undefined}
+                target="_blank"
+                rel="noreferrer"
+                className={`block ${portalSidebarButtonBaseClass} ${externalBookingOpenUrl ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconGlobeGlyph size={18} /></span>
+                  <span>External</span>
+                </span>
+              </a>
             </div>
           </div>
         ) : null}
       </div>
     );
-  }, [liveBookingUrl, previewBookingUrl, topTab]);
+  }, [externalBookingOpenUrl, liveBookingUrl, previewBookingUrl, topTab]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -1080,99 +1469,66 @@ export function PortalBookingClient() {
     return previewCalendarUrlBase;
   }, [previewCalendarUrlBase, site?.slug, verifiedBookingDomain]);
 
-  const refreshAll = useCallback(async () => {
+  async function saveExternalBookingLink() {
+    if (!externalBookingLink || externalBookingSaving) return;
+    setExternalBookingSaving(true);
     setError(null);
-    setFunnelDomainsBusy(true);
     try {
-      const availabilityUrl = selectedCalendarId ? `/api/availability?calendarId=${encodeURIComponent(selectedCalendarId)}` : "/api/availability";
-      const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes, remindersRes, hostedSiteRes, funnelDomainsRes] = await Promise.all([
-        fetch("/api/customer/me", {
-          cache: "no-store",
-          headers: {
-            "x-pa-app": "portal",
-            "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
-          },
-        }),
-        fetch("/api/portal/booking/settings", { cache: "no-store" }),
-        fetch("/api/portal/booking/bookings", { cache: "no-store" }),
-        fetch("/api/portal/booking/form", { cache: "no-store" }),
-        fetch("/api/portal/booking/calendars", { cache: "no-store" }),
-        fetch(availabilityUrl, { cache: "no-store" }),
-        fetch(remindersUrl(reminderCalendarIdRef.current), { cache: "no-store" }),
-        fetch("/api/portal/booking/site", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any),
-      ]);
-
-    const meJson = await meRes.json().catch(() => ({}));
-    if (meRes.ok) setMe(meJson as Me);
-
-    const settingsJson = await settingsRes.json().catch(() => ({}));
-    if (settingsRes.ok) {
-      const nextSite = (settingsJson as { site: Site }).site;
-      setSite(nextSite);
-    }
-
-    const bookingsJson = await bookingsRes.json().catch(() => ({}));
-    if (bookingsRes.ok) {
-      setUpcoming((bookingsJson as { upcoming?: Booking[] }).upcoming ?? []);
-      setRecent((bookingsJson as { recent?: Booking[] }).recent ?? []);
-    }
-
-    const formJson = await formRes.json().catch(() => ({}));
-    if (formRes.ok) {
-      setForm((formJson as { config?: BookingFormConfig }).config ?? null);
-    }
-
-    const calendarsJson = await calendarsRes.json().catch(() => ({}));
-    if (calendarsRes.ok) {
-      setCalendars(((calendarsJson as any)?.config?.calendars as BookingCalendar[]) ?? []);
-    }
-
-    const hostedSiteJson = hostedSiteRes ? await hostedSiteRes.json().catch(() => ({})) : null;
-    if (hostedSiteRes && hostedSiteRes.ok && (hostedSiteJson as any)?.ok) {
-      setHostedSite(((hostedSiteJson as any)?.site as HostedSite) ?? null);
-    }
-
-    const funnelDomainsJson = funnelDomainsRes ? await funnelDomainsRes.json().catch(() => ({})) : null;
-    if (funnelDomainsRes && funnelDomainsRes.ok && (funnelDomainsJson as any)?.ok === true && Array.isArray((funnelDomainsJson as any)?.domains)) {
-      setFunnelDomains(
-        (funnelDomainsJson as any).domains
-          .map((d: any) => ({ domain: String(d?.domain || "").trim(), status: String(d?.status || "").trim() }))
-          .filter((d: any) => d.domain),
-      );
-    }
-
-    const blocksJson = await blocksRes.json().catch(() => ({}));
-    if (blocksRes.ok) {
-      setBlocks(((blocksJson as any)?.blocks as AvailabilityBlock[]) ?? []);
-    }
-
-    const remindersJson = await remindersRes.json().catch(() => ({}));
-    if (remindersRes.ok) {
-      const settings = ((remindersJson as any)?.settings as AppointmentReminderSettings) ?? null;
-      setReminderSettings(settings);
-      setReminderDraft(settings);
-      setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
-      setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
-      setReminderProviderStatus(parseReminderProviderStatus(remindersJson));
-    }
-
-      if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok || !calendarsRes.ok || !blocksRes.ok || !remindersRes.ok) {
-        setError(
-          getApiError(meJson) ??
-            getApiError(settingsJson) ??
-            getApiError(bookingsJson) ??
-            getApiError(formJson) ??
-            getApiError(calendarsJson) ??
-            getApiError(blocksJson) ??
-            getApiError(remindersJson) ??
-            "Failed to load booking automation",
-        );
+      const res = await fetch("/api/portal/booking/external-link", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(externalBookingLink),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(getApiError(body) ?? "Failed to save external booking link");
+        return;
       }
+      setExternalBookingLink(((body as any)?.externalLink as ExternalBookingLinkConfig) ?? externalBookingLink);
+      setExternalBookingSummary(((body as any)?.summary as ExternalBookingHandoffSummary) ?? externalBookingSummary);
+      setExternalBookingConfirmation(((body as any)?.confirmation as ExternalBookingConfirmationSetup) ?? externalBookingConfirmation);
+      setExternalBookingProviderReadiness(((body as any)?.providerReadiness as ExternalBookingProviderConnectionReadiness) ?? externalBookingProviderReadiness);
+      setExternalBookingProviderCapabilities((((body as any)?.providerCapabilities as ExternalBookingProviderCapability[]) ?? externalBookingProviderCapabilities).slice(0, 20));
+      setStatus("Saved external booking link");
     } finally {
-      setFunnelDomainsBusy(false);
+      setExternalBookingSaving(false);
     }
-  }, [remindersUrl, selectedCalendarId]);
+  }
+
+  async function saveExternalBookingProviderConnection(input?: { clearSigningKey?: boolean; regenerateWebhookToken?: boolean }) {
+    if (!externalBookingProviderReadiness?.providerKey) return;
+    setExternalBookingProviderSaving(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const payload = {
+        signingKey: externalBookingProviderSigningKey.trim() || undefined,
+        clearSigningKey: input?.clearSigningKey,
+        regenerateWebhookToken: input?.regenerateWebhookToken,
+      };
+      const res = await fetch(`/api/portal/booking/external-provider/${encodeURIComponent(externalBookingProviderReadiness.providerKey)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(getApiError(body) ?? "Failed to update provider confirmation settings");
+        return;
+      }
+      setExternalBookingProviderReadiness(((body as any)?.readiness as ExternalBookingProviderConnectionReadiness) ?? externalBookingProviderReadiness);
+      setExternalBookingProviderSigningKey("");
+      setStatus(
+        input?.regenerateWebhookToken
+          ? "Regenerated provider webhook URL"
+          : input?.clearSigningKey
+            ? "Cleared provider signing key"
+            : "Saved provider confirmation settings",
+      );
+    } finally {
+      setExternalBookingProviderSaving(false);
+    }
+  }
 
   async function saveCalendars(next: BookingCalendar[]) {
     setCalSaving(true);
@@ -2998,7 +3354,7 @@ export function PortalBookingClient() {
             const hasCalendar = calendars.length > 0;
             const hasSite = Boolean(site);
             const hasReminders = Boolean(reminderSettings?.steps?.length);
-            const hasPublicLink = Boolean(previewBookingUrl);
+            const hasPublicLink = Boolean(previewBookingUrl || externalBookingOpenUrl || externalBookingUrl);
             const isCredit = appBase.startsWith("/credit");
 
             const steps: Array<{ label: string; done: boolean; href: string; cta: string }> = [
@@ -3021,16 +3377,16 @@ export function PortalBookingClient() {
                 cta: hasReminders ? "Edit reminders" : "Set up reminders",
               },
               {
-                label: "Enable your public booking link",
+                label: "Enable a booking handoff link",
                 done: hasPublicLink,
                 href: `${appBase}/services/booking?tab=settings`,
-                cta: hasPublicLink ? "Link is active" : "Finish setup to enable link",
+                cta: hasPublicLink ? "Link is active" : "Add a booking link",
               },
               {
                 label: "Test the live booking link",
                 done: false,
-                href: previewBookingUrl ?? `${appBase}/services/booking?tab=settings`,
-                cta: previewBookingUrl ? "Open booking link" : "Complete setup first",
+                href: testBookingLinkUrl ?? `${appBase}/services/booking?tab=settings`,
+                cta: testBookingLinkUrl ? "Open booking link" : "Complete setup first",
               },
             ];
 
@@ -3082,12 +3438,378 @@ export function PortalBookingClient() {
                 </ol>
                 <div className="mt-4 border-t border-zinc-100 pt-4 text-xs text-zinc-500">
                   {isCredit
-                    ? "Once availability and details are saved, the booking link is visible in the sidebar. Clients cannot book until availability is set."
-                    : "Once availability and details are saved, your booking link becomes active. Reminders help reduce no-shows significantly."}
+                    ? "You can use a native booking link or save an external scheduler here. Purely sends people to your chosen booking page but does not claim calendar sync unless a real provider integration exists."
+                    : "You can use a native booking link or save an external scheduler here. Purely sends people to your chosen booking page but does not claim calendar sync unless a real provider integration exists."}
                 </div>
               </div>
             );
           })()}
+
+          <PortalSettingsSection
+            title="Use an existing booking page"
+            description="Keep your current scheduler and let Purely add tracking, lead capture, and follow-up around it."
+            accent="slate"
+            collapsible={false}
+            dotClassName="hidden"
+            variant="plain"
+          >
+            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Paste the booking page you already use</div>
+                  <div className="mt-1 text-sm text-zinc-600">
+                    Purely can send people to this scheduler with click tracking or lead capture first. Confirmed appointments still require either a return to your site, a direct integration, or a booking made inside Purely.
+                  </div>
+                </div>
+                {externalBookingOpenUrl ? (
+                  <a
+                    href={externalBookingOpenUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    {externalBookingLink?.handoffMode === "lead_first" ? "Open lead capture page" : "Open booking page handoff"}
+                  </a>
+                ) : null}
+              </div>
+
+              {externalBookingLink ? (
+                <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-600">Booking page URL</label>
+                    <input
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                      placeholder="https://calendly.com/..."
+                      value={externalBookingLink.sourceUrl}
+                      onChange={(event) =>
+                        setExternalBookingLink((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                sourceUrl: event.target.value,
+                                enabled: Boolean(event.target.value.trim()) ? prev.enabled : false,
+                              }
+                            : prev,
+                        )
+                      }
+                      disabled={externalBookingSaving}
+                    />
+                    <div className="mt-2 text-xs text-zinc-500">
+                      Supported examples: Calendly, Square, Acuity, GlossGenius, Fresha, Booksy, or a custom booking form.
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-600">Service or offer</label>
+                    <input
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                      placeholder="e.g. Consultation, tattoo estimate, color appointment"
+                      value={externalBookingLink.offerName}
+                      onChange={(event) =>
+                        setExternalBookingLink((prev) => (prev ? { ...prev, offerName: event.target.value } : prev))
+                      }
+                      disabled={externalBookingSaving}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-600">Primary goal</label>
+                    <div className="mt-2">
+                      <PortalSelectDropdown
+                        value={externalBookingLink.goal}
+                        onChange={(value) => setExternalBookingLink((prev) => (prev ? { ...prev, goal: value } : prev))}
+                        disabled={externalBookingSaving}
+                        options={[
+                          { value: "more_bookings", label: "More bookings" },
+                          { value: "more_leads", label: "More leads" },
+                          { value: "fewer_no_shows", label: "Fewer no-shows" },
+                          { value: "more_reviews", label: "More reviews" },
+                          { value: "more_repeat_visits", label: "More repeat visits" },
+                        ]}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-600">Before the booking page opens</label>
+                    <div className="mt-2">
+                      <PortalSelectDropdown
+                        value={externalBookingLink.handoffMode}
+                        onChange={(value) =>
+                          setExternalBookingLink((prev) => (prev ? { ...prev, handoffMode: value } : prev))
+                        }
+                        disabled={externalBookingSaving}
+                        options={[
+                          { value: "direct_book", label: "Send people straight to booking" },
+                          { value: "lead_first", label: "Capture lead before redirect" },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {externalBookingLink ? (
+                <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">
+                      {externalBookingLink.providerLabel || "External booking page"}
+                      <span className="ml-2 inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-600">
+                        {externalBookingLink.detectionConfidence === "high" ? "Looks matched" : "Check match"}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-sm text-zinc-600">
+                      {externalBookingLink.handoffMode === "lead_first"
+                        ? "Lead capture first saves the person's details in Purely, then sends them to this booking page. Saving a lead does not confirm that they booked."
+                        : "Straight to booking tracks the click, then sends people to this booking page. A click does not prove that they booked."}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-zinc-600">Off</span>
+                      <ToggleSwitch
+                        checked={externalBookingLink.enabled}
+                        disabled={externalBookingSaving || !externalBookingLink.sourceUrl.trim()}
+                        accent="ink"
+                        onChange={(checked) => setExternalBookingLink((prev) => (prev ? { ...prev, enabled: checked } : prev))}
+                      />
+                      <span className="text-sm text-zinc-600">On</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void saveExternalBookingLink()}
+                      disabled={externalBookingSaving}
+                      className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    >
+                      {externalBookingSaving ? "Saving..." : "Save booking page"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {externalBookingConfirmation ? (
+                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Booking confirmation tracking</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-700">
+                        <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
+                          {externalBookingConfirmationLevelLabel(externalBookingConfirmation, externalBookingProviderReadiness)}
+                        </span>
+                        <span>
+                          {externalBookingConfirmationLevelDetail(externalBookingConfirmation, externalBookingProviderReadiness)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-xs font-medium text-zinc-500">
+                      {externalBookingConfirmation.expiresAt
+                        ? `URL expires ${formatExternalBookingConfirmationExpiry(externalBookingConfirmation.expiresAt)}`
+                        : "Link not available yet"}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 text-sm text-zinc-700">{externalBookingConfirmation.detail}</div>
+                  <div className="mt-2 text-xs text-zinc-600">{externalBookingConfirmation.providerCapabilities.note}</div>
+
+                  {externalBookingConfirmation.url ? (
+                    <div className="mt-3 rounded-2xl border border-emerald-100 bg-white p-3">
+                      <label className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Confirmation return link</label>
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                        <input
+                          readOnly
+                          value={externalBookingConfirmation.url}
+                          className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700"
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(externalBookingConfirmation.url || "");
+                              toast.success("Copied confirmation link");
+                            } catch {
+                              toast.error("Could not copy confirmation link");
+                            }
+                          }}
+                          className="inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50"
+                        >
+                          Copy URL
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {externalBookingProviderReadiness ? (
+                    <div className="mt-4 rounded-2xl border border-emerald-100 bg-white p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">Verified booking updates</div>
+                          <div className="mt-1 text-sm text-zinc-700">
+                            {externalBookingProviderReadiness.providerLabel}
+                            {externalBookingProviderReadiness.implemented
+                              ? " can send confirmed booking updates into Purely once setup is complete."
+                              : " does not have a finished confirmed-booking connection in this build yet."}
+                          </div>
+                        </div>
+                        <div className="text-xs font-medium text-zinc-500">
+                          {externalBookingProviderReadiness.connected
+                            ? `Connected ${formatExternalBookingActivityTime(externalBookingProviderReadiness.connectedAtIso)}`
+                            : externalBookingProviderReadiness.blocker || externalBookingProviderReadiness.nextAction}
+                        </div>
+                      </div>
+
+                      {externalBookingProviderReadiness.selectionReason ? (
+                        <div className="mt-2 text-xs text-zinc-600">Suggested setup path: {externalBookingProviderReadiness.selectionReason}</div>
+                      ) : null}
+
+                      <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-7">
+                        {[
+                          ["Redirect", formatProviderCapabilitySupport(externalBookingProviderReadiness.capability.supportsRedirectReturn)],
+                          ["Webhook", formatProviderCapabilitySupport(externalBookingProviderReadiness.capability.supportsWebhook)],
+                          ["API polling", formatProviderCapabilitySupport(externalBookingProviderReadiness.capability.supportsApiPolling)],
+                          ["OAuth", formatProviderCapabilitySupport(externalBookingProviderReadiness.capability.supportsOAuth)],
+                          ["Created", formatProviderCapabilitySupport(externalBookingProviderReadiness.capability.supportsBookingCreated)],
+                          ["Canceled", formatProviderCapabilitySupport(externalBookingProviderReadiness.capability.supportsBookingCanceled)],
+                          ["Rescheduled", formatProviderCapabilitySupport(externalBookingProviderReadiness.capability.supportsBookingRescheduled)],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{label}</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-900">{value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-3 space-y-1 text-sm text-zinc-700">
+                        {externalBookingProviderReadiness.capability.setupNotes.slice(0, 3).map((note) => (
+                          <div key={note}>• {note}</div>
+                        ))}
+                      </div>
+
+                      {externalBookingProviderReadiness.implemented && externalBookingProviderReadiness.webhookUrl ? (
+                        <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-3">
+                          <label className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Webhook URL</label>
+                          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                            <input
+                              readOnly
+                              value={externalBookingProviderReadiness.webhookUrl}
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700"
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(externalBookingProviderReadiness.webhookUrl || "");
+                                  toast.success("Copied webhook URL");
+                                } catch {
+                                  toast.error("Could not copy webhook URL");
+                                }
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50"
+                            >
+                              Copy URL
+                            </button>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                            <input
+                              type="password"
+                              value={externalBookingProviderSigningKey}
+                              onChange={(e) => setExternalBookingProviderSigningKey(e.target.value)}
+                              placeholder={externalBookingProviderReadiness.signingKeyConfigured ? "Signing key saved" : "Paste signing key"}
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700"
+                            />
+                            <button
+                              type="button"
+                              disabled={externalBookingProviderSaving || !externalBookingProviderSigningKey.trim()}
+                              onClick={() => void saveExternalBookingProviderConnection()}
+                              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                            >
+                              {externalBookingProviderSaving ? "Saving..." : "Save signing key"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={externalBookingProviderSaving}
+                              onClick={() => void saveExternalBookingProviderConnection({ regenerateWebhookToken: true })}
+                              className="inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 disabled:opacity-60"
+                            >
+                              Regenerate URL
+                            </button>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-600">
+                            <span>
+                              {externalBookingProviderReadiness.signingKeyConfigured
+                                ? "The signing key is saved and hidden here for security."
+                                : "Purely will not count confirmed outside bookings until a valid signing key is saved."}
+                            </span>
+                            {externalBookingProviderReadiness.expectedEnvVar ? <span>Expected env: {externalBookingProviderReadiness.expectedEnvVar}</span> : null}
+                          </div>
+
+                          {externalBookingProviderReadiness.signingKeyConfigured ? (
+                            <div className="mt-3">
+                              <button
+                                type="button"
+                                disabled={externalBookingProviderSaving}
+                                onClick={() => void saveExternalBookingProviderConnection({ clearSigningKey: true })}
+                                className="inline-flex items-center justify-center rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 disabled:opacity-60"
+                              >
+                                Remove signing key
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {externalBookingSummary ? (
+                <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Recent booking page activity</div>
+                      <div className="mt-1 text-sm text-zinc-600">
+                        Last 30 days: {externalBookingSummary.totalHandoffs.toLocaleString()} click{externalBookingSummary.totalHandoffs === 1 ? "" : "s"} to the booking page, {externalBookingSummary.confirmedViaRedirect.toLocaleString()} return{externalBookingSummary.confirmedViaRedirect === 1 ? "" : "s"} to your site after booking, and {externalBookingSummary.providerConfirmedBookings.toLocaleString()} confirmed outside booking{externalBookingSummary.providerConfirmedBookings === 1 ? "" : "s"} recorded in Purely. Returns are stronger than clicks, but direct confirmed updates are the clearest proof of a completed outside booking in this view.
+                      </div>
+                    </div>
+                    <div className="text-xs font-medium text-zinc-500">Last recorded: {formatExternalBookingActivityTime(externalBookingSummary.latestActivityAt)}</div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+                    <div className="rounded-2xl border border-sky-100 bg-white px-4 py-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Sent to booking page</div>
+                      <div className="mt-1 text-lg font-semibold text-zinc-900">{externalBookingSummary.totalHandoffs.toLocaleString()}</div>
+                    </div>
+                    <div className="rounded-2xl border border-sky-100 bg-white px-4 py-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Straight-to-book clicks</div>
+                      <div className="mt-1 text-lg font-semibold text-zinc-900">{externalBookingSummary.directHandoffs.toLocaleString()}</div>
+                    </div>
+                    <div className="rounded-2xl border border-sky-100 bg-white px-4 py-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Lead-first captures</div>
+                      <div className="mt-1 text-lg font-semibold text-zinc-900">{externalBookingSummary.leadFirstCaptures.toLocaleString()}</div>
+                    </div>
+                    <div className="rounded-2xl border border-sky-100 bg-white px-4 py-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Returned to your site</div>
+                      <div className="mt-1 text-lg font-semibold text-zinc-900">{externalBookingSummary.confirmedViaRedirect.toLocaleString()}</div>
+                    </div>
+                    <div className="rounded-2xl border border-sky-100 bg-white px-4 py-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Confirmed outside bookings</div>
+                      <div className="mt-1 text-lg font-semibold text-zinc-900">{externalBookingSummary.providerConfirmedBookings.toLocaleString()}</div>
+                    </div>
+                    <div className="rounded-2xl border border-sky-100 bg-white px-4 py-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Provider</div>
+                      <div className="mt-1 text-lg font-semibold text-zinc-900">{externalBookingSummary.providerBreakdown[0]?.providerLabel || externalBookingSummary.providerLabel || "External booking page"}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-2xl border border-sky-100 bg-white px-4 py-3 text-sm text-zinc-700">
+                    <div className="font-semibold text-zinc-900">Next action</div>
+                    <div className="mt-1">{externalBookingSummary.guidance.detail}</div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </PortalSettingsSection>
 
           <PortalSettingsSection
             title="Calendars"

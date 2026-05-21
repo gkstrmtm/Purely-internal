@@ -296,6 +296,14 @@ function normalizeSlug(raw: string) {
   return cleaned;
 }
 
+function buildSuggestedFormSlug(nameRaw: string, templateKey: CreditFormTemplateKey, explicitSlugRaw: string) {
+  return (
+    normalizeSlug(explicitSlugRaw) ||
+    normalizeSlug(nameRaw) ||
+    normalizeSlug(getCreditFormTemplate(templateKey)?.content?.displayTitle || getCreditFormTemplate(templateKey)?.label || "")
+  );
+}
+
 function normalizeFunnelBuilderError(action: string, error: unknown, status?: number) {
   const raw = typeof error === "string"
     ? error
@@ -1106,12 +1114,18 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     return h === "localhost" || h.endsWith(".local") || h === "127.0.0.1";
   }, [platformTargetHost]);
 
-  const runtimeHostedOrigin = useMemo(() => {
-    if (typeof window !== "undefined") return window.location.origin || null;
-    return null;
+  const [runtimeHostedOrigin, setRuntimeHostedOrigin] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setRuntimeHostedOrigin(window.location.origin || null);
   }, []);
 
   const formPublicBase = useMemo(() => toRuntimeHostedUrl("/forms", runtimeHostedOrigin), [runtimeHostedOrigin]);
+  const suggestedFormSlug = useMemo(
+    () => buildSuggestedFormSlug(createName, createTemplateKey, createSlug),
+    [createName, createSlug, createTemplateKey],
+  );
 
   const getFunnelLiveHref = useCallback(
     (assignedDomain: string | null | undefined, slug: string, funnelId: string) => {
@@ -1730,7 +1744,10 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         fallbackName: createName.trim() || undefined,
         templateLabel: creatingKind === "funnel" && createFunnelUseTemplate ? getCreditFunnelTemplate(createFunnelTemplateKey)?.label : undefined,
       });
-      const slug = creatingKind === "funnel" ? normalizeSlug(createSlug) || funnelNaming.slug : normalizeSlug(createSlug);
+      const slug =
+        creatingKind === "funnel"
+          ? normalizeSlug(createSlug) || funnelNaming.slug
+          : buildSuggestedFormSlug(createName, createTemplateKey, createSlug);
       if (!slug) throw new Error("Enter a valid slug (letters, numbers, hyphens)");
 
       const endpoint = creatingKind === "funnel" ? "/api/portal/funnel-builder/funnels" : "/api/portal/funnel-builder/forms";
@@ -1915,7 +1932,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 if (!current) return;
                 const normalized = normalizeSlug(current.slug);
                 if (!normalized) {
-                  setFormSettingsError("Slug is required.");
+                  setFormSettingsError("Public link ending is required.");
                   return;
                 }
                 const base = (forms || []).find((item) => item.id === current.id);
@@ -1940,7 +1957,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       >
         <div className="space-y-4">
           <label className="block">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Public link ending</div>
             <input
               value={formSettingsDialog?.slug || ""}
               onChange={(e) => {
@@ -2951,7 +2968,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 <p className="mt-1 text-sm text-zinc-600">
                   {creatingKind === "funnel"
                     ? "Shape a quick working brief now, close it if you need to, and only lock it in when you hit Create."
-                    : "Choose a URL slug. You can rename it later."}
+                    : "Choose the public link ending, or leave it blank and we will generate one from the form name or template."}
                 </p>
               </div>
               <button
@@ -2970,7 +2987,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               {creatingKind === "form" ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Public link ending</div>
                     <input
                       value={createSlug}
                       onChange={(e) => setCreateSlug(e.target.value)}
@@ -2978,9 +2995,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
                     />
                     <div className="mt-1 text-xs text-zinc-500">
-                      Public slug: {formPublicBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
+                      Public page link: {formPublicBase}/<span className="font-semibold">{suggestedFormSlug || "…"}</span>
                     </div>
-                    <div className="mt-1 text-xs text-zinc-500">After creation, Preview and Live use the exact hosted link with the form key.</div>
+                    <div className="mt-1 text-xs text-zinc-500">After creation, you get a private preview link with a short access key. Switch the form to Live when you want the public page link to open it.</div>
                   </div>
 
                   <div>
@@ -2999,7 +3016,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug (optional)</div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Public link ending (optional)</div>
                       <input
                         value={createSlug}
                         onChange={(e) => setCreateSlug(e.target.value)}

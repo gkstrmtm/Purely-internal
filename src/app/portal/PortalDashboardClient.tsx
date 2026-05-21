@@ -10,7 +10,9 @@ import { IconEdit } from "@/app/portal/PortalIcons";
 import { formatSavedTime } from "@/lib/formatSavedTime";
 import { buildDashboardLayout, type DashboardLayoutItem as SharedDashboardLayoutItem, type DashboardWidgetId } from "@/lib/portalDashboardLayout";
 import { reportPortalActionFailure } from "@/lib/portalDiagnostics.client";
+import type { GrowthReadinessPayload } from "@/lib/portalGrowthReadiness";
 import { buildGuidanceItems, guidanceStatusColors, guidanceStatusLabel, type GuidanceItem } from "@/lib/portalGuidance";
+import { moduleByKey } from "@/lib/portalModulesCatalog";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
@@ -50,6 +52,12 @@ const dashboardEditResetButtonClass =
 const dashboardSuggestionButtonClass =
   "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-colors duration-150 hover:bg-slate-600 disabled:opacity-60";
 
+const dashboardInfoCardClass =
+  "flex h-full min-h-[190px] flex-col rounded-3xl border border-zinc-200 bg-zinc-50 p-4";
+
+const dashboardServiceCardBaseClass =
+  "flex h-full min-h-[220px] flex-col rounded-3xl border p-4 shadow-sm transition-transform duration-150 hover:-translate-y-0.5";
+
 type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
 
 type MeResponse = {
@@ -75,6 +83,23 @@ type ReportingPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
+  externalBookingHandoff?: {
+    enabled: boolean;
+    providerConfirmationAvailable: boolean;
+    providerConfirmationConnected: boolean;
+    totalHandoffs: number;
+    directHandoffs: number;
+    leadFirstCaptures: number;
+    confirmedViaRedirect: number;
+    providerConfirmedBookings: number;
+    providerCanceledBookings: number;
+    providerRescheduledBookings: number;
+    guidance: {
+      state: "disabled" | "provider_not_connected" | "no_handoffs" | "handoffs_only" | "captured_leads" | "redirect_confirmed" | "provider_confirmed";
+      title: string;
+      detail: string;
+    };
+  };
   diagnostics: {
     actionFailures: number;
     runtimeErrors: number;
@@ -147,11 +172,41 @@ type DashboardServicesStatus =
           state: "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled";
           readiness: {
             state: "ready" | "needs_setup" | "needs_connection" | "empty" | "blocked";
+            label: string;
+            helper: string;
+            ctaLabel: string;
             href: string | null;
           };
         }
       >;
     }
+  | { ok: false; error?: string };
+
+type ServiceCoverageState = "ready" | "needs_setup" | "provider_blocked" | "not_enabled" | "checking";
+
+type ServiceCoverageModule = {
+  key: ModuleKey;
+  name: string;
+  serviceSlug: string;
+  defaultHref: string;
+  enabled: boolean;
+  coverageState: ServiceCoverageState;
+  stateLabel: string;
+  badgeLabel: string;
+  helper: string;
+  ctaLabel: string | null;
+  ctaHref: string | null;
+};
+
+function formatNaturalList(items: string[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+type GrowthReadinessResponse =
+  | ({ ok: true } & GrowthReadinessPayload)
   | { ok: false; error?: string };
 
 type SalesIntegrationStatusPayload =
@@ -546,6 +601,18 @@ const PREVIEW_REPORTING: ReportingPayload = {
 
 const PREVIEW_MEDIA_STATS: MediaStatsPayload = { ok: true, itemsCount: 44, foldersCount: 3 };
 
+async function fetchWithRetry(input: string, init?: RequestInit, attempts = 2) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const res = await fetch(input, init).catch(() => null as any);
+    if (res && (res.ok || res.status < 500)) return res;
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+    }
+  }
+
+  return null as any;
+}
+
 export function PortalDashboardClient() {
   const pathname = usePathname() || "";
   const toast = useToast();
@@ -559,12 +626,55 @@ export function PortalDashboardClient() {
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
   const [salesError, setSalesError] = useState<string | null>(null);
   const [servicesStatus, setServicesStatus] = useState<DashboardServicesStatus | null>(null);
+  const [growthReadiness, setGrowthReadiness] = useState<GrowthReadinessResponse | null>(null);
+  const [dashboardGrowthLoading, setDashboardGrowthLoading] = useState(true);
+  const [dashboardGrowthError, setDashboardGrowthError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (uiPreview) {
+        setDashboardGrowthLoading(false);
+        setDashboardGrowthError(null);
+        setGrowthReadiness(null);
+        return;
+      }
+
+      const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
+      setDashboardGrowthLoading(true);
+      setDashboardGrowthError(null);
+
+      const growthRes = await fetchWithRetry("/api/portal/growth/readiness", {
+        cache: "no-store",
+        headers: { "x-portal-variant": requestPortalVariant },
+      });
+
+      if (!mounted) return;
+
+      if (growthRes?.ok) {
+        const growth = (await growthRes.json().catch(() => null)) as GrowthReadinessResponse | null;
+        if (growth) setGrowthReadiness(growth);
+        setDashboardGrowthError(null);
+      } else {
+        const growthBody = growthRes
+          ? ((await growthRes.json().catch(() => null)) as { error?: string } | null)
+          : null;
+        setDashboardGrowthError(growthBody?.error ?? "Unable to load growth readiness");
+      }
+
+      setDashboardGrowthLoading(false);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [pathname, uiPreview]);
 
   const [editMode, setEditMode] = useState(false);
   const [savingLayout, setSavingLayout] = useState(false);
@@ -625,6 +735,7 @@ export function PortalDashboardClient() {
         setReporting(PREVIEW_REPORTING);
         setMediaStats(PREVIEW_MEDIA_STATS);
         setDashboard(PREVIEW_DASHBOARD_DATA);
+        setGrowthReadiness(null);
         const base: LayoutItem[] = PREVIEW_DASHBOARD_DATA.layout.map((l) => ({
           i: l.i,
           x: l.x,
@@ -663,10 +774,11 @@ export function PortalDashboardClient() {
         const optionalTimeout = window.setTimeout(() => optionalController.abort(), 15000);
 
         try {
-          const [repRes, statsRes, svcRes] = await Promise.all([
-            fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
-            fetch("/api/portal/media/stats", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
-            fetch("/api/portal/services/status", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
+          const [repRes, statsRes, svcRes, growthRes] = await Promise.all([
+            fetchWithRetry("/api/portal/reporting?range=30d", { cache: "no-store", signal: optionalController.signal }),
+            fetchWithRetry("/api/portal/media/stats", { cache: "no-store", signal: optionalController.signal }),
+            fetchWithRetry("/api/portal/services/status", { cache: "no-store", signal: optionalController.signal }),
+            fetchWithRetry("/api/portal/growth/readiness", { cache: "no-store", signal: optionalController.signal }),
           ]);
 
           if (!mounted) return;
@@ -693,6 +805,11 @@ export function PortalDashboardClient() {
             const svc = (await svcRes.json().catch(() => null)) as DashboardServicesStatus | null;
             if (svc) setServicesStatus(svc);
           }
+
+          if (growthRes?.ok) {
+            const growth = (await growthRes.json().catch(() => null)) as GrowthReadinessResponse | null;
+            if (growth) setGrowthReadiness(growth);
+          }
         } finally {
           window.clearTimeout(optionalTimeout);
         }
@@ -701,12 +818,12 @@ export function PortalDashboardClient() {
       try {
         const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
         const [meRes, dashRes] = await Promise.all([
-          fetch("/api/customer/me", {
+          fetchWithRetry("/api/portal/me", {
             cache: "no-store",
             signal: requiredController.signal,
             headers: { "x-pa-app": "portal", "x-portal-variant": requestPortalVariant },
           }),
-          fetch(`/api/portal/dashboard?scope=${dashboardScope}` , {
+          fetchWithRetry(`/api/portal/dashboard?scope=${dashboardScope}` , {
             cache: "no-store",
             signal: requiredController.signal,
             headers: { "x-portal-variant": requestPortalVariant },
@@ -714,6 +831,11 @@ export function PortalDashboardClient() {
         ]);
 
         if (!mounted) return;
+
+        if (!meRes || !dashRes) {
+          setError("Unable to load dashboard");
+          return;
+        }
 
         if (!meRes.ok) {
           const body = await meRes.json().catch(() => ({}));
@@ -770,16 +892,94 @@ export function PortalDashboardClient() {
     };
   }, [pathname, uiPreview]);
 
-  const modules = useMemo(
-    () =>
-      [
-        { key: "blog" as const, name: "Blog Automation" },
-        { key: "booking" as const, name: "Booking Automation" },
-        { key: "crm" as const, name: "CRM / Follow-up" },
-        { key: "leadOutbound" as const, name: "AI Outbound" },
-      ].map((m) => ({ ...m, enabled: !!data?.entitlements?.[m.key] })),
-    [data],
-  );
+  const modules = useMemo((): ServiceCoverageModule[] => {
+    const billingReady = Boolean(data?.billing?.configured);
+    const statuses = servicesStatus && servicesStatus.ok ? servicesStatus.statuses : null;
+
+    return [
+      {
+        key: "blog" as const,
+        name: moduleByKey("blog").title,
+        serviceSlug: "blogs",
+        defaultHref: `${portalBase}/app/services/blogs`,
+        disabledHelper: billingReady
+          ? "Automated Blogs is optional. Turn it on in Billing when you want publishing active in this workspace."
+          : "Billing is not connected, so Automated Blogs is not enabled in this workspace yet.",
+      },
+      {
+        key: "booking" as const,
+        name: moduleByKey("booking").title,
+        serviceSlug: "booking",
+        defaultHref: `${portalBase}/app/services/booking`,
+        disabledHelper: billingReady
+          ? "Booking Automation is optional. It includes confirmations, reminders, and post-booking follow-up when you turn it on in Billing."
+          : "Billing is not connected, so Booking Automation and its follow-up workflow are not enabled in this workspace yet.",
+      },
+      {
+        key: "leadOutbound" as const,
+        name: moduleByKey("leadOutbound").title,
+        serviceSlug: "ai-outbound-calls",
+        defaultHref: `${portalBase}/app/services/ai-outbound-calls`,
+        disabledHelper: billingReady
+          ? "AI Outbound is optional. Turn it on in Billing when you want outbound calling and follow-up campaigns active here."
+          : "Billing is not connected, so AI Outbound is not enabled in this workspace yet.",
+      },
+    ].map((module) => {
+      const enabled = Boolean(data?.entitlements?.[module.key]);
+      const status = statuses?.[module.serviceSlug];
+
+      if (!enabled || status?.state === "locked" || status?.state === "paused" || status?.state === "canceled") {
+        return {
+          ...module,
+          enabled,
+          coverageState: "not_enabled",
+          stateLabel: billingReady ? "Not enabled in this workspace" : "Billing not connected",
+          badgeLabel: billingReady ? "Optional" : "Billing",
+          helper: module.disabledHelper,
+          ctaLabel: billingReady ? "Manage in Billing" : "Open Billing",
+          ctaHref: `${portalBase}/app/billing`,
+        };
+      }
+
+      if (!status) {
+        return {
+          ...module,
+          enabled,
+          coverageState: "checking",
+          stateLabel: "Checking setup",
+          badgeLabel: "Checking",
+          helper: "This service is unlocked. The dashboard is still checking whether it needs setup or is ready to use.",
+          ctaLabel: "Open service",
+          ctaHref: module.defaultHref,
+        };
+      }
+
+      if (status.readiness.state === "ready") {
+        return {
+          ...module,
+          enabled,
+          coverageState: "ready",
+          stateLabel: "Ready to use",
+          badgeLabel: "Ready",
+          helper: status.readiness.helper,
+          ctaLabel: status.readiness.ctaLabel,
+          ctaHref: status.readiness.href ?? module.defaultHref,
+        };
+      }
+
+      const providerBlocked = status.readiness.state === "needs_connection" || status.readiness.state === "blocked";
+      return {
+        ...module,
+        enabled,
+        coverageState: providerBlocked ? "provider_blocked" : "needs_setup",
+        stateLabel: providerBlocked ? "Provider blocker" : "Needs setup",
+        badgeLabel: providerBlocked ? "Blocked" : "Setup",
+        helper: status.readiness.helper,
+        ctaLabel: status.readiness.ctaLabel,
+        ctaHref: status.readiness.href ?? module.defaultHref,
+      };
+    });
+  }, [data, portalBase, servicesStatus]);
 
   const dashboardSuggestionIds = useMemo(() => {
     const current = new Set((dashboard?.widgets ?? []).map((widget) => widget.id));
@@ -811,6 +1011,21 @@ export function PortalDashboardClient() {
             tasksOpenNow: reporting.kpis.tasksOpenNow ?? 0,
             inboxMessagesIn: reporting.kpis.inboxMessagesIn ?? 0,
             inboxMessagesOut: reporting.kpis.inboxMessagesOut ?? 0,
+            externalBookingHandoff: reporting.externalBookingHandoff
+              ? {
+                  enabled: reporting.externalBookingHandoff.enabled,
+                  providerConfirmationAvailable: reporting.externalBookingHandoff.providerConfirmationAvailable ?? false,
+                  providerConfirmationConnected: reporting.externalBookingHandoff.providerConfirmationConnected ?? false,
+                  totalHandoffs: reporting.externalBookingHandoff.totalHandoffs ?? 0,
+                  directHandoffs: reporting.externalBookingHandoff.directHandoffs ?? 0,
+                  leadFirstCaptures: reporting.externalBookingHandoff.leadFirstCaptures ?? 0,
+                  confirmedViaRedirect: reporting.externalBookingHandoff.confirmedViaRedirect ?? 0,
+                  providerConfirmedBookings: reporting.externalBookingHandoff.providerConfirmedBookings ?? 0,
+                  providerCanceledBookings: reporting.externalBookingHandoff.providerCanceledBookings ?? 0,
+                  providerRescheduledBookings: reporting.externalBookingHandoff.providerRescheduledBookings ?? 0,
+                  guidance: reporting.externalBookingHandoff.guidance,
+                }
+              : null,
           }
         : null,
     });
@@ -820,6 +1035,8 @@ export function PortalDashboardClient() {
     () => Boolean(dashboard?.widgets?.some((w) => w.id === "stripeSales")),
     [dashboard],
   );
+
+  const growthPayload = growthReadiness && growthReadiness.ok ? growthReadiness : null;
 
   useEffect(() => {
     if (uiPreview) {
@@ -923,30 +1140,12 @@ export function PortalDashboardClient() {
     window.location.href = json.url;
   }
 
-  async function upgrade(module: ModuleKey) {
-    if (!data?.billing?.configured) {
-      window.location.href = `${portalBase}/app/billing`;
-      return;
-    }
-    setError(null);
-    const res = await fetch("/api/billing/checkout-module", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ module, successPath: `${portalBase}/app`, cancelPath: `${portalBase}/app` }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const message = body?.error ?? "Unable to start checkout";
-      reportPortalActionFailure({ area: "dashboard", action: `upgrade_${module}`, status: res.status, message, source: "portal_dashboard", meta: { module } });
-      setError(message);
-      return;
-    }
-    const json = (await res.json()) as { url: string };
-    window.location.href = json.url;
-  }
+  const loadingGrowthPayload = growthReadiness && growthReadiness.ok ? growthReadiness : null;
 
   if (loading) {
     const isCreditLoading = portalBase === "/credit";
+    const loadingTopActions = loadingGrowthPayload?.topActions?.slice(0, 2) ?? [];
+    const loadingTopAction = loadingTopActions[0] ?? null;
     return (
       <div className="space-y-4">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -979,6 +1178,78 @@ export function PortalDashboardClient() {
             ) : null}
           </div>
         </div>
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                {loadingGrowthPayload
+                  ? loadingGrowthPayload.isLowActivityWorkspace
+                    ? isCreditLoading
+                      ? "Credit starter path"
+                      : "Starter path"
+                    : isCreditLoading
+                      ? "Credit workspace next actions"
+                      : "Do this next"
+                  : dashboardGrowthLoading
+                    ? "Checking next actions"
+                    : "Safe next routes"}
+              </div>
+              <div className="mt-1 text-sm text-zinc-600">
+                {loadingTopAction
+                  ? "These actions are already available from the stored workspace state while the rest of the dashboard finishes loading."
+                  : dashboardGrowthLoading
+                    ? "Loading growth guidance from the current workspace state."
+                    : "Growth guidance is temporarily unavailable, so this dashboard falls back to stable next routes instead of guessing at outcomes."}
+              </div>
+            </div>
+            <a
+              href={`${portalBase}/app/services`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              All services
+            </a>
+          </div>
+
+          {loadingTopAction ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {loadingTopActions.map((action, index) => (
+                <a
+                  key={action.id}
+                  href={action.href}
+                  className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5 hover:bg-zinc-50"
+                >
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    {index === 0 ? "Top action" : "Next step"}
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">{action.title}</div>
+                  <div className="mt-2 text-sm text-zinc-600">{action.detail}</div>
+                  {action.blocker ? <div className="mt-3 text-xs font-semibold text-amber-700">{action.blocker}</div> : null}
+                  <div className="mt-4 text-sm font-semibold text-brand-ink">{action.ctaLabel} →</div>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href={`${portalBase}/app/services`}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                View services
+              </a>
+              <a
+                href={`${portalBase}/app/services/reporting`}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                View reporting
+              </a>
+              {dashboardGrowthError ? (
+                <div className="inline-flex items-center rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-700">
+                  {dashboardGrowthError}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
         <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-500">
           Dashboard data is loading. If this takes more than a few seconds, try refreshing the page.
         </div>
@@ -998,6 +1269,9 @@ export function PortalDashboardClient() {
 
   const me = data;
   const isCreditWorkspace = portalBase === "/credit";
+  const meMetrics = me.metrics ?? { hoursSavedThisWeek: 0, hoursSavedAllTime: 0 };
+  const billingConfigured = Boolean(me.billing?.configured);
+  const blogEntitled = Boolean(me.entitlements?.blog);
   const k = reporting?.kpis;
   const derived = (() => {
     if (!reporting?.kpis || !reporting) {
@@ -1050,39 +1324,109 @@ export function PortalDashboardClient() {
   })();
 
   const widgetIds: DashboardWidgetId[] = (dashboard?.widgets ?? []).map((w) => w.id);
-  const activeModuleCount = modules.filter((module) => module.enabled).length;
-  const firstActiveModule = modules.find((module) => module.enabled) ?? null;
-  const servicesWidgetSummary = (() => {
-    if (!me.billing.configured) {
+  const readyModuleCount = modules.filter((module) => module.coverageState === "ready").length;
+  const needsSetupModuleCount = modules.filter((module) => module.coverageState === "needs_setup").length;
+  const providerBlockedModuleCount = modules.filter((module) => module.coverageState === "provider_blocked").length;
+  const notEnabledModuleCount = modules.filter((module) => module.coverageState === "not_enabled").length;
+  const checkingModuleCount = modules.filter((module) => module.coverageState === "checking").length;
+  const firstReadyModule = modules.find((module) => module.coverageState === "ready") ?? null;
+  const readyModuleNames = modules.filter((module) => module.coverageState === "ready").map((module) => module.name);
+  const needsSetupModuleNames = modules.filter((module) => module.coverageState === "needs_setup").map((module) => module.name);
+  const providerBlockedModuleNames = modules.filter((module) => module.coverageState === "provider_blocked").map((module) => module.name);
+  const notEnabledModuleNames = modules.filter((module) => module.coverageState === "not_enabled").map((module) => module.name);
+  const checkingModuleNames = modules.filter((module) => module.coverageState === "checking").map((module) => module.name);
+  const includedToolsSummary = isCreditWorkspace
+    ? "Included tools already available: Pura, Inbox, Media library, Tasks, and the core credit workspace tools. Booking follow-up lives under Booking Automation rather than as a separate paid add-on."
+    : "Included tools already available: Pura, Inbox, Media library, Tasks, and Funnel Builder. Booking follow-up lives under Booking Automation rather than as a separate paid add-on.";
+  const servicesWidgetBanner = (() => {
+    if (!billingConfigured) {
       return {
-        headline: isCreditWorkspace ? "Connect billing for this credit workspace" : "Connect billing for this workspace",
-        body: isCreditWorkspace
-          ? "Billing controls paid service access and credit top-ups before operators can treat this as a live client workspace."
-          : "Billing controls paid service access and credit top-ups before services can go fully live.",
+        eyebrow: "Optional workflows",
+        headline: "Billing is not connected yet, so optional workflows stay off.",
+        body: `${includedToolsSummary} Right now ${formatNaturalList(notEnabledModuleNames)} stay off until billing is connected.`,
+        badgeLabel: "Billing not connected",
+        badgeClass: "border-zinc-200 bg-zinc-50 text-zinc-700",
+      };
+    }
+
+    if (notEnabledModuleCount === modules.length) {
+      return {
+        eyebrow: "Optional workflows",
+        headline: "Nothing optional is turned on right now.",
+        body: `${includedToolsSummary} Turn on only the workflows you actually want in Billing.`,
+        badgeLabel: "Optional workflows off",
+        badgeClass: "border-zinc-200 bg-zinc-50 text-zinc-700",
+      };
+    }
+
+    if (providerBlockedModuleCount > 0) {
+      return {
+        eyebrow: "Optional workflows",
+        headline: "Some workflows are enabled, but provider setup is still blocking them.",
+        body: `${includedToolsSummary} ${formatNaturalList(providerBlockedModuleNames)} still need provider setup before they can be treated as live.`,
+        badgeLabel: "Provider setup needed",
+        badgeClass: "border-rose-200 bg-rose-50 text-rose-700",
+      };
+    }
+
+    if (needsSetupModuleCount > 0 || checkingModuleCount > 0) {
+      const setupNames = [...needsSetupModuleNames, ...checkingModuleNames];
+      return {
+        eyebrow: "Optional workflows",
+        headline: "Some workflows are enabled, but they still need setup.",
+        body: `${includedToolsSummary} ${formatNaturalList(setupNames)} still need a little more setup before they are ready to use.`,
+        badgeLabel: "Setup still needed",
+        badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
+      };
+    }
+
+    return {
+      eyebrow: "Optional workflows",
+      headline:
+        readyModuleCount === 1 && firstReadyModule
+          ? `${firstReadyModule.name} is turned on and ready to use.`
+          : "Your enabled optional workflows are ready to use.",
+      body: `${includedToolsSummary} ${formatNaturalList(readyModuleNames)} ${readyModuleNames.length === 1 ? "is" : "are"} already enabled in this workspace.`,
+      badgeLabel: "Ready to use",
+      badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    };
+  })();
+  const servicesWidgetSummary = (() => {
+    if (!billingConfigured) {
+      return {
+        headline: "Included tools are ready. Billing only matters when you want optional workflows on.",
+        body: `${includedToolsSummary} If you want ${formatNaturalList(notEnabledModuleNames)} active here, connect billing first.`,
         primaryHref: `${portalBase}/app/billing`,
         primaryLabel: "Open Billing",
       };
     }
 
-    if (activeModuleCount === 0) {
+    if (notEnabledModuleCount === modules.length) {
       return {
-        headline: isCreditWorkspace ? "No credit workflows are active yet" : "No services are active yet",
-        body: isCreditWorkspace
-          ? "Review the Services page to unlock the first live workflow for reports, consultations, or follow-up."
-          : "Review the Services page to unlock the first live service before routing work into it.",
+        headline: "Optional workflows are off right now.",
+        body: `${includedToolsSummary} Turn on ${formatNaturalList(notEnabledModuleNames)} in Billing only when you actually want them running in this workspace.`,
+        primaryHref: `${portalBase}/app/billing`,
+        primaryLabel: "Manage in Billing",
+      };
+    }
+
+    const attentionNames = [...needsSetupModuleNames, ...providerBlockedModuleNames, ...checkingModuleNames];
+
+    if (attentionNames.length === 0 && readyModuleCount > 0) {
+      return {
+        headline:
+          readyModuleCount === 1 && firstReadyModule
+            ? `${firstReadyModule.name} is ready to use`
+            : "Your enabled optional workflows are ready to use.",
+        body: `${includedToolsSummary} ${formatNaturalList(readyModuleNames)} ${readyModuleNames.length === 1 ? "is" : "are"} already enabled and can be treated as live here.`,
         primaryHref: `${portalBase}/app/services`,
         primaryLabel: "Review services",
       };
     }
 
     return {
-      headline:
-        activeModuleCount === 1 && firstActiveModule
-          ? `${firstActiveModule.name} is active in this workspace`
-          : `${activeModuleCount} services are active in this workspace`,
-      body: isCreditWorkspace
-        ? "Check the Services page for anything still marked Needs setup before treating it as a live credit workflow."
-        : "Check the Services page for anything still marked Needs setup before treating it as a live service.",
+      headline: readyModuleCount > 0 ? "Some workflows are ready, and some still need attention." : "A few enabled workflows still need attention.",
+      body: `${includedToolsSummary} ${formatNaturalList(attentionNames)} ${attentionNames.length === 1 ? "still needs" : "still need"} setup before everything here feels fully ready.`,
       primaryHref: `${portalBase}/app/services`,
       primaryLabel: "Review services",
     };
@@ -1090,7 +1434,7 @@ export function PortalDashboardClient() {
 
   const serviceQuickLinks = [
     { href: `${portalBase}/app/onboarding`, label: "Setup checklist" },
-    me.entitlements.blog ? { href: `${portalBase}/app/services/blogs`, label: "Blogs" } : null,
+    blogEntitled ? { href: `${portalBase}/app/services/blogs`, label: "Blogs" } : null,
     { href: `${portalBase}/app/billing`, label: "Billing" },
     { href: `${portalBase}/app/services/reporting`, label: "Reporting" },
     { href: `${portalBase}/app/ai-chat`, label: "Pura" },
@@ -1552,10 +1896,10 @@ export function PortalDashboardClient() {
       case "hoursSaved":
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="text-2xl font-bold text-brand-ink">{formatSavedTime(me.metrics.hoursSavedThisWeek)}</div>
+            <div className="text-2xl font-bold text-brand-ink">{formatSavedTime(meMetrics.hoursSavedThisWeek)}</div>
             <div className="mt-1 text-xs text-zinc-500">This week</div>
             <div className="mt-3 text-sm text-zinc-700">
-              All-time: <span className="font-semibold">{formatSavedTime(me.metrics.hoursSavedAllTime)}</span>
+              All-time: <span className="font-semibold">{formatSavedTime(meMetrics.hoursSavedAllTime)}</span>
             </div>
           </AccentCard>
         );
@@ -1565,13 +1909,13 @@ export function PortalDashboardClient() {
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm text-zinc-700">
-                {me.billing.configured ? "Manage your plan and payment method." : "View billing, credits, and top-ups."}
+                {billingConfigured ? "Manage your plan and payment method." : "View billing, credits, and top-ups."}
               </div>
               <button
                 className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
                 onClick={manageBilling}
               >
-                {me.billing.configured ? "Manage" : "Billing"}
+                {billingConfigured ? "Manage" : "Billing"}
               </button>
             </div>
           </AccentCard>
@@ -1744,50 +2088,62 @@ export function PortalDashboardClient() {
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="space-y-4">
               <div className="flex flex-wrap items-start justify-between gap-3 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Workspace coverage</div>
-                  <div className="mt-2 text-sm font-semibold text-zinc-900">{activeModuleCount} of {modules.length} services are active</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{servicesWidgetBanner.eyebrow}</div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">{servicesWidgetBanner.headline}</div>
+                  <div className="mt-1 text-xs leading-relaxed text-zinc-600">{servicesWidgetBanner.body}</div>
                 </div>
-                <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-                  {activeModuleCount}/{modules.length} live now
+                <div className="flex shrink-0 items-start">
+                  <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold ${servicesWidgetBanner.badgeClass}`}>
+                    {servicesWidgetBanner.badgeLabel}
+                  </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {modules.map((m) => (
                   <div
                     key={m.key}
                     className={
-                      "flex min-h-27 flex-col justify-between rounded-3xl border p-4 shadow-sm transition-transform duration-150 hover:-translate-y-0.5 " +
-                      (m.enabled ? "border-emerald-200 bg-white" : "border-zinc-200 bg-zinc-50")
+                      `${dashboardServiceCardBaseClass} ` +
+                      (m.coverageState === "ready"
+                        ? "border-emerald-200 bg-white"
+                        : m.coverageState === "needs_setup"
+                          ? "border-amber-200 bg-amber-50/60"
+                          : m.coverageState === "provider_blocked"
+                            ? "border-rose-200 bg-rose-50/60"
+                            : m.coverageState === "checking"
+                              ? "border-sky-200 bg-sky-50/60"
+                              : "border-zinc-200 bg-zinc-50")
                     }
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold text-zinc-900">{m.name}</div>
-                        <div className="mt-1 text-xs text-zinc-600">{m.enabled ? "Included in your plan" : "Available to unlock"}</div>
+                        <div className="mt-1 text-xs text-zinc-600">{m.stateLabel}</div>
                       </div>
-                      <span className={m.enabled ? "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700" : "rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500"}>
-                        {m.enabled ? "Live" : "Upgrade"}
+                      <span
+                        className={m.coverageState === "ready"
+                          ? "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700"
+                          : m.coverageState === "needs_setup"
+                            ? "rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700"
+                            : m.coverageState === "provider_blocked"
+                              ? "rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-rose-700"
+                              : m.coverageState === "checking"
+                                ? "rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-700"
+                                : "rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500"}
+                      >
+                        {m.badgeLabel}
                       </span>
                     </div>
 
-                    <div className="mt-3 text-xs leading-relaxed text-zinc-600">
-                      {m.enabled
-                        ? "Ready to use in this workspace."
-                        : me.billing.configured
-                          ? "Unlock this service when you want it in the live stack."
-                          : "Connect billing before unlocking paid services."}
-                    </div>
+                    <div className="mt-3 flex-1 text-xs leading-relaxed text-zinc-600">{m.helper}</div>
 
-                    {!m.enabled ? (
-                      <div className="mt-3">
-                        <button
-                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
-                          onClick={() => upgrade(m.key)}
-                        >
-                          Unlock service
-                        </button>
+                    {m.ctaLabel && m.ctaHref ? (
+                      <div className="mt-auto pt-4">
+                        <Link href={m.ctaHref} className={dashboardPrimaryButtonClass}>
+                          {m.ctaLabel}
+                        </Link>
                       </div>
                     ) : null}
                   </div>
@@ -2207,6 +2563,83 @@ export function PortalDashboardClient() {
 
   // Compact inline guidance panel — shown above the widget grid when items exist.
   function renderGuidancePanel() {
+    if (growthPayload?.topActions?.length) {
+      const visible = growthPayload.topActions.slice(0, 3);
+      const topAction = visible[0];
+      const secondaryItems = visible.slice(1);
+      if (!topAction) return null;
+
+      return (
+        <div className="mb-5 rounded-3xl border border-zinc-200 bg-linear-to-b from-white to-zinc-50/40 p-5 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                {growthPayload.isLowActivityWorkspace
+                  ? isCreditWorkspace
+                    ? "Credit starter path"
+                    : "Starter path"
+                  : isCreditWorkspace
+                    ? "Credit workspace next actions"
+                    : "Do this next"}
+              </div>
+              <div className="mt-1 text-sm text-zinc-600">
+                {growthPayload.isLowActivityWorkspace
+                  ? "Start from the stored gaps that will create the next real signal inside Purely."
+                  : "These actions come from the current workspace state, not generic motivational copy."}
+              </div>
+            </div>
+            <Link
+              href={`${portalBase}/app/services`}
+              className="shrink-0 text-xs font-semibold text-brand-ink hover:underline"
+            >
+              All services
+            </Link>
+          </div>
+
+          <div className="rounded-[26px] border border-brand-ink/10 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="rounded-full bg-brand-ink/5 px-2.5 py-0.5 text-[11px] font-semibold text-brand-ink inline-flex">
+                  {growthPayload.isLowActivityWorkspace ? "Start here" : "Top action"}
+                </div>
+                <div className="mt-2 text-sm font-semibold text-zinc-900">{topAction.title}</div>
+                <div className="mt-1 text-sm text-zinc-600">{topAction.detail}</div>
+                {topAction.blocker ? <div className="mt-2 text-xs font-semibold text-amber-700">{topAction.blocker}</div> : null}
+              </div>
+              <Link
+                href={topAction.href}
+                className="shrink-0 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+              >
+                {topAction.ctaLabel}
+              </Link>
+            </div>
+          </div>
+
+          {secondaryItems.length > 0 ? (
+            <div className={`mt-3 grid grid-cols-1 gap-3 ${secondaryItems.length > 1 ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
+              {secondaryItems.map((item) => (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className="flex h-full min-h-33 flex-col justify-between rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <div>
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600">
+                      Next step
+                    </span>
+                    <div className="mt-2 text-sm font-semibold leading-snug text-zinc-900">{item.title}</div>
+                    <div className="mt-1 text-xs leading-relaxed text-zinc-600">{item.detail}</div>
+                    {item.blocker ? <div className="mt-2 text-[11px] font-semibold text-amber-700">{item.blocker}</div> : null}
+                  </div>
+                  <div className="mt-3 text-xs font-semibold text-brand-ink">{item.ctaLabel} →</div>
+                </Link>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
     if (guidanceItems.length === 0) return null;
     // Show top 4 items.
     const visible = guidanceItems.slice(0, 4);
@@ -2388,9 +2821,9 @@ export function PortalDashboardClient() {
 
                 <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
                   {dashboardSuggestionIds.map((id) => (
-                    <div key={id} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div key={id} className={dashboardInfoCardClass}>
                       <div className="text-sm font-semibold text-zinc-900">{widgetTitle(id)}</div>
-                      <div className="mt-2 text-sm text-zinc-600">
+                      <div className="mt-2 flex-1 text-sm text-zinc-600">
                         {id === "puraAttention"
                           ? "Shows what needs attention now and gives you a direct path into Pura or the right service."
                           : id === "activityPulse"
@@ -2399,7 +2832,7 @@ export function PortalDashboardClient() {
                               ? "Brings the richer reporting table onto the dashboard for recent day-by-day breakdowns."
                               : "Adds a strong reporting summary so the top of the dashboard carries more signal."}
                       </div>
-                      <div className="mt-4">
+                      <div className="mt-auto pt-4">
                         <button type="button" className={dashboardSuggestionButtonClass} onClick={() => void addWidget(id)}>
                           Add widget
                         </button>

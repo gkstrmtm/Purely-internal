@@ -6,8 +6,9 @@ import { prisma } from "@/lib/db";
 import { isStripeConfigured } from "@/lib/stripeFetch";
 import type { Entitlements } from "@/lib/entitlements";
 import { resolveEntitlements } from "@/lib/entitlements";
+import { CREDIT_PORTAL_SESSION_COOKIE_NAME, PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
 import { getPortalUser } from "@/lib/portalAuth";
-import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
+import { portalBasePath, resolvePortalVariantFromRequestHeaders } from "@/lib/portalVariant";
 import { listAiReceptionistEvents, type AiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { listMissedCallTextBackEvents, type MissedCallTextBackEvent } from "@/lib/missedCallTextBack";
 import { sumHoursSavedSeconds } from "@/lib/hoursSaved";
@@ -200,17 +201,11 @@ export async function GET(req: Request) {
   // explicitly bind to the portal cookie to avoid being treated as an employee session.
   const app = (req.headers.get("x-pa-app") ?? "").toLowerCase().trim();
 
-  const portalVariant = (() => {
-    const headerVariant = normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER));
-    if (headerVariant) return headerVariant;
-    const referer = String(req.headers.get("referer") || "");
-    try {
-      const u = new URL(referer);
-      return u.pathname === "/credit" || u.pathname.startsWith("/credit/") ? "credit" : "portal";
-    } catch {
-      return referer === "/credit" || referer.startsWith("/credit/") ? "credit" : "portal";
-    }
-  })();
+  const portalVariant = resolvePortalVariantFromRequestHeaders(req.headers, {
+    portalCookieName: PORTAL_SESSION_COOKIE_NAME,
+    creditCookieName: CREDIT_PORTAL_SESSION_COOKIE_NAME,
+    defaultVariant: "portal",
+  }) || "portal";
 
   const user =
     app === "portal"
@@ -229,11 +224,32 @@ export async function GET(req: Request) {
         })();
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (app === "portal") {
+      return NextResponse.json(
+        {
+          error: `Unauthorized: ${portalVariant === "credit" ? "Credit" : "Portal"} session required`,
+          app: "portal",
+          portalVariant,
+          loginPath: `${portalBasePath(portalVariant)}/login`,
+        },
+        { status: 401 },
+      );
+    }
+    return NextResponse.json({ error: "Unauthorized: employee session required", app: "employee" }, { status: 401 });
   }
 
   if (user.role !== "CLIENT" && user.role !== "ADMIN") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (app === "portal") {
+      return NextResponse.json(
+        {
+          error: `Forbidden: ${portalVariant === "credit" ? "Credit" : "Portal"} client session required`,
+          app: "portal",
+          portalVariant,
+        },
+        { status: 403 },
+      );
+    }
+    return NextResponse.json({ error: "Forbidden: client portal session required", app: "employee" }, { status: 403 });
   }
 
   let entitlementsEmail = user.email;

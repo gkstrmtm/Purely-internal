@@ -19,6 +19,10 @@ import { queueAiOutboundMessageRepliesForInboundMessage } from "@/lib/portalAiOu
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function droppedInboundResponse(status: number, reason: string) {
+  return NextResponse.json({ ok: false, accepted: false, reason }, { status });
+}
+
 function safeFilename(name: string) {
   return String(name || "attachment")
     .replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -57,10 +61,16 @@ async function resolveOwnerIdFromRecipients(toCandidates: string[]) {
 
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  if (!isAuthorizedToken(token)) return NextResponse.json({ ok: true });
+  if (!isAuthorizedToken(token)) {
+    console.warn("[portal-inbox-sendgrid] rejected inbound email", { reason: "invalid_token" });
+    return droppedInboundResponse(401, "invalid_token");
+  }
 
   const fd = await req.formData().catch(() => null);
-  if (!fd) return NextResponse.json({ ok: true });
+  if (!fd) {
+    console.warn("[portal-inbox-sendgrid] rejected inbound email", { reason: "invalid_form_data" });
+    return droppedInboundResponse(400, "invalid_form_data");
+  }
 
   const fromRaw = String(fd.get("from") ?? "").trim();
   const toRaw = String(fd.get("to") ?? "").trim();
@@ -69,11 +79,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   const htmlRaw = String(fd.get("html") ?? "");
 
   const fromEmail = extractEmailAddress(fromRaw) ?? "";
-  if (!fromEmail) return NextResponse.json({ ok: true });
+  if (!toRaw) {
+    console.warn("[portal-inbox-sendgrid] rejected inbound email", { reason: "missing_recipient" });
+    return droppedInboundResponse(400, "missing_recipient");
+  }
+  if (!fromEmail) {
+    console.warn("[portal-inbox-sendgrid] rejected inbound email", { reason: "missing_sender" });
+    return droppedInboundResponse(400, "missing_sender");
+  }
 
   const toCandidates = extractAllEmailAddresses(toRaw);
   const ownerId = await resolveOwnerIdFromRecipients(toCandidates);
-  if (!ownerId) return NextResponse.json({ ok: true });
+  if (!ownerId) {
+    console.warn("[portal-inbox-sendgrid] dropped inbound email", { reason: "no_matching_mailbox" });
+    return droppedInboundResponse(202, "no_matching_mailbox");
+  }
 
   const toEmail = (toCandidates[0] || "").trim();
 
@@ -81,7 +101,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   const subjectKey = normalizeSubjectKey(subjectRaw);
 
   const thread = makeEmailThreadKey(fromEmail, subjectKey);
-  if (!thread) return NextResponse.json({ ok: true });
+  if (!thread) {
+    console.warn("[portal-inbox-sendgrid] dropped inbound email", { reason: "no_matching_thread" });
+    return droppedInboundResponse(202, "no_matching_thread");
+  }
 
   await ensurePortalInboxSchema();
 
@@ -179,7 +202,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     // ignore
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, accepted: true });
 }
 
 export async function GET() {

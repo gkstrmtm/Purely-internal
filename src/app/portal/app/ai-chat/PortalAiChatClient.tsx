@@ -10,7 +10,7 @@ import GlassSurface from "@/components/GlassSurface";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
-import { IconChevron, IconCopy, IconEdit, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { IconChevron, IconCopy, IconEdit, IconPlus, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PURA_AI_PROFILE_OPTIONS, normalizePuraAiProfile, type PuraAiProfile } from "@/lib/puraAiProfile";
@@ -350,6 +350,7 @@ type Message = {
 type ThreadUiState = {
   ambiguousContacts: AmbiguousContact[] | null;
   assistantChoices: AssistantChoice[] | null;
+  fallbackNotice: string | null;
   canvasUiAmbiguity: { action: PuraCanvasUiAction; candidates: CanvasUiCandidate[] } | null;
   canvasUiResumeActions: PuraCanvasUiAction[] | null;
 };
@@ -404,6 +405,7 @@ function createEmptyThreadUiState(): ThreadUiState {
   return {
     ambiguousContacts: null,
     assistantChoices: null,
+    fallbackNotice: null,
     canvasUiAmbiguity: null,
     canvasUiResumeActions: null,
   };
@@ -575,7 +577,7 @@ function formatVisibleContextBadgeLine(badges: VisibleContextBadge[] | null | un
         .filter(Boolean)
         .slice(0, 4)
     : [];
-  return items.length ? `Attached context: ${items.join(" G�� ")}` : "";
+  return items.length ? `Attached context: ${items.join(", ")}` : "";
 }
 
 function findComposerPhraseMatch(inputRaw: string, phraseRaw: string): { phrase: string; start: number; end: number } | null {
@@ -1298,7 +1300,7 @@ function MessageBubble({
                 )}
                 title={a.confirmLabel ? `${a.title} - ${a.confirmLabel}` : a.title}
               >
-                <div className="truncate">{busy ? "RunningGǪ" : a.title}</div>
+                <div className="truncate">{busy ? "Working..." : a.title}</div>
               </button>
             );
           })}
@@ -1713,7 +1715,7 @@ function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveS
             onClick={onInterrupt}
             disabled={Boolean(interrupting)}
           >
-            {interrupting ? "StoppingGǪ" : "Stop"}
+            {interrupting ? "Stopping..." : "Stop"}
           </button>
         ) : null}
       </div>
@@ -1766,7 +1768,7 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
         </div>
       </div>
       <div className="mt-2 text-sm font-semibold text-zinc-900">{needsInput ? `Need your input: ${title}` : title}</div>
-      {needsInput ? <div className="mt-1 text-xs font-medium text-orange-800">I paused and IG��m waiting for the missing detail before doing anything else.</div> : null}
+      {needsInput ? <div className="mt-1 text-xs font-medium text-orange-800">I paused and I'm waiting for the missing detail before doing anything else.</div> : null}
       {summary ? <div className="mt-1 text-sm leading-6 text-zinc-700">{summary}</div> : null}
       {unresolvedRun.lastCompletedTitle ? <div className="mt-2 text-xs text-zinc-600">Last completed: {unresolvedRun.lastCompletedTitle}</div> : null}
       <div className="mt-3 flex flex-wrap gap-2">
@@ -2553,6 +2555,7 @@ export function PortalAiChatClient({
   const activeThreadDraft = threadDraftsById[activeThreadKey] ?? createEmptyThreadDraftState();
   const ambiguousContacts = activeThreadUiState.ambiguousContacts;
   const assistantChoices = activeThreadUiState.assistantChoices;
+  const fallbackNotice = activeThreadUiState.fallbackNotice;
   const canvasUiAmbiguity = activeThreadUiState.canvasUiAmbiguity;
   const canvasUiResumeActions = activeThreadUiState.canvasUiResumeActions;
   const input = activeThreadDraft.input;
@@ -2799,7 +2802,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action: "set_mode", chatMode: nextMode }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to update chat mode");
+        if (!json?.ok) throw new Error(json?.error || "I couldn't update the chat mode. Try again.");
         delete pendingChatModeByThreadRef.current[activeThreadId];
         applyThreadChatMode(activeThreadId, json.chatMode ?? nextMode);
       } catch (e) {
@@ -2826,7 +2829,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action: "set_response_profile", responseProfile: nextProfile }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to update Pura pace");
+        if (!json?.ok) throw new Error(json?.error || "I couldn't update Pura's pace. Try again.");
         delete pendingResponseProfileByThreadRef.current[activeThreadId];
         applyThreadResponseProfile(activeThreadId, json.responseProfile ?? nextProfile);
       } catch (e) {
@@ -3000,7 +3003,7 @@ export function PortalAiChatClient({
     try {
       const res = await fetch("/api/portal/ai-chat/threads", { cache: "no-store" });
       const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Failed to load threads");
+      if (!json?.ok) throw new Error(json?.error || "I couldn't load your chats. Try again.");
       const next = Array.isArray(json.threads)
         ? (json.threads as Array<Thread & { liveStatus?: unknown; latestRunStatus?: unknown; nextStepContext?: unknown; chatMode?: unknown; responseProfile?: unknown }>).map((thread) => ({
             ...thread,
@@ -3086,7 +3089,7 @@ export function PortalAiChatClient({
           cache: "no-store",
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Failed to load messages");
+        if (!json?.ok) throw new Error(json?.error || "I couldn't load this chat yet. Try again.");
         const cachedMessages = messagesByThreadRef.current[threadId] ?? [];
         const cachedById = new Map(cachedMessages.map((message) => [message.id, message] as const));
         setMessagesByThread((prev) => {
@@ -3418,7 +3421,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to update chat");
+        if (!json?.ok) throw new Error(json?.error || "I couldn't update that chat. Try again.");
         toast.success(thread.isPinned ? "Unpinned" : "Pinned");
         closeThreadMenu();
         void loadThreads();
@@ -3438,7 +3441,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action: "duplicate" }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to duplicate chat");
+        if (!json?.ok) throw new Error(json?.error || "I couldn't duplicate that chat. Try again.");
         const t = json.newThread as Thread;
         toast.success("Duplicated");
         closeThreadMenu();
@@ -3478,7 +3481,7 @@ export function PortalAiChatClient({
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/share`, { cache: "no-store" });
         const json = await res.json().catch(() => null);
         if (!json?.ok) {
-          const statusMsg = res.status === 403 ? "Only the chat owner can manage sharing." : "Unable to load sharing";
+          const statusMsg = res.status === 403 ? "Only the chat owner can change sharing settings." : "I couldn't load sharing settings. Try again.";
           throw new Error(json?.error || statusMsg);
         }
 
@@ -3512,7 +3515,7 @@ export function PortalAiChatClient({
         body: JSON.stringify({ userIds }),
       });
       const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Unable to save sharing");
+      if (!json?.ok) throw new Error(json?.error || "I couldn't save those sharing changes. Try again.");
       toast.success("Sharing updated");
       closeShareModal();
     } catch (e) {
@@ -3526,7 +3529,7 @@ export function PortalAiChatClient({
     async (thread: Thread) => {
       const ok = await askConfirm({
         title: "Delete chat?",
-        message: `Delete Gǣ${thread.title || "New chat"}Gǥ? This cannot be undone.`,
+        message: `Delete "${thread.title || "New chat"}"? This can't be undone.`,
         confirmLabel: "Delete",
         cancelLabel: "Cancel",
         destructive: true,
@@ -3540,7 +3543,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action: "delete" }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to delete chat");
+        if (!json?.ok) throw new Error(json?.error || "I couldn't delete that chat. Try again.");
 
         closeThreadMenu();
         toast.success("Deleted");
@@ -3578,7 +3581,7 @@ export function PortalAiChatClient({
 
         const res = await fetch("/api/portal/ai-chat/attachments", { method: "POST", body: form });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Upload failed");
+        if (!json?.ok) throw new Error(json?.error || "I couldn't add those attachments. Try again.");
 
         const next = Array.isArray(json.attachments) ? (json.attachments as Attachment[]) : [];
         setThreadDraftState(threadKey, (prev) => ({
@@ -3848,9 +3851,16 @@ export function PortalAiChatClient({
             ...prev,
             ambiguousContacts: json.ambiguousContacts && Array.isArray(json.ambiguousContacts) && json.ambiguousContacts.length ? json.ambiguousContacts : null,
             assistantChoices: json.assistantChoices && Array.isArray(json.assistantChoices) && json.assistantChoices.length ? (json.assistantChoices as AssistantChoice[]) : null,
+            fallbackNotice:
+              typeof (json as any)?.fallbackNotice === "string" && (json as any).fallbackNotice.trim()
+                ? String((json as any).fallbackNotice).trim()
+                : null,
             canvasUiAmbiguity: null,
             canvasUiResumeActions: null,
           }));
+          if (typeof (json as any)?.fallbackNotice === "string" && (json as any).fallbackNotice.trim()) {
+            toast.info(String((json as any).fallbackNotice).trim());
+          }
 
           if (json?.needsConfirm?.token) {
             const token = String(json.needsConfirm.token || "").trim();
@@ -4059,6 +4069,7 @@ export function PortalAiChatClient({
             ...prev,
             ambiguousContacts: null,
             assistantChoices: null,
+            fallbackNotice: null,
             canvasUiAmbiguity: null,
             canvasUiResumeActions: null,
           }));
@@ -4076,9 +4087,16 @@ export function PortalAiChatClient({
           ...prev,
           ambiguousContacts: json.ambiguousContacts && Array.isArray(json.ambiguousContacts) && json.ambiguousContacts.length ? json.ambiguousContacts : null,
           assistantChoices: json.assistantChoices && Array.isArray(json.assistantChoices) && json.assistantChoices.length ? (json.assistantChoices as AssistantChoice[]) : null,
+          fallbackNotice:
+            typeof (json as any)?.fallbackNotice === "string" && (json as any).fallbackNotice.trim()
+              ? String((json as any).fallbackNotice).trim()
+              : null,
           canvasUiAmbiguity: null,
           canvasUiResumeActions: null,
         }));
+        if (typeof (json as any)?.fallbackNotice === "string" && (json as any).fallbackNotice.trim()) {
+          toast.info(String((json as any).fallbackNotice).trim());
+        }
 
         if (json?.needsConfirm?.token) {
           const token = String(json.needsConfirm.token || "").trim();
@@ -4690,7 +4708,7 @@ export function PortalAiChatClient({
               aria-label="New chat"
               title="New chat"
             >
-              <span className="text-lg font-semibold leading-none">n+�</span>
+              <IconPlus size={18} />
             </button>
           </div>
         </div>
@@ -4698,9 +4716,9 @@ export function PortalAiChatClient({
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2">
         {threadsLoading ? (
-          <div className="p-3 text-sm text-zinc-500">LoadingGǪ</div>
+          <div className="p-3 text-sm text-zinc-500">Loading chats...</div>
         ) : !threads.length ? (
-          <div className="p-3 text-sm text-zinc-500">No chats yet.</div>
+          <div className="p-3 text-sm text-zinc-500">No chats yet. Start a new chat to ask Pura for help.</div>
         ) : (
           <div className="space-y-1">
             {threads.map((t) => {
@@ -4802,9 +4820,9 @@ export function PortalAiChatClient({
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
           {threadsLoading ? (
-            <div className="p-3 text-sm text-zinc-500">LoadingGǪ</div>
+            <div className="p-3 text-sm text-zinc-500">Loading chats...</div>
           ) : !threads.length ? (
-            <div className="p-3 text-sm text-zinc-500">No chats yet.</div>
+            <div className="p-3 text-sm text-zinc-500">No chats yet. Start a new chat to ask Pura for help.</div>
           ) : (
             <div className="space-y-1">
               {threads.map((t) => {
@@ -5530,12 +5548,12 @@ export function PortalAiChatClient({
     "min-h-11 rounded-3xl border border-zinc-200 bg-white focus-within:outline-none focus-within:ring-2 focus-within:ring-[rgba(29,78,216,0.25)]";
 
   const composerPlaceholder = uploading
-    ? "UploadingGǪ"
+    ? "Adding your attachment..."
     : isEditing
-      ? "Edit message"
+      ? "Edit your message"
       : showWelcomeComposer
-        ? "Tell Pura what you want handled."
-        : "Message";
+        ? "Ask Pura a question or describe what you want done."
+        : "Type a message for Pura";
 
   const composerInputClass =
     "relative z-10 min-h-11 w-full min-w-0 overflow-y-auto rounded-3xl bg-transparent px-4 py-3 text-sm leading-5 text-transparent caret-zinc-900 focus:outline-none whitespace-pre-wrap break-words";
@@ -5633,7 +5651,7 @@ export function PortalAiChatClient({
                 aria-label="Remove attachment"
                 title="Remove"
               >
-                +�
+                x
               </button>
             </div>
           ))}
@@ -5664,7 +5682,7 @@ export function PortalAiChatClient({
             aria-label="Add attachment"
             title="Add attachment"
           >
-            <span className="text-lg font-semibold">n+�</span>
+            <IconPlus size={18} />
           </button>
         </div>
 
@@ -5739,7 +5757,7 @@ export function PortalAiChatClient({
                       aria-label="Dismiss connect popover"
                       title="Dismiss"
                     >
-                      +�
+                      x
                     </button>
                   </div>
                 </GlassSurface>
@@ -5816,7 +5834,7 @@ export function PortalAiChatClient({
                       aria-label="Dismiss disconnect popover"
                       title="Dismiss"
                     >
-                      +�
+                      x
                     </button>
                   </div>
                 </GlassSurface>
@@ -5965,7 +5983,7 @@ export function PortalAiChatClient({
           aria-label="New chat"
           title="New chat"
         >
-          <span className="text-lg font-semibold leading-none">n+�</span>
+          <IconPlus size={18} />
         </button>
       </div>
 
@@ -6023,7 +6041,7 @@ export function PortalAiChatClient({
                   fileInputRef.current?.click();
                 }}
               >
-                Upload from device
+                Upload a file from this device
               </button>
               <button
                 type="button"
@@ -6033,7 +6051,7 @@ export function PortalAiChatClient({
                   setMediaPickerOpen(true);
                 }}
               >
-                Add from media library
+                Choose from media library
               </button>
               <button
                 type="button"
@@ -6044,9 +6062,9 @@ export function PortalAiChatClient({
                   setScheduleTaskOpen(true);
                 }}
               >
-                Schedule task
+                Schedule a task
               </button>
-              <div className="mt-2 border-t border-[rgba(191,219,254,0.7)] px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Connect</div>
+              <div className="mt-2 border-t border-[rgba(191,219,254,0.7)] px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Connect a service</div>
               {attachMenuServiceOptions.map((service) => {
                 const selected = selectedContextServiceSlugs.includes(service.slug);
                 return (
@@ -6105,14 +6123,14 @@ export function PortalAiChatClient({
               onTouchStart={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
-              aria-label="Schedule task"
+              aria-label="Schedule a task"
             >
-              <div className="text-base font-semibold text-zinc-900">Schedule task</div>
-              <div className="mt-1 text-sm text-zinc-600">Describe what should run and when.</div>
+              <div className="text-base font-semibold text-zinc-900">Schedule a task</div>
+              <div className="mt-1 text-sm text-zinc-600">Tell Pura what should happen and when to run it.</div>
 
               <textarea
                 className="mt-3 h-28 w-full resize-none rounded-2xl border border-[rgba(191,219,254,0.72)] bg-[rgba(255,255,255,0.72)] px-3 py-2 text-sm text-zinc-900 outline-none backdrop-blur-[2px] focus:border-[rgba(29,78,216,0.28)] focus:ring-2 focus:ring-[rgba(29,78,216,0.14)]"
-                placeholder="Example: Every weekday at 9am, send Chester a unique good-morning text to get the conversation started."
+                placeholder="Example: Every weekday at 9:00 AM, send Chester a unique good-morning text to start the conversation."
                 value={scheduleTaskText}
                 onChange={(e) => setScheduleTaskText(e.target.value)}
                 autoFocus
@@ -6312,7 +6330,7 @@ export function PortalAiChatClient({
                     onClick={() => void interruptActiveRun()}
                     disabled={interruptingThreadIds.has(activeThreadId)}
                   >
-                    {interruptingThreadIds.has(activeThreadId) ? "StoppingGǪ" : "Stop"}
+                    {interruptingThreadIds.has(activeThreadId) ? "Stopping..." : "Stop"}
                   </button>
                 ) : null}
 
@@ -6381,6 +6399,7 @@ export function PortalAiChatClient({
                     const isLastAssistant = m.role === "assistant" && i === lastAssistantIndexForFooter;
                     const isLastUser = m.role === "user" && i === lastUserIndex;
                     const isRedoTarget = regenerating && regeneratingTarget?.messageId === m.id;
+                    const showFallbackNotice = isLastAssistant && Boolean(fallbackNotice);
                     const showAmbiguousContacts = isLastAssistant && Boolean(ambiguousContacts && ambiguousContacts.length);
                     const showChoices = isLastAssistant && Boolean(assistantChoices && assistantChoices.length);
                     const showCanvasUiAmbiguity =
@@ -6416,7 +6435,7 @@ export function PortalAiChatClient({
                                     !canDictate
                                       ? "Nothing to dictate"
                                       : dictating && dictatingMessageId === m.id
-                                      ? "DictatingGǪ"
+                                      ? "Dictating..."
                                       : dictationPlayingMessageId === m.id
                                         ? "Stop dictation"
                                         : "Dictate"
@@ -6425,7 +6444,7 @@ export function PortalAiChatClient({
                                   {dictating && dictatingMessageId === m.id ? (
                                     <IconSpinner size={16} />
                                   ) : dictationPlayingMessageId === m.id ? (
-                                    <span className="text-[14px] font-bold leading-none">G��</span>
+                                    <span className="text-[11px] font-bold leading-none">II</span>
                                   ) : (
                                     <IconVolumeGlyph size={16} />
                                   )}
@@ -6441,7 +6460,7 @@ export function PortalAiChatClient({
                                   onClick={() => void redoAssistantMessage(m.id)}
                                   disabled={!canRedo || dictating || regenerating || sending}
                                   aria-label="Redo assistant response"
-                                  title={isRedoTarget ? "RedoingGǪ" : "Redo from here"}
+                                  title={isRedoTarget ? "Redoing..." : "Redo from here"}
                                 >
                                   {isRedoTarget ? <IconSpinner size={16} /> : <IconRedoGlyph size={16} />}
                                 </button>
@@ -6484,6 +6503,11 @@ export function PortalAiChatClient({
                             </>
                           }
                         />
+                        {showFallbackNotice && fallbackNotice ? (
+                          <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                            {fallbackNotice}
+                          </div>
+                        ) : null}
                         {showAmbiguousContacts && (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {ambiguousContacts?.map((c, idx) => (
@@ -6646,7 +6670,6 @@ export function PortalAiChatClient({
                       onClick={() => openLatestCanvas({ modal: false })}
                     >
                       <span className="leading-none">Open work</span>
-                      <span className="text-base leading-none">G��</span>
                     </button>
                   ) : null}
 
@@ -6708,7 +6731,7 @@ export function PortalAiChatClient({
                     setCanvasModalOpen(false);
                   }}
                 >
-                  +�
+                  x
                 </button>
               </div>
             ) : null}
@@ -6724,7 +6747,6 @@ export function PortalAiChatClient({
             onClick={() => openLatestCanvas({ modal: false })}
           >
             <span className="leading-none">Open work</span>
-            <span className="text-base leading-none">GǦ</span>
           </button>
         ) : null}
         </div>
@@ -6772,7 +6794,7 @@ export function PortalAiChatClient({
                       aria-label="Close canvas"
                       title="Close"
                     >
-                      +�
+                      x
                     </button>
                   </div>
                 </div>
@@ -6816,7 +6838,7 @@ export function PortalAiChatClient({
                 aria-label="Back"
                 onClick={() => setActivityView({ kind: "list" })}
               >
-                G��
+                {"<"}
               </button>
             ) : null}
             <button
@@ -6836,7 +6858,7 @@ export function PortalAiChatClient({
         hideHeaderDivider
       >
         {runsLoading ? (
-          <div className="text-sm text-zinc-600">LoadingGǪ</div>
+          <div className="text-sm text-zinc-600">Loading activity...</div>
         ) : (
           <div>
             {activityView.kind === "thread-memory" ? (
@@ -6996,9 +7018,9 @@ export function PortalAiChatClient({
         hideHeaderDivider
       >
         {scheduledLoading ? (
-          <div className="text-sm text-zinc-600">LoadingGǪ</div>
+          <div className="text-sm text-zinc-600">Loading scheduled tasks...</div>
         ) : !scheduledRows.length ? (
-          <div className="text-sm text-zinc-600">No scheduled tasks.</div>
+          <div className="text-sm text-zinc-600">No scheduled tasks yet.</div>
         ) : (
           <div className="space-y-3">
             {scheduledRows.map((r) => {
@@ -7120,7 +7142,7 @@ export function PortalAiChatClient({
                         onClick={() => void saveScheduledRow(r.id)}
                         disabled={!isDirty || saving}
                       >
-                        {saving ? "SavingGǪ" : "Save"}
+                        {saving ? "Saving..." : "Save"}
                       </button>
                     </div>
                   </div>
@@ -7148,13 +7170,13 @@ export function PortalAiChatClient({
               onClick={() => void saveShare()}
               disabled={shareLoading || shareSaving}
             >
-              {shareSaving ? "SavingGǪ" : "Save"}
+              {shareSaving ? "Saving..." : "Save"}
             </button>
           </div>
         }
       >
         {shareLoading ? (
-          <div className="text-sm text-zinc-600">LoadingGǪ</div>
+          <div className="text-sm text-zinc-600">Loading sharing settings...</div>
         ) : (
           (() => {
             const q = shareQuery.trim().toLowerCase();
@@ -7211,7 +7233,7 @@ export function PortalAiChatClient({
                               )}
                               aria-hidden
                             >
-                              G��
+                              v
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-sm font-semibold text-zinc-900">{m.name || m.email}</div>

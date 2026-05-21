@@ -1,6 +1,6 @@
 "use client";
 
-import type { CreditFunnelEventType, CreditFunnelTrackingContext } from "@/lib/funnelEventTracking";
+import type { CreditFunnelEventType, CreditFunnelTrackingContext } from "@/lib/funnelEventTracking.shared";
 
 declare global {
   interface Window {

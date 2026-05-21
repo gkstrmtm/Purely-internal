@@ -70,6 +70,7 @@ export function PortalPeopleUsersClient() {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<UsersPayload | null>(null);
+  const [resendingInviteId, setResendingInviteId] = useState<string | null>(null);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
@@ -334,16 +335,15 @@ export function PortalPeopleUsersClient() {
       setPermissionsOpen(false);
       setInviteModalOpen(false);
 
-      const link = String(json.link || "");
-      if (link) {
-        try {
-          await navigator.clipboard.writeText(link);
-          toast.success("Invite created. Link copied to clipboard.");
-        } catch {
-          toast.success("Invite created.");
-        }
+      const emailDelivery = json?.emailDelivery;
+      if (emailDelivery?.ok) {
+        const provider = typeof emailDelivery?.provider === "string" ? emailDelivery.provider : "email";
+        toast.success(`Invite emailed to ${email} via ${provider}.`);
       } else {
-        toast.success("Invite created.");
+        const failureReason = typeof emailDelivery?.reason === "string" && emailDelivery.reason.trim()
+          ? emailDelivery.reason.trim()
+          : "Invite delivery did not confirm.";
+        toast.error(`Invite created, but email delivery failed: ${failureReason} Use Copy only as a manual fallback.`);
       }
 
       await load();
@@ -351,6 +351,32 @@ export function PortalPeopleUsersClient() {
       toast.error(String(e?.message || "Failed to invite"));
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function resendInvite(invite: InviteRow) {
+    setResendingInviteId(invite.id);
+    try {
+      const res = await fetch(`/api/portal/people/users/${encodeURIComponent(invite.id)}/resend`, {
+        method: "POST",
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to resend invite"));
+
+      const emailDelivery = json?.emailDelivery;
+      if (emailDelivery?.ok) {
+        const provider = typeof emailDelivery?.provider === "string" ? emailDelivery.provider : "email";
+        toast.success(`Invite re-sent to ${invite.email} via ${provider}.`);
+      } else {
+        const failureReason = typeof emailDelivery?.reason === "string" && emailDelivery.reason.trim()
+          ? emailDelivery.reason.trim()
+          : "Invite delivery did not confirm.";
+        toast.error(`Invite resend failed: ${failureReason}`);
+      }
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to resend invite"));
+    } finally {
+      setResendingInviteId(null);
     }
   }
 
@@ -607,7 +633,7 @@ export function PortalPeopleUsersClient() {
                 </div>
 
                 <div className="mt-3 flex items-center justify-between gap-3">
-                  <div className="text-xs text-zinc-600">Invite link expires automatically.</div>
+                  <div className="text-xs text-zinc-600">Purely emails this invite automatically. Copy is only for manual fallback if delivery fails.</div>
                   <button
                     type="button"
                     disabled={inviting || !inviteEmail.trim()}
@@ -632,7 +658,7 @@ export function PortalPeopleUsersClient() {
                     <th className="px-3 py-2 sm:px-4 sm:py-3">Email</th>
                     <th className="px-3 py-2 sm:px-4 sm:py-3">Role</th>
                     <th className="px-3 py-2 sm:px-4 sm:py-3">State</th>
-                    <th className="px-3 py-2 sm:px-4 sm:py-3">Link</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -660,22 +686,40 @@ export function PortalPeopleUsersClient() {
                           )}
                         </td>
                         <td className="px-3 py-2 sm:px-4 sm:py-3">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                const link = toPurelyHostedUrl(`/portalinvite/${inv.token}`);
-                                await copyToClipboard(link);
-                                toast.success("Invite link copied to clipboard.");
-                              } catch {
-                                toast.error("Could not copy invite link.");
-                              }
-                            }}
-                            className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                          >
-                            <IconCopy size={16} />
-                            Copy
-                          </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {!inv.acceptedAt ? (
+                              <button
+                                type="button"
+                                disabled={resendingInviteId === inv.id}
+                                onClick={() => resendInvite(inv)}
+                                className={classNames(
+                                  "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold",
+                                  resendingInviteId === inv.id
+                                    ? "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-500"
+                                    : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                                )}
+                              >
+                                {resendingInviteId === inv.id ? "Resending…" : "Resend invite"}
+                              </button>
+                            ) : null}
+
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const link = toPurelyHostedUrl(`/portalinvite/${inv.token}`);
+                                  await copyToClipboard(link);
+                                  toast.success("Fallback invite link copied to clipboard.");
+                                } catch {
+                                  toast.error("Could not copy fallback invite link.");
+                                }
+                              }}
+                              className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              <IconCopy size={16} />
+                              Copy fallback link
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))

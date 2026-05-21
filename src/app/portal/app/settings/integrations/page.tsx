@@ -1,4 +1,5 @@
 import { PortalProfileClient } from "@/app/portal/profile/PortalProfileClient";
+import { ProviderSetupWizardPanel } from "@/app/portal/app/settings/integrations/ProviderSetupWizardPanel";
 import { requirePortalUser } from "@/lib/portalAuth";
 
 export default async function PortalAppSettingsIntegrationsPage() {
@@ -8,6 +9,9 @@ export default async function PortalAppSettingsIntegrationsPage() {
     <div className="mx-auto w-full max-w-6xl">
       <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Integrations</h1>
       <div className="mt-6">
+        <ProviderSetupWizardPanel />
+      </div>
+      <div id="provider-setup-controls" className="mt-6">
         <PortalProfileClient embedded mode="integrations" />
       </div>
     </div>

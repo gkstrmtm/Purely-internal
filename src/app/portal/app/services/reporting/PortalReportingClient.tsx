@@ -7,8 +7,40 @@ import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
+import { growthReadinessLevelLabel, type GrowthReadinessLevel, type GrowthReadinessPayload } from "@/lib/portalGrowthReadiness";
 
 type RangeKey = "today" | "7d" | "30d" | "90d" | "all";
+
+type ExternalBookingHandoffSummary = {
+  enabled: boolean;
+  handoffMode: "direct_book" | "lead_first";
+  providerKey: string;
+  providerLabel: string;
+  destinationHost: string;
+  confirmationState: "handoff_only" | "redirect_confirmed" | "provider_confirmed";
+  providerConfirmationAvailable: boolean;
+  providerConfirmationConnected: boolean;
+  totalHandoffs: number;
+  directHandoffs: number;
+  leadFirstCaptures: number;
+  distinctCapturedContacts: number;
+  confirmedViaRedirect: number;
+  distinctConfirmedContacts: number;
+  providerConfirmedBookings: number;
+  distinctProviderConfirmedContacts: number;
+  providerCanceledBookings: number;
+  providerRescheduledBookings: number;
+  latestHandoffAt: string | null;
+  latestConfirmedAt: string | null;
+  latestProviderConfirmedAt: string | null;
+  latestActivityAt: string | null;
+  providerBreakdown: Array<{ providerKey: string; providerLabel: string; handoffs: number }>;
+  guidance: {
+    state: "disabled" | "provider_not_connected" | "no_handoffs" | "handoffs_only" | "captured_leads" | "redirect_confirmed" | "provider_confirmed";
+    title: string;
+    detail: string;
+  };
+};
 
 type ReportingPayload = {
   ok: boolean;
@@ -16,6 +48,7 @@ type ReportingPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
+  externalBookingHandoff: ExternalBookingHandoffSummary;
   diagnostics: {
     actionFailures: number;
     runtimeErrors: number;
@@ -132,7 +165,19 @@ type SalesReportPayload =
   | { ok: false; error?: string };
 
 type MediaStatsPayload =
-  | { ok: true; itemsCount: number; foldersCount: number }
+  | {
+      ok: true;
+      itemsCount: number;
+      foldersCount: number;
+      distributionContinuity?: {
+        plannedPosts: number;
+        approvedPosts: number;
+        manuallyPostedAssets: number;
+        providerReadyAssets: number;
+        providerBlockedAssets: number;
+        providerFailedAssets: number;
+      };
+    }
   | { ok: false; error?: string };
 
 type ServiceKey =
@@ -179,6 +224,10 @@ type ReportingInsightCard = {
   actionHref?: string | null;
 };
 
+type GrowthReadinessResponse =
+  | ({ ok: true } & GrowthReadinessPayload)
+  | { ok: false; error?: string };
+
 function currentPortalBase(pathname: string | null | undefined): "/portal" | "/credit" {
   return String(pathname || "").startsWith("/credit") ? "/credit" : "/portal";
 }
@@ -215,13 +264,13 @@ function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCove
   if (variant === "credit") {
     return {
       summary:
-        "This page shows the activity Purely currently records inside the credit workspace. It does not imply every credit workflow milestone is tracked yet.",
+        "This page shows the activity Purely currently records for this credit account. It does not mean every step of the credit process is tracked yet.",
       includedIntro:
-        "Included now: shared workspace activity and the credit-adjacent counts Purely already records today.",
+        "Included now: the shared account activity and credit-related counts Purely already records today.",
       included: [
         {
           label: "Bookings and consultations",
-          detail: "Bookings created are counted here when a consultation or appointment is created through the booking system.",
+          detail: "Bookings created inside Purely are counted here when a consultation or appointment is created through the booking system. If you send someone to an outside booking page, clicks through, returns to your site, and confirmed outside bookings stay separate instead of being mixed into Purely booking totals.",
         },
         {
           label: "Tracked lead and contact records",
@@ -236,12 +285,12 @@ function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCove
           detail: "Inbox message volume, AI receptionist calls, missed-call text-back activity, newsletter sends, nurture enrollments, and task counts are included when those services record events.",
         },
         {
-          label: "Connected payment reporting",
-          detail: "Sales and Stripe routes only show payment-processor totals when those integrations are connected. They do not represent dispute or bureau workflow activity.",
+          label: "Connected payment totals",
+          detail: "Sales and Stripe pages only show payment totals when those connections are set up. They do not represent dispute or bureau work.",
         },
       ],
       notIncludedIntro:
-        "Not included yet: credit workflow milestones that are not part of the current reporting summary contract.",
+        "Not included yet: parts of the credit process that Purely does not reliably store in this summary yet.",
       notIncluded: [
         {
           label: "Bureau pull or score outcome tracking",
@@ -261,13 +310,13 @@ function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCove
 
   return {
     summary:
-      "This page shows the service activity Purely currently records across the main portal. Connected sales data is separate and only appears where integrations exist.",
+      "This page shows the service activity Purely currently records across your account. Connected sales data appears separately only where those connections exist.",
     includedIntro:
-      "Included now: cross-service activity that the shared reporting APIs already measure.",
+      "Included now: activity across services that Purely already measures today.",
     included: [
       {
         label: "Service activity and outcomes",
-        detail: "Automations, AI receptionist calls, missed-call text-back events, bookings, reviews, inbox volume, newsletter sends, nurture enrollments, tasks, and blog generation activity are counted here when those services record events.",
+        detail: "Automations, AI receptionist calls, missed-call text-back events, bookings, external booking handoffs, reviews, inbox volume, newsletter sends, nurture enrollments, tasks, and blog generation activity are counted here when those services record events.",
       },
       {
         label: "Tracked leads, contacts, and credits",
@@ -278,8 +327,8 @@ function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCove
         detail: "Lead-scraping runs, charged or refunded credits, and related activity totals are included when that service is active.",
       },
       {
-        label: "Connected sales routes",
-        detail: "Sales and Stripe pages show payment-processor transaction totals only. They do not backfill every operational metric from the rest of the portal.",
+        label: "Connected sales totals",
+        detail: "Sales and Stripe pages show payment totals only. They do not fill in every operating metric from the rest of the portal.",
       },
     ],
     notIncludedIntro:
@@ -294,6 +343,10 @@ function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCove
         detail: "Lead follow-up gaps, form submissions without a tracked next step, and booking review states are not inferred unless Purely stores a concrete task, reply-needed thread, or other explicit status for them.",
       },
       {
+        label: "Outside booking steps without source tracking",
+        detail: "This page can separate clicks to an outside booking page, returns back to your site, and confirmed outside bookings when Purely receives them. It still cannot guess source attribution or unstored steps from those signals alone.",
+      },
+      {
         label: "Audited labor tracking",
         detail: "Estimated runway and automation summaries are operational estimates, not audited hours-saved accounting or payroll-grade productivity reporting.",
       },
@@ -301,7 +354,7 @@ function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCove
   };
 }
 
-function matchTokens(query: string, terms: string[]) {
+function matchTokens(query: string, terms: Array<string | null | undefined>): boolean {
   const q = (query ?? "").toLowerCase().trim();
   if (!q) return true;
   const haystack = terms
@@ -419,11 +472,16 @@ function formatMoneyFromCents(cents: number, currency: string) {
   }
 }
 
-function reportingActionHref(pathname: string | null | undefined, route: "reporting" | "billing" | "tasks" | "inbox" | "creditReports" | "disputeLetters") {
+function reportingActionHref(
+  pathname: string | null | undefined,
+  route: "reporting" | "billing" | "tasks" | "inbox" | "creditReports" | "disputeLetters" | "booking",
+) {
   const portalBase = currentPortalBase(pathname);
   switch (route) {
     case "billing":
       return `${portalBase}/app/billing`;
+    case "booking":
+      return `${portalBase}/app/services/booking?tab=settings`;
     case "tasks":
       return `${portalBase}/app/services/tasks`;
     case "inbox":
@@ -651,6 +709,22 @@ function insightToneClasses(tone: ReportingInsightCard["tone"]) {
   };
 }
 
+function growthLevelBadgeClasses(level: GrowthReadinessLevel) {
+  switch (level) {
+    case "active":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "ready":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "partially_ready":
+      return "border-violet-200 bg-violet-50 text-violet-700";
+    case "needs_setup":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "missing":
+    default:
+      return "border-zinc-200 bg-zinc-50 text-zinc-600";
+  }
+}
+
 function ReportingInsightSection({
   cards,
   pathname,
@@ -703,7 +777,7 @@ function ReportingInsightSection({
           <div className="text-sm font-semibold text-zinc-900">No tracked bottlenecks in this view right now</div>
           <div className="mt-2 max-w-3xl text-sm text-zinc-600">
             {workspaceVariant === "credit"
-              ? "This empty state only means Purely has no current tasks, reply-needed conversations, report review queue, or dispute-letter queue for this workspace. Imported reports, mailed delivery proof, and score outcomes are still excluded unless they are explicitly stored."
+              ? "This empty state only means Purely has no current tasks, reply-needed conversations, report review queue, or dispute-letter queue for this account right now. Imported reports, mailed delivery proof, and score outcomes are still excluded unless they are explicitly stored."
               : "This empty state only means Purely has no current tasks, reply-needed conversations, action failures, or feedback queue flagged here. It does not imply lead follow-up, form next steps, or booking review are fully tracked."}
           </div>
           <div className="mt-4">
@@ -850,6 +924,9 @@ export function PortalReportingClient() {
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
+  const [growthReadiness, setGrowthReadiness] = useState<GrowthReadinessResponse | null>(null);
+  const [growthLoading, setGrowthLoading] = useState(true);
+  const [growthError, setGrowthError] = useState<string | null>(null);
   const [twilio, setTwilio] = useState<TwilioMasked | null>(null);
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationStatusPayload | null>(null);
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
@@ -920,13 +997,16 @@ export function PortalReportingClient() {
     else setRefreshing(true);
 
     setError(null);
+    setGrowthLoading(true);
+    setGrowthError(null);
 
     try {
-      const [repRes, twilioRes, statsRes, salesStatusRes] = await Promise.all([
+      const [repRes, twilioRes, statsRes, salesStatusRes, growthRes] = await Promise.all([
         fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }),
         fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any),
         fetch("/api/portal/media/stats", { cache: "no-store" }).catch(() => null as any),
         fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/growth/readiness", { cache: "no-store" }).catch(() => null as any),
       ]);
 
       if (!repRes.ok) {
@@ -948,6 +1028,18 @@ export function PortalReportingClient() {
       if (statsRes?.ok) {
         const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
         if (stats) setMediaStats(stats);
+      }
+
+      if (growthRes?.ok) {
+        const growth = (await growthRes.json().catch(() => null)) as GrowthReadinessResponse | null;
+        if (growth) setGrowthReadiness(growth);
+        setGrowthError(null);
+      } else {
+        setGrowthReadiness(null);
+        const growthBody = growthRes
+          ? ((await growthRes.json().catch(() => null)) as { error?: string } | null)
+          : null;
+        setGrowthError(growthBody?.error ?? "Unable to load growth readiness");
       }
 
       if (twilioRes?.ok) {
@@ -983,6 +1075,7 @@ export function PortalReportingClient() {
 
       hasLoadedOnceRef.current = true;
     } finally {
+      setGrowthLoading(false);
       setLoading(false);
       setRefreshing(false);
     }
@@ -1175,6 +1268,26 @@ export function PortalReportingClient() {
       });
     }
 
+    const handoff = data.externalBookingHandoff;
+    const handoffProvider = handoff.providerBreakdown[0]?.providerLabel || handoff.providerLabel || "External booking page";
+    const handoffTone: ReportingInsightCard["tone"] =
+      handoff.totalHandoffs > 0 && handoff.leadFirstCaptures === 0 && handoff.confirmedViaRedirect === 0 && handoff.providerConfirmedBookings === 0 ? "warning" : "neutral";
+    cards.push({
+      id: "external-booking-handoff",
+      tone: handoffTone,
+      title: workspaceVariant === "credit" ? "Consultation page activity" : "Booking page activity",
+      value: `${handoff.totalHandoffs.toLocaleString()} click${handoff.totalHandoffs === 1 ? "" : "s"} to book`,
+      detail:
+        `${handoffProvider}: ${handoff.directHandoffs.toLocaleString()} straight-to-book click${handoff.directHandoffs === 1 ? "" : "s"}, ${handoff.leadFirstCaptures.toLocaleString()} lead capture${handoff.leadFirstCaptures === 1 ? "" : "s"} before booking, ${handoff.confirmedViaRedirect.toLocaleString()} return${handoff.confirmedViaRedirect === 1 ? "" : "s"} to your site after booking, and ${handoff.providerConfirmedBookings.toLocaleString()} confirmed outside booking${handoff.providerConfirmedBookings === 1 ? "" : "s"} in ${rangeLabel.toLowerCase()}. ${handoff.guidance.detail}`,
+      actionLabel:
+        handoff.guidance.state === "provider_not_connected"
+          ? "Set up confirmed booking updates"
+          : handoff.guidance.state === "captured_leads" || handoff.guidance.state === "redirect_confirmed" || handoff.guidance.state === "provider_confirmed"
+          ? "Open booking automation"
+          : "Open booking settings",
+      actionHref: reportingActionHref(pathname, "booking"),
+    });
+
     if (workspaceVariant === "credit") {
       const reportsImported = data.attention?.creditReportsImported ?? 0;
       const pendingReview = data.attention?.creditReportItemsPendingNow ?? 0;
@@ -1240,6 +1353,12 @@ export function PortalReportingClient() {
     return cards.slice(0, 6);
   }, [data, derived.creditRunwayDays, pathname, rangeLabel, workspaceVariant]);
 
+  const growthPayload = growthReadiness && growthReadiness.ok ? growthReadiness : null;
+  const reportingCategory = growthPayload?.categories.find((item) => item.key === "reporting_visibility") ?? null;
+  const reportingPrimaryAction = growthPayload?.providerBlockers[0] ?? reportingCategory?.nextAction ?? null;
+  const reportingStarterActions = growthPayload?.starterPath.slice(0, 4) ?? [];
+  const reportingPlaybooks = growthPayload?.playbooks.slice(0, 4) ?? [];
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
       <div className="flex items-start justify-between gap-4">
@@ -1292,6 +1411,161 @@ export function PortalReportingClient() {
           </ul>
         </section>
       </div>
+
+      {growthPayload ? (
+        <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">What the numbers say to do next</div>
+              <div className="mt-2 max-w-3xl text-sm text-zinc-600">
+                {growthPayload.isLowActivityWorkspace
+                  ? "Reporting stays honest here: Purely cannot prove much until real activity exists, so the next steps focus on creating the first real signals."
+                  : "These next steps are tied to the current reporting gaps, provider blockers, and shared readiness categories already stored in Purely."}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
+              <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 font-semibold">Ready or active: {growthPayload.summary.readyOrActiveCategories}</span>
+              <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 font-semibold text-rose-700">Provider blockers: {growthPayload.summary.providerBlockers}</span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="text-sm font-semibold text-zinc-900">Reporting visibility</div>
+                {reportingCategory ? (
+                  <span className={classNames("rounded-full border px-2.5 py-1 text-xs font-semibold", growthLevelBadgeClasses(reportingCategory.level))}>
+                    {growthReadinessLevelLabel(reportingCategory.level)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-3 text-sm text-zinc-700">{reportingCategory?.summary || "Reporting guidance is loading."}</div>
+              <div className="mt-4 space-y-2 text-sm text-zinc-600">
+                {(reportingCategory?.evidence || []).slice(0, 3).map((item) => (
+                  <div key={item} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{item}</div>
+                ))}
+              </div>
+              {reportingCategory?.blockers[0] ? <div className="mt-4 text-xs font-semibold text-amber-700">{reportingCategory.blockers[0]}</div> : null}
+              {reportingPrimaryAction ? (
+                <Link
+                  href={reportingPrimaryAction.href}
+                  className="mt-4 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  {reportingPrimaryAction.ctaLabel}
+                </Link>
+              ) : null}
+
+              {growthPayload.providerBlockers.length > 0 ? (
+                <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Provider blockers</div>
+                  <div className="mt-2 space-y-2 text-sm text-amber-900">
+                    {growthPayload.providerBlockers.slice(0, 2).map((item) => (
+                      <div key={item.id}>{item.detail}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {growthPayload.isLowActivityWorkspace
+                ? reportingStarterActions.map((item) => (
+                    <Link key={item.id} href={item.href} className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5 hover:bg-zinc-50">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Starter step</div>
+                      <div className="mt-2 text-sm font-semibold text-zinc-900">{item.title}</div>
+                      <div className="mt-2 text-sm text-zinc-600">{item.detail}</div>
+                      <div className="mt-4 text-sm font-semibold text-brand-ink">{item.ctaLabel} →</div>
+                    </Link>
+                  ))
+                : reportingPlaybooks.map((playbook) => (
+                    <div key={playbook.key} className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                        <div className="text-sm font-semibold text-zinc-900">{playbook.title}</div>
+                        <span className={classNames("self-start whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold sm:shrink-0", growthLevelBadgeClasses(playbook.level))}>
+                          {growthReadinessLevelLabel(playbook.level)}
+                        </span>
+                      </div>
+                      <div className="mt-3 text-sm text-zinc-700">{playbook.summary}</div>
+                      {playbook.blocker ? <div className="mt-3 text-xs font-semibold text-amber-700">{playbook.blocker}</div> : null}
+                      <div className="mt-4 text-xs text-zinc-500">{playbook.whyItMatters}</div>
+                      <Link
+                        href={playbook.nextAction.href}
+                        className="mt-4 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                      >
+                        {playbook.nextAction.ctaLabel}
+                      </Link>
+                    </div>
+                  ))}
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">What the numbers say to do next</div>
+              <div className="mt-2 max-w-3xl text-sm text-zinc-600">
+                {growthLoading
+                  ? "Checking growth readiness so Reporting can connect the current metrics to the next truthful action."
+                  : data?.kpis &&
+                      data.kpis.bookingsCreated + data.kpis.reviewsCollected + data.kpis.inboxMessagesIn + data.kpis.newsletterSendEvents > 0
+                    ? "Growth guidance is temporarily unavailable. Use the stored metrics below and open the matching service page instead of inferring outcomes that are not recorded."
+                    : workspaceVariant === "credit"
+                      ? "Reporting stays limited until Purely records real credit workflow activity, conversations, tasks, or connected booking updates in this account."
+                      : "Reporting becomes more useful after Purely records real bookings, conversations, reviews, follow-up activity, or connected booking updates in this account."}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
+              <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 font-semibold">
+                {growthLoading ? "Loading readiness" : "Fail-soft guidance"}
+              </span>
+              {growthError ? (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-semibold text-amber-700">{growthError}</span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {[
+              {
+                title: "Activity that makes reporting useful",
+                detail:
+                  workspaceVariant === "credit"
+                    ? "Imported reports, dispute-letter progress, tasks, inbox activity, and connected provider data create the first trustworthy reporting signals here."
+                    : "Bookings, reviews, inbox activity, newsletter sends, follow-up, and connected provider data create the first trustworthy reporting signals here.",
+              },
+              {
+                title: "Open the operational route next",
+                detail:
+                  workspaceVariant === "credit"
+                    ? "Use Credit reports, Dispute letters, Tasks, and Profile setup for the workflow steps that reporting cannot prove on its own."
+                    : "Use Booking, Reviews, Follow-up, and Sales reporting for the workflow steps that reporting cannot prove on its own.",
+              },
+            ].map((item) => (
+              <div key={item.title} className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+                <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
+                <div className="mt-3 text-sm text-zinc-700">{item.detail}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            {workspaceVariant === "credit" ? (
+              <>
+                <Link href="/credit/app/services/credit-reports" className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Credit reports</Link>
+                <Link href="/credit/app/services/tasks" className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Tasks</Link>
+                <Link href="/credit/app/profile" className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Profile</Link>
+              </>
+            ) : (
+              <>
+                <Link href={toCurrentPortalHref("/portal/app/services/booking/settings", pathname) || "/portal/app/services/booking/settings"} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Booking settings</Link>
+                <Link href={toCurrentPortalHref("/portal/app/services/reviews", pathname) || "/portal/app/services/reviews"} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Reviews</Link>
+                <Link href={toCurrentPortalHref("/portal/app/services/reporting/sales", pathname) || "/portal/app/services/reporting/sales"} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Sales</Link>
+              </>
+            )}
+          </div>
+        </section>
+      )}
 
       {workspaceVariant === "credit" ? (
         <section className="mt-4 rounded-3xl border border-sky-200 bg-sky-50 p-6">

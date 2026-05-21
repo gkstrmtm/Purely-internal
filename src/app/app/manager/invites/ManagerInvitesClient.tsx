@@ -143,9 +143,9 @@ export default function ManagerInvitesClient({
       <div className="rounded-3xl border border-zinc-200 bg-brand-mist p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="text-base font-semibold text-brand-ink">Create a new invite</div>
+            <div className="text-base font-semibold text-brand-ink">Create a new invite code</div>
             <div className="mt-1 text-sm text-zinc-600">
-              New employees sign up at <span className="font-medium text-brand-ink">{signupUrl || "/signup"}</span>.
+              This step creates a one-time code only. Use Send email after creation if you want Purely to deliver the signup link.
             </div>
           </div>
 
@@ -186,7 +186,7 @@ export default function ManagerInvitesClient({
               disabled={creating}
               className="mt-6 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:mt-0"
             >
-              {creating ? "Creating…" : "Create invite"}
+              {creating ? "Creating…" : "Create invite code"}
             </button>
           </div>
         </div>
@@ -202,7 +202,7 @@ export default function ManagerInvitesClient({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-base font-semibold text-brand-ink">Recent invites</div>
-            <div className="mt-1 text-sm text-zinc-600">Codes are one-time use.</div>
+            <div className="mt-1 text-sm text-zinc-600">Codes are one-time use. Copy uses the code-first flow. Send email delivers the signup link as a second step.</div>
           </div>
           <button
             type="button"
@@ -249,7 +249,7 @@ export default function ManagerInvitesClient({
                           }
                         }}
                       >
-                        Copy
+                        Copy code
                       </button>
 
                       <button
@@ -269,7 +269,7 @@ export default function ManagerInvitesClient({
                           });
                         }}
                       >
-                        Email
+                        Send email
                       </button>
                     </div>
                   </td>
@@ -300,9 +300,9 @@ export default function ManagerInvitesClient({
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-base font-semibold text-brand-ink">Email invite</div>
+                <div className="text-base font-semibold text-brand-ink">Send invite email</div>
                 <div className="mt-1 text-sm text-zinc-600">
-                  Sends from <span className="font-medium text-brand-ink">contact@purelyautomation.com</span>
+                  The invite code already exists. This step emails the signup link from <span className="font-medium text-brand-ink">contact@purelyautomation.com</span>.
                 </div>
               </div>
               <button

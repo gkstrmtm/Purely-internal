@@ -81,7 +81,7 @@ function formStatusLabel(status: Form["status"] | null | undefined) {
 function formStatusHint(status: Form["status"] | null | undefined) {
   if (status === "ACTIVE") return "Public slug link is live.";
   if (status === "ARCHIVED") return "Archived forms are hidden from public routes.";
-  return "Draft stays on keyed preview until you switch it live.";
+  return "Draft stays on the private preview link until you switch it live.";
 }
 
 function statusPillClass(label: string) {
@@ -352,10 +352,21 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   }, [form, fields, style, content, successContent]);
 
   const dirty = Boolean(form && fields && currentSig !== lastSavedSigRef.current);
-  const runtimeHostedOrigin = useMemo(() => {
-    if (typeof window !== "undefined") return window.location.origin || null;
-    return null;
+  const [runtimeHostedOrigin, setRuntimeHostedOrigin] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setRuntimeHostedOrigin(window.location.origin || null);
   }, []);
+
+  const previewPath = useMemo(() => {
+    if (!form?.slug || !form?.id) return null;
+    return hostedFormPath(form.slug, form.id);
+  }, [form?.id, form?.slug]);
+  const liveSlugPath = useMemo(() => {
+    if (!form?.slug || form.status !== "ACTIVE") return null;
+    return `/forms/${encodeURIComponent(form.slug)}`;
+  }, [form?.slug, form?.status]);
   const previewHref = useMemo(() => {
     if (!form?.slug || !form?.id) return null;
     return toRuntimeHostedUrl(hostedFormPath(form.slug, form.id) || `/forms/${encodeURIComponent(form.slug)}`, runtimeHostedOrigin);
@@ -643,7 +654,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 if (dialog?.type !== "slug-form") return;
                 const slug = slugifyName(dialog.value);
                 if (!slug) {
-                  setDialogError("Slug is required.");
+                  setDialogError("Public link ending is required.");
                   return;
                 }
                 void save({ slug });
@@ -656,7 +667,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         }
       >
         <label className="block">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Public link ending</div>
           <input
             autoFocus
             value={dialog?.type === "slug-form" ? dialog.value : ""}
@@ -870,7 +881,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
           <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             <Link
-              href={previewHref || toRuntimeHostedUrl(`/forms/${encodeURIComponent(form?.slug || "")}`, runtimeHostedOrigin)}
+              href={previewHref || previewPath || `/forms/${encodeURIComponent(form?.slug || "")}`}
               target="_blank"
               className={classNames(SECONDARY_BUTTON_CLASS, "inline-flex w-full items-center justify-center gap-2 sm:w-auto")}
             >
@@ -913,10 +924,10 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2 text-xs text-zinc-600 sm:px-6 lg:px-8">
-        <span className="font-semibold text-zinc-800">Public slug</span>
-        <span className="rounded-full border border-zinc-200 bg-white px-2 py-1 font-mono text-[11px] text-zinc-700">/forms/{form?.slug || "..."}</span>
+        <span className="font-semibold text-zinc-800">Private preview link</span>
+        <span className="rounded-full border border-zinc-200 bg-white px-2 py-1 font-mono text-[11px] text-zinc-700">{previewPath || "/forms/.../..."}</span>
         <span>{statusHint}</span>
-        <span>The shared Preview/Live buttons use the exact hosted link with the form key.</span>
+        <span>{liveSlugPath ? `Public page link: ${liveSlugPath}` : "Switch this form to Live when you want your public page link to open this form."}</span>
       </div>
 
       {error ? <div className="mx-4 mb-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:mx-6 lg:mx-8">{error}</div> : null}

@@ -3,10 +3,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getBookingFormConfig } from "@/lib/bookingForm";
+import { buildPublicExternalBookingHandoff } from "@/lib/externalBookingHandoff";
 import { deriveFunnelBookingHostedThemeFromSource } from "@/lib/funnelBookingTheme";
 import { getNeutralFunnelBookingRuntimeTheme } from "@/lib/funnelBookingRuntimeTheme";
 import { mergeFunnelBookingHostedTheme, readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { getExternalBookingLinkConfig } from "@/lib/externalBookingLink";
 import { getHostedTheme } from "@/lib/hostedTheme";
 
 export const dynamic = "force-dynamic";
@@ -50,7 +52,7 @@ export async function GET(
       ...(hasPhotoUrl ? { photoUrl: true } : {}),
       ...(hasMeetingLocation ? { meetingLocation: true } : {}),
       ...(hasMeetingDetails ? { meetingDetails: true } : {}),
-      owner: { select: { id: true, name: true } },
+      owner: { select: { id: true, name: true, clientPortalVariant: true } },
     } as any,
   });
 
@@ -66,7 +68,7 @@ export async function GET(
 
   const enabled = Boolean(site.enabled) && Boolean(cal.enabled);
 
-  const [profile, form, ownerHostedTheme, settingsRow, derivedFunnelHostedTheme] = await Promise.all([
+  const [profile, form, ownerHostedTheme, settingsRow, derivedFunnelHostedTheme, externalLink] = await Promise.all([
     site.owner?.id
       ? await (prisma as any).businessProfile.findUnique({
           where: { ownerId: site.owner.id },
@@ -93,6 +95,7 @@ export async function GET(
           stage: requestedThemeStage,
         }).catch(() => null)
       : Promise.resolve(null),
+    ownerId ? getExternalBookingLinkConfig(String(ownerId)) : Promise.resolve(null),
   ]);
 
   const funnelHostedTheme = requestedFunnelId
@@ -111,6 +114,13 @@ export async function GET(
       funnelHostedTheme,
     );
   const useFunnelTheme = Boolean(embeddedFunnelTheme || hasFunnelNativeTheme);
+  const externalHandoff = externalLink
+    ? buildPublicExternalBookingHandoff(
+        String(site.slug),
+        externalLink,
+        site.owner?.clientPortalVariant === "CREDIT" ? "credit" : site.owner?.clientPortalVariant === "PORTAL" ? "portal" : null,
+      )
+    : null;
 
   return NextResponse.json({
     ok: true,
@@ -134,6 +144,7 @@ export async function GET(
       photoUrl: hasPhotoUrl ? ((site as any).photoUrl ?? null) : null,
       meetingLocation: hasMeetingLocation ? (cal.meetingLocation ?? (site as any).meetingLocation ?? null) : null,
       meetingDetails: hasMeetingDetails ? (cal.meetingDetails ?? (site as any).meetingDetails ?? null) : null,
+      externalHandoff: externalHandoff ?? undefined,
       form: form ?? undefined,
     },
   });

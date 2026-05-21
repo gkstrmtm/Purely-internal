@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { getCreditsState } from "@/lib/credits";
 import { listAiReceptionistEvents } from "@/lib/aiReceptionist";
 import { parsePortalFeedbackPayload } from "@/lib/betaFeedback";
+import { getExternalBookingHandoffSummaryForOwner, type ExternalBookingHandoffSummary } from "@/lib/externalBookingHandoffReporting";
 import { listMissedCallTextBackEvents } from "@/lib/missedCallTextBack";
 
 export type PortalReportingRangeKey = "today" | "7d" | "30d" | "90d" | "all";
@@ -109,6 +110,7 @@ export type PortalReportingSummaryPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
+  externalBookingHandoff: ExternalBookingHandoffSummary;
   warnings?: string[];
   attention: {
     tasksOverdueNow: number;
@@ -615,6 +617,40 @@ export async function getPortalReportingSummaryForOwner(
   }
 
   const daily = Array.from(dailyMap.values());
+  const externalBookingHandoff = await safe(
+    "externalBookingHandoff",
+    () => getExternalBookingHandoffSummaryForOwner(ownerId, { startAt: start }),
+    {
+      enabled: false,
+      handoffMode: "direct_book" as const,
+      providerKey: "unknown" as const,
+      providerLabel: "External booking page",
+      destinationHost: "",
+      confirmationState: "handoff_only" as const,
+      providerConfirmationAvailable: false,
+      providerConfirmationConnected: false,
+      totalHandoffs: 0,
+      directHandoffs: 0,
+      leadFirstCaptures: 0,
+      distinctCapturedContacts: 0,
+      confirmedViaRedirect: 0,
+      distinctConfirmedContacts: 0,
+      providerConfirmedBookings: 0,
+      distinctProviderConfirmedContacts: 0,
+      providerCanceledBookings: 0,
+      providerRescheduledBookings: 0,
+      latestHandoffAt: null,
+      latestConfirmedAt: null,
+      latestProviderConfirmedAt: null,
+      latestActivityAt: null,
+      providerBreakdown: [],
+      guidance: {
+        state: "disabled" as const,
+        title: "External booking handoff is off",
+        detail: "Turn the external booking link on and share the tracked booking handoff if you want Purely to record sends to the booking page.",
+      },
+    },
+  );
 
   return {
     ok: true,
@@ -622,6 +658,7 @@ export async function getPortalReportingSummaryForOwner(
     startIso: start.toISOString(),
     endIso: now.toISOString(),
     creditsRemaining: (credits as any).balance,
+    externalBookingHandoff,
     ...(warnings.length ? { warnings } : {}),
     attention: {
       tasksOverdueNow: tasksOverdueNow as number,
