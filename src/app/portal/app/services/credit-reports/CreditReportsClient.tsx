@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IconFunnel } from "@/app/portal/PortalIcons";
@@ -116,7 +116,6 @@ function itemSummaryText(item: ReportItemLite) {
 function formatReviewValue(value: unknown): string {
   if (value === null || value === undefined) return "-";
   if (typeof value === "string") return value.trim() || "-";
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) {
     const joined = value
       .map((entry) => formatReviewValue(entry))
@@ -307,9 +306,11 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export default function CreditReportsClient({ mode = "list", initialReportId = "" }: { mode?: "list" | "detail"; initialReportId?: string }) {
   const pathname = usePathname() || "";
+  const router = useRouter();
   const searchParams = useSearchParams();
   const toast = useToast();
   const routeSet = useMemo(() => reportRoutesFor(pathname), [pathname]);
+  const appBase = routeSet.listHref.startsWith("/credit") ? "/credit/app" : "/portal/app";
   const portalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [loading, setLoading] = useState(true);
@@ -390,7 +391,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         await Promise.all([loadReports(), loadContacts("")]);
       } catch (e: any) {
         if (cancelled) return;
-        setError(e?.message ? String(e.message) : "Failed to load");
+        setError(e?.message ? String(e.message) : "Credit reports did not load. Retry here, pull a report, or ask Pura to help.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -412,7 +413,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         await loadReport(selectedReportId);
       } catch (e: any) {
         if (cancelled) return;
-        setError(e?.message ? String(e.message) : "Failed to load report");
+        setError(e?.message ? String(e.message) : "That credit report did not load. Retry here, open reports, or ask Pura to help.");
       }
     })();
     return () => {
@@ -577,9 +578,9 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       setNewReportOpen(false);
       setSelectedReportId(json.report.id);
       setRawText("{");
-      window.location.href = routeSet.detailHref(json.report.id);
+      router.push(routeSet.detailHref(json.report.id), { scroll: false });
     } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Failed to import");
+      setError(e?.message ? String(e.message) : "That credit report did not import. Retry here, pull a report, or ask Pura to help.");
     } finally {
       setBusy(false);
     }
@@ -605,9 +606,9 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       toast.success("Credit report pulled.");
       setNewReportOpen(false);
       setSelectedReportId(json.report.id);
-      window.location.href = routeSet.detailHref(json.report.id);
+      router.push(routeSet.detailHref(json.report.id), { scroll: false });
     } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Unable to pull report");
+      setError(e?.message ? String(e.message) : "That credit report did not pull. Retry here, pull a report again, or ask Pura to help.");
     } finally {
       setBusy(false);
     }
@@ -623,8 +624,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     const inquiryDate = extractCreditInquiryDate(item.detailsJson);
     params.set("issue", inquiryDate ? `${item.label} (Inquiry date: ${inquiryDate})` : item.label);
     if (item.bureau) params.set("bureau", item.bureau);
-    window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
-  }, [routeSet.disputeHref, selectedReport]);
+    router.push(`${routeSet.disputeHref}?${params.toString()}`, { scroll: false });
+  }, [routeSet.disputeHref, router, selectedReport]);
 
   const updateReportItemDecision = useCallback(async (
     item: ReportItemLite,
@@ -641,7 +642,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       });
       await loadReport(selectedReportId);
     } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Unable to update item");
+      setError(e?.message ? String(e.message) : "That report item did not update. Retry here, open reports, or move back in through disputes.");
       throw e;
     } finally {
       setItemDecisionBusyId(null);
@@ -672,7 +673,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           <button
             type="button"
             onClick={() => {
-              window.location.href = routeSet.listHref;
+              router.push(routeSet.listHref, { scroll: false });
             }}
             className="group inline-flex items-center gap-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
           >
@@ -697,7 +698,71 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         )}
       </div>
 
-      {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+      {error ? (
+        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Credit reports need attention</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                void (async () => {
+                  try {
+                    if (mode === "detail" && selectedReportId) {
+                      await loadReport(selectedReportId);
+                      return;
+                    }
+                    setLoading(true);
+                    await Promise.all([loadReports(), loadContacts(contactQuery)]);
+                  } catch (e: any) {
+                    setError(
+                      e?.message
+                        ? String(e.message)
+                        : mode === "detail"
+                          ? "That credit report did not load. Retry here, open reports, or ask Pura to help."
+                          : "Credit reports did not load. Retry here, pull a report, or ask Pura to help.",
+                    );
+                  } finally {
+                    if (mode !== "detail") setLoading(false);
+                  }
+                })();
+              }}
+              className={PRIMARY_BUTTON_CLASS}
+            >
+              Retry
+            </button>
+            {mode === "detail" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  router.push(routeSet.listHref, { scroll: false });
+                }}
+                className={SECONDARY_BUTTON_CLASS + " text-zinc-900"}
+              >
+                Open reports
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setNewReportOpen(true)}
+                className={SECONDARY_BUTTON_CLASS + " text-zinc-900"}
+              >
+                Pull report
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                router.push(`${appBase}/ai-chat?onboarding=1`, { scroll: false });
+              }}
+              className={SECONDARY_BUTTON_CLASS + " text-zinc-900"}
+            >
+              Ask Pura
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {mode === "list" ? (
         <>
@@ -847,12 +912,12 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         tabIndex={0}
                         role="button"
                         onClick={() => {
-                          window.location.href = routeSet.detailHref(report.id);
+                          router.push(routeSet.detailHref(report.id), { scroll: false });
                         }}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            window.location.href = routeSet.detailHref(report.id);
+                            router.push(routeSet.detailHref(report.id), { scroll: false });
                           }
                         }}
                         className="cursor-pointer border-t border-zinc-200 transition hover:bg-zinc-50 focus:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/20"
@@ -965,7 +1030,38 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           ) : null}
         </>
       ) : !selectedReport ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Report not found.</div>
+        <div className="mt-6 rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Report needs attention</div>
+          <div className="mt-1">This report is not available right now. Open reports, pull a new report, or ask Pura to help.</div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                router.push(routeSet.listHref, { scroll: false });
+              }}
+              className={PRIMARY_BUTTON_CLASS}
+            >
+              Open reports
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewReportOpen(true)}
+              className={SECONDARY_BUTTON_CLASS + " text-zinc-900"}
+            >
+              Pull report
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                router.push(`${appBase}/ai-chat?onboarding=1`, { scroll: false });
+              }}
+              className={SECONDARY_BUTTON_CLASS + " text-zinc-900"}
+            >
+              Ask Pura
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="mt-6 space-y-5">
           <section className={classNames("rounded-4xl p-6 sm:p-7", portalGlassPanelClass)}>
@@ -1135,7 +1231,32 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
             <div className="mt-5 space-y-3">
               {filteredItems.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">No matching items.</div>
+                <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">
+                  <div className="font-semibold text-zinc-900">No matching items</div>
+                  <div className="mt-1">Clear the current item filters to review the full report again, or open dispute letters if you are ready to move negative items into action.</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={SECONDARY_BUTTON_CLASS + " text-zinc-900"}
+                      onClick={() => {
+                        setItemQuery("");
+                        setItemFilter("ALL");
+                        setItemFiltersMenu(null);
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                    <button
+                      type="button"
+                      className={SECONDARY_BUTTON_CLASS + " text-zinc-900"}
+                      onClick={() => {
+                        router.push(`${appBase}/services/dispute-letters`, { scroll: false });
+                      }}
+                    >
+                      Open dispute letters
+                    </button>
+                  </div>
+                </div>
               ) : (
                 filteredItems.map((it) => (
                   <div key={it.id} className={classNames("rounded-[26px] p-4 transition-colors duration-150", portalGlassSectionClass)}>

@@ -60,7 +60,7 @@ export function PortalVerifyEmailGate(props: Props) {
         return;
       }
 
-      setMessage(json?.error || "Unable to resend verification email.");
+      setMessage(json?.error || "That verification email did not resend. Retry here.");
     } finally {
       setSending(false);
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 
@@ -364,7 +364,7 @@ const PREVIEW_REPORTING: ReportingPayload = {
     resourceErrors: 3,
     manualBugReports: 2,
     topPaths: [{ path: "/portal/app/services/funnel-builder", count: 5 }],
-    topMessages: [{ kind: "action_failure", message: "Unable to save dashboard", count: 2 }],
+    topMessages: [{ kind: "action_failure", message: "Dashboard changes did not save. Retry here, open services, or ask Pura to help.", count: 2 }],
   },
   kpis: {
     automationsRun: 412,
@@ -413,6 +413,7 @@ const PREVIEW_MEDIA_STATS: MediaStatsPayload = { ok: true, itemsCount: 44, folde
 
 export function PortalDashboardClient() {
   const pathname = usePathname() || "";
+  const router = useRouter();
   const toast = useToast();
   const uiPreview = usePortalUiPreview();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
@@ -425,6 +426,7 @@ export function PortalDashboardClient() {
   const [salesError, setSalesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -439,6 +441,12 @@ export function PortalDashboardClient() {
 
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
+
+  function reloadDashboard() {
+    setError(null);
+    setSalesError(null);
+    setReloadTick((current) => current + 1);
+  }
 
   useEffect(() => {
     const el = containerEl;
@@ -564,7 +572,7 @@ export function PortalDashboardClient() {
 
         if (!meRes.ok) {
           const body = await meRes.json().catch(() => ({}));
-          const message = body?.error ?? "Unable to load dashboard";
+          const message = body?.error ?? "Dashboard data did not load. Retry here, open services, or ask Pura to help.";
           reportPortalActionFailure({ area: "dashboard", action: "load_me", status: meRes.status, message, source: "portal_dashboard" });
           setError(message);
           return;
@@ -574,7 +582,7 @@ export function PortalDashboardClient() {
 
         if (!dashRes.ok) {
           const body = await dashRes.json().catch(() => ({}));
-          const message = body?.error ?? "Unable to load dashboard layout";
+          const message = body?.error ?? "Dashboard layout did not load. Retry here, open services, or ask Pura to help.";
           reportPortalActionFailure({ area: "dashboard", action: "load_layout", status: dashRes.status, message, source: "portal_dashboard" });
           setError(message);
           return;
@@ -604,8 +612,8 @@ export function PortalDashboardClient() {
           reportPortalActionFailure({ area: "dashboard", action: "load", message: "Dashboard data is taking too long to load. Please wait a moment and try again.", source: "portal_dashboard", meta: { timedOut: true } });
           setError("Dashboard data is taking too long to load. Please wait a moment and try again.");
         } else {
-          reportPortalActionFailure({ area: "dashboard", action: "load", message: "Unable to load dashboard", source: "portal_dashboard" });
-          setError("Unable to load dashboard");
+          reportPortalActionFailure({ area: "dashboard", action: "load", message: "Dashboard data did not load. Retry here, open services, or ask Pura to help.", source: "portal_dashboard" });
+          setError("Dashboard data did not load. Retry here, open services, or ask Pura to help.");
         }
       } finally {
         window.clearTimeout(requiredTimeout);
@@ -615,7 +623,7 @@ export function PortalDashboardClient() {
     return () => {
       mounted = false;
     };
-  }, [pathname, uiPreview]);
+  }, [pathname, reloadTick, uiPreview]);
 
   const modules = useMemo(
     () =>
@@ -663,8 +671,8 @@ export function PortalDashboardClient() {
       if (!mounted) return;
 
       if (!statusRes?.ok) {
-        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: "Unable to load sales status", status: statusRes?.status, source: "portal_dashboard" });
-        setSalesError("Unable to load sales status");
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: "Sales status did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.", status: statusRes?.status, source: "portal_dashboard" });
+        setSalesError("Sales status did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.");
         return;
       }
 
@@ -674,8 +682,8 @@ export function PortalDashboardClient() {
       if (!statusBody?.ok) {
         setSalesStatus(null);
         setSalesReport(null);
-        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: statusBody?.error ?? "Unable to load sales status", source: "portal_dashboard" });
-        setSalesError(statusBody?.error ?? "Unable to load sales status");
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: statusBody?.error ?? "Sales status did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.", source: "portal_dashboard" });
+        setSalesError(statusBody?.error ?? "Sales status did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.");
         return;
       }
 
@@ -695,8 +703,8 @@ export function PortalDashboardClient() {
       if (!salesRes?.ok) {
         const errBody = (await salesRes?.json().catch(() => ({}))) as { error?: string };
         setSalesReport(null);
-        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: errBody?.error ?? "Unable to load sales", status: salesRes?.status, source: "portal_dashboard" });
-        setSalesError(errBody?.error ?? "Unable to load sales");
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: errBody?.error ?? "Sales totals did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.", status: salesRes?.status, source: "portal_dashboard" });
+        setSalesError(errBody?.error ?? "Sales totals did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.");
         return;
       }
 
@@ -705,8 +713,8 @@ export function PortalDashboardClient() {
 
       if (!salesBody?.ok) {
         setSalesReport(null);
-        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: salesBody?.error ?? "Unable to load sales", source: "portal_dashboard" });
-        setSalesError(salesBody?.error ?? "Unable to load sales");
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: salesBody?.error ?? "Sales totals did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.", source: "portal_dashboard" });
+        setSalesError(salesBody?.error ?? "Sales totals did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.");
         return;
       }
 
@@ -720,7 +728,7 @@ export function PortalDashboardClient() {
 
   async function manageBilling() {
     if (!data?.billing?.configured) {
-      window.location.href = `${portalBase}/app/billing`;
+      router.push(`${portalBase}/app/billing`, { scroll: false });
       return;
     }
     setError(null);
@@ -731,7 +739,7 @@ export function PortalDashboardClient() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      const message = body?.error ?? "Unable to open billing portal";
+      const message = body?.error ?? "Billing portal did not open. Retry here, open services, or ask Pura to help.";
       reportPortalActionFailure({ area: "dashboard", action: "open_billing_portal", status: res.status, message, source: "portal_dashboard" });
       setError(message);
       return;
@@ -742,7 +750,7 @@ export function PortalDashboardClient() {
 
   async function upgrade(module: ModuleKey) {
     if (!data?.billing?.configured) {
-      window.location.href = `${portalBase}/app/billing`;
+      router.push(`${portalBase}/app/billing`, { scroll: false });
       return;
     }
     setError(null);
@@ -753,7 +761,7 @@ export function PortalDashboardClient() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      const message = body?.error ?? "Unable to start checkout";
+      const message = body?.error ?? "Checkout did not start. Retry here, open services, or ask Pura to help.";
       reportPortalActionFailure({ area: "dashboard", action: `upgrade_${module}`, status: res.status, message, source: "portal_dashboard", meta: { module } });
       setError(message);
       return;
@@ -772,13 +780,59 @@ export function PortalDashboardClient() {
 
   if (error) {
     return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
-        {error}
+      <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+        <div className="font-semibold text-red-900">Dashboard needs attention</div>
+        <div className="mt-2">{error}</div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={reloadDashboard}
+            className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+          >
+            Retry
+          </button>
+          <Link
+            href={`${portalBase}/app/services`}
+            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+          >
+            Open services
+          </Link>
+          <Link
+            href={`${portalBase}/app/ai-chat?onboarding=1`}
+            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+          >
+            Ask Pura
+          </Link>
+        </div>
       </div>
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+        <div className="font-semibold text-zinc-900">Dashboard is not ready yet</div>
+        <div className="mt-2 max-w-2xl">
+          The workspace shell loaded, but the main dashboard data did not finish coming through. Retry here, or jump into Services while the dashboard catches up.
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={reloadDashboard}
+            className={dashboardPrimaryButtonClass}
+          >
+            Retry dashboard
+          </button>
+          <Link href={`${portalBase}/app/services`} className={dashboardSecondaryButtonClass}>
+            Open services
+          </Link>
+          <Link href={`${portalBase}/app/ai-chat?onboarding=1`} className={dashboardSecondaryButtonClass}>
+            Ask Pura
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   const me = data;
   const isCreditWorkspace = portalBase === "/credit";
@@ -834,6 +888,7 @@ export function PortalDashboardClient() {
   })();
 
   const widgetIds: DashboardWidgetId[] = (dashboard?.widgets ?? []).map((w) => w.id);
+  const dashboardMissingLayout = !dashboard || widgetIds.length === 0;
   const activeModuleCount = modules.filter((module) => module.enabled).length;
   const firstActiveModule = modules.find((module) => module.enabled) ?? null;
   const servicesWidgetSummary = (() => {
@@ -844,7 +899,7 @@ export function PortalDashboardClient() {
           ? "Billing controls paid service access and credit top-ups before operators can treat this as a live client workspace."
           : "Billing controls paid service access and credit top-ups before services can go fully live.",
         primaryHref: `${portalBase}/app/billing`,
-        primaryLabel: "Open Billing",
+        primaryLabel: isCreditWorkspace ? "Set up billing" : "Connect billing",
       };
     }
 
@@ -1157,7 +1212,7 @@ export function PortalDashboardClient() {
         body: JSON.stringify({ trigger: "dashboard_saved" }),
       }).catch(() => null);
     } else {
-      setError("Unable to save dashboard");
+      setError("Dashboard changes did not save. Retry here, open services, or ask Pura to help.");
       window.setTimeout(() => setError(null), 2500);
     }
   }
@@ -1403,7 +1458,16 @@ export function PortalDashboardClient() {
                     </div>
                   ))
                 ) : (
-                  <div className="flex h-full items-center text-sm text-zinc-600">No reporting activity yet.</div>
+                  <div className="flex h-full w-full flex-col items-start justify-center gap-3 rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-4 text-sm text-zinc-600">
+                    <div>
+                      <div className="font-semibold text-zinc-900">No reporting activity yet</div>
+                      <div className="mt-1">This fills in as calls, bookings, reviews, and reporting-connected events start running.</div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link href={`${portalBase}/app/services/reporting`} className={dashboardPrimaryButtonClass}>Open reporting</Link>
+                      <Link href={`${portalBase}/app/services`} className={dashboardSecondaryButtonClass}>Review services</Link>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -1485,15 +1549,40 @@ export function PortalDashboardClient() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                <div className="text-sm text-zinc-700">Loading sales…</div>
+                <div className="text-sm text-zinc-700">{salesError ? "Sales need attention" : "Loading sales…"}</div>
                 {salesError ? <div className="text-xs text-zinc-500">{salesError}</div> : null}
                 <div className="flex flex-col gap-2 sm:flex-row">
+                  {salesError ? (
+                    <button
+                      type="button"
+                      onClick={reloadDashboard}
+                      className={dashboardPrimaryButtonClass}
+                    >
+                      Retry
+                    </button>
+                  ) : null}
                   <Link
                     href={`${portalBase}/app/services/reporting/sales?from=dashboard`}
                     className={dashboardSecondaryButtonClass}
                   >
                     Open sales dashboard
                   </Link>
+                  {salesError ? (
+                    <Link
+                      href={`${portalBase}/app/services/reporting/stripe`}
+                      className={dashboardSecondaryButtonClass}
+                    >
+                      Review Stripe setup
+                    </Link>
+                  ) : null}
+                  {salesError ? (
+                    <Link
+                      href={`${portalBase}/app/ai-chat?onboarding=1`}
+                      className={dashboardSecondaryButtonClass}
+                    >
+                      Ask Pura
+                    </Link>
+                  ) : null}
                 </div>
               </div>
             )}
@@ -1888,7 +1977,14 @@ export function PortalDashboardClient() {
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-zinc-600">No recent activity yet.</div>
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  <div className="font-semibold text-zinc-900">No recent activity yet</div>
+                  <div className="mt-1">As the workspace starts taking calls, using credits, and completing tasks, the last few days will summarize here.</div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Link href={`${portalBase}/app/services/reporting`} className={dashboardSecondaryButtonClass}>Open reporting</Link>
+                    <Link href={`${portalBase}/app/ai-chat?onboarding=1`} className={dashboardSecondaryButtonClass}>Ask Pura</Link>
+                  </div>
+                </div>
               )}
             </div>
           </AccentCard>
@@ -2028,38 +2124,61 @@ export function PortalDashboardClient() {
       <div ref={setContainerEl}>
         {width > 0 ? (
           <>
-            <ResponsiveGridLayoutAny
-              width={width}
-              className="layout"
-              layouts={layouts as any}
-              breakpoints={DASHBOARD_BREAKPOINTS as any}
-              cols={{ lg: 12, md: 12, sm: 6, xs: 4, xxs: 2 }}
-              rowHeight={12}
-              margin={[16, 16]}
-              containerPadding={[0, 0]}
-              compactType={null}
-              preventCollision={true}
-              dragConfig={{ enabled: editMode, handle: ".drag-handle" }}
-              resizeConfig={{ enabled: editMode, handles: ["se"] }}
-              onLayoutChange={(_current: Layout, all: ResponsiveLayouts) => setLayouts(all)}
-            >
-              {widgetIds.map((id) => (
-                <div key={id} className="relative min-h-0 min-w-0">
-                  {editMode && id !== "hoursSaved" && id !== "billing" && id !== "services" ? (
-                    <button
-                      type="button"
-                      className="absolute right-3 top-3 z-10 rounded-full border border-zinc-200 bg-white/95 px-2 py-1 text-xs font-semibold text-zinc-700 shadow-sm transition-colors duration-150 hover:bg-zinc-50"
-                      onClick={() => void removeWidget(id)}
-                    >
-                      Remove
-                    </button>
-                  ) : null}
-                  {renderWidget(id)}
+            {dashboardMissingLayout ? (
+              <div className="rounded-[28px] border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600 shadow-sm">
+                <div className="text-base font-semibold text-zinc-900">Dashboard layout needs attention</div>
+                <div className="mt-2 max-w-2xl leading-6">
+                  This workspace does not have any dashboard cards ready right now. Reload the layout, restore the default dashboard, or move into Services while you keep setting the workspace up.
                 </div>
-              ))}
-            </ResponsiveGridLayoutAny>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button type="button" onClick={reloadDashboard} className={dashboardPrimaryButtonClass}>
+                    Retry layout
+                  </button>
+                  <button type="button" onClick={() => void resetDashboard()} className={dashboardSecondaryButtonClass}>
+                    Restore defaults
+                  </button>
+                  <Link href={`${portalBase}/app/services`} className={dashboardSecondaryButtonClass}>
+                    Open services
+                  </Link>
+                  <Link href={`${portalBase}/app/ai-chat?onboarding=1`} className={dashboardSecondaryButtonClass}>
+                    Ask Pura
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <ResponsiveGridLayoutAny
+                width={width}
+                className="layout"
+                layouts={layouts as any}
+                breakpoints={DASHBOARD_BREAKPOINTS as any}
+                cols={{ lg: 12, md: 12, sm: 6, xs: 4, xxs: 2 }}
+                rowHeight={12}
+                margin={[16, 16]}
+                containerPadding={[0, 0]}
+                compactType={null}
+                preventCollision={true}
+                dragConfig={{ enabled: editMode, handle: ".drag-handle" }}
+                resizeConfig={{ enabled: editMode, handles: ["se"] }}
+                onLayoutChange={(_current: Layout, all: ResponsiveLayouts) => setLayouts(all)}
+              >
+                {widgetIds.map((id) => (
+                  <div key={id} className="relative min-h-0 min-w-0">
+                    {editMode && id !== "hoursSaved" && id !== "billing" && id !== "services" ? (
+                      <button
+                        type="button"
+                        className="absolute right-3 top-3 z-10 rounded-full border border-zinc-200 bg-white/95 px-2 py-1 text-xs font-semibold text-zinc-700 shadow-sm transition-colors duration-150 hover:bg-zinc-50"
+                        onClick={() => void removeWidget(id)}
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                    {renderWidget(id)}
+                  </div>
+                ))}
+              </ResponsiveGridLayoutAny>
+            )}
 
-            {!editMode && widgetIds.length <= 3 && dashboardSuggestionIds.length ? (
+            {!dashboardMissingLayout && !editMode && widgetIds.length <= 3 && dashboardSuggestionIds.length ? (
               <div className="mt-8 rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm ring-1 ring-black/4">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                   <div>

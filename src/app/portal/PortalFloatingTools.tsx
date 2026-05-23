@@ -480,10 +480,12 @@ export function PortalFloatingTools() {
   const [chatMessages, setChatMessages] = useState<SupportChatMessage[]>([defaultWidgetWelcomeMessage()]);
   const [chatInput, setChatInput] = useState("");
   const [chatSending, setChatSending] = useState(false);
+  const [lastFailedSupportChatInput, setLastFailedSupportChatInput] = useState("");
   const [feedbackForm, setFeedbackForm] = useState<FeedbackFormState>(() => defaultFeedbackFormState());
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [pageSuggestion, setPageSuggestion] = useState<WidgetSuggestedSetup | null>(null);
+  const supportChatFallbackActive = Boolean(note && /support chat/i.test(note));
 
   const chatMessagesRef = useRef<SupportChatMessage[]>(chatMessages);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -933,7 +935,7 @@ export function PortalFloatingTools() {
 
     const json = (await res?.json?.().catch(() => null)) as { ok?: boolean; error?: string } | null;
     if (!res?.ok || !json?.ok) {
-      setSuggestionCardStatus(key, "error", json?.error ?? "Suggested setup could not be applied.");
+      setSuggestionCardStatus(key, "error", json?.error ?? "Suggested setup did not apply. Retry here or ask Pura to help.");
       return;
     }
 
@@ -1026,14 +1028,14 @@ export function PortalFloatingTools() {
     }).catch(() => null as any);
 
     if (!res?.ok) {
-      setNote("Could not send feedback.");
+      setNote("Feedback did not send. Retry here in this form.");
       setSending(false);
       return;
     }
 
     const json = (await res.json().catch(() => ({}))) as BugReportResponse;
     if (!json?.ok) {
-      setNote(json?.error ?? "Could not send feedback.");
+      setNote(json?.error ?? "Feedback did not send. Retry here in this form.");
       setSending(false);
       return;
     }
@@ -1051,6 +1053,7 @@ export function PortalFloatingTools() {
     if (!text || chatSending) return;
 
     setChatInput("");
+    setLastFailedSupportChatInput(text);
     setChatSending(true);
     let threadIdForSend = chatThreadId;
     let createdThreadId: string | null = null;
@@ -1070,7 +1073,7 @@ export function PortalFloatingTools() {
       const createdJson = (created ? ((await created.json().catch(() => null)) as { ok?: boolean; thread?: { id?: string } | null; error?: string } | null) : null) ?? null;
       if (!created?.ok || !createdJson?.ok || !createdJson.thread?.id) {
         setNote(String(createdJson?.error || "Support chat is unavailable.").trim() || null);
-        window.setTimeout(() => setNote(null), 3500);
+        setChatInput(text);
         setChatSending(false);
         scheduleChatScrollToBottom(true);
         return;
@@ -1106,7 +1109,7 @@ export function PortalFloatingTools() {
         return cleaned;
       });
       setNote("Support chat is unavailable.");
-      window.setTimeout(() => setNote(null), 3500);
+      setChatInput(text);
       setChatSending(false);
       scheduleChatScrollToBottom(true);
       return;
@@ -1124,11 +1127,13 @@ export function PortalFloatingTools() {
         return cleaned;
       });
       setNote(String(json?.error || "Support chat failed.").trim() || null);
-      window.setTimeout(() => setNote(null), 3500);
+      setChatInput(text);
       setChatSending(false);
       scheduleChatScrollToBottom(true);
       return;
     }
+
+    setLastFailedSupportChatInput("");
 
     if (createdThreadId) persistWidgetThreadId(createdThreadId);
 
@@ -1147,7 +1152,35 @@ export function PortalFloatingTools() {
     <>
       {note ? (
         <div className={notePositionClass}>
-          {note}
+          <div className="flex items-center gap-3">
+            <span>{note}</span>
+            {supportChatFallbackActive ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNote(null);
+                    setChatInput(lastFailedSupportChatInput);
+                    openChatPanel();
+                  }}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Retry here
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChatOpen(false);
+                    setNote(null);
+                    router.push(`${portalBase}/app/ai-chat?onboarding=1`);
+                  }}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Open Pura
+                </button>
+              </>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -1376,7 +1409,30 @@ export function PortalFloatingTools() {
                               : "Apply now"}
                         </button>
                         {m.suggestedSetup.status === "error" && m.suggestedSetup.error ? (
-                          <div className="text-xs text-red-600">{m.suggestedSetup.error}</div>
+                          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                            <div className="font-semibold text-red-900">Suggested setup needs attention</div>
+                            <div className="mt-1">{m.suggestedSetup.error}</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void applySuggestedSetupFromMessage(m.suggestedSetup!.actionIds, m.suggestedSetup!.key)}
+                                className="rounded-xl bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                              >
+                                Retry
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setChatOpen(false);
+                                  setNote(null);
+                                  router.push(`${portalBase}/app/ai-chat?onboarding=1`);
+                                }}
+                                className="rounded-xl border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100"
+                              >
+                                Open Pura
+                              </button>
+                            </div>
+                          </div>
                         ) : null}
                       </div>
                     </div>

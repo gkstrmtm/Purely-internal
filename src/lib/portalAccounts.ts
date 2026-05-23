@@ -2,8 +2,19 @@ import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
+import type { PortalVariant } from "@/lib/portalVariant";
 
 export type PortalAccountMemberRole = "OWNER" | "ADMIN" | "MEMBER";
+
+export type PortalAccessibleAccount = {
+  ownerId: string;
+  memberId: string;
+  role: PortalAccountMemberRole;
+  ownerEmail: string;
+  ownerName: string | null;
+  businessName: string | null;
+  isCurrent: boolean;
+};
 
 export async function listPortalAccountMembers(ownerId: string) {
   await ensurePortalTasksSchema().catch(() => null);
@@ -182,6 +193,94 @@ export async function resolvePortalOwnerIdForLogin(userId: string) {
   } catch {
     return userId;
   }
+}
+
+export async function listAccessiblePortalAccounts(opts: {
+  memberId: string;
+  currentOwnerId?: string | null;
+  variant?: PortalVariant | null;
+}) {
+  await ensurePortalTasksSchema().catch(() => null);
+
+  const memberId = String(opts.memberId || "").trim();
+  const currentOwnerId = String(opts.currentOwnerId || "").trim();
+  const variant = opts.variant ?? null;
+  if (!memberId) return [] as PortalAccessibleAccount[];
+
+  const memberships = await (prisma as any).portalAccountMember.findMany({
+    where: { userId: memberId },
+    select: {
+      ownerId: true,
+      role: true,
+      owner: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          clientPortalVariant: true,
+          businessProfile: { select: { businessName: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+  });
+
+  const byOwner = new Map<string, PortalAccessibleAccount>();
+
+  for (const row of memberships as Array<any>) {
+    const ownerId = String(row?.ownerId || "").trim();
+    const owner = row?.owner;
+    if (!ownerId || !owner) continue;
+
+    const ownerVariant = String(owner?.clientPortalVariant || "PORTAL").toLowerCase();
+    if (variant && ownerVariant !== variant) continue;
+
+    byOwner.set(ownerId, {
+      ownerId,
+      memberId,
+      role: row?.role === "OWNER" || row?.role === "ADMIN" || row?.role === "MEMBER" ? row.role : "MEMBER",
+      ownerEmail: String(owner?.email || "").trim(),
+      ownerName: typeof owner?.name === "string" ? owner.name.trim() || null : null,
+      businessName:
+        typeof owner?.businessProfile?.businessName === "string" ? owner.businessProfile.businessName.trim() || null : null,
+      isCurrent: Boolean(currentOwnerId) && currentOwnerId === ownerId,
+    });
+  }
+
+  if (currentOwnerId && !byOwner.has(currentOwnerId)) {
+    const owner = await prisma.user.findUnique({
+      where: { id: currentOwnerId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        clientPortalVariant: true,
+        businessProfile: { select: { businessName: true } },
+      },
+    }).catch(() => null);
+
+    const ownerVariant = String(owner?.clientPortalVariant || "PORTAL").toLowerCase();
+    if (owner && (!variant || ownerVariant === variant)) {
+      byOwner.set(currentOwnerId, {
+        ownerId: currentOwnerId,
+        memberId,
+        role: currentOwnerId === memberId ? "OWNER" : "MEMBER",
+        ownerEmail: String(owner.email || "").trim(),
+        ownerName: typeof owner.name === "string" ? owner.name.trim() || null : null,
+        businessName:
+          typeof owner.businessProfile?.businessName === "string" ? owner.businessProfile.businessName.trim() || null : null,
+        isCurrent: true,
+      });
+    }
+  }
+
+  return Array.from(byOwner.values()).sort((a, b) => {
+    if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+    const aLabel = (a.businessName || a.ownerName || a.ownerEmail || a.ownerId).toLowerCase();
+    const bLabel = (b.businessName || b.ownerName || b.ownerEmail || b.ownerId).toLowerCase();
+    return aLabel.localeCompare(bLabel);
+  });
 }
 
 export async function getPortalAccountMemberRole(opts: { ownerId: string; userId: string }) {

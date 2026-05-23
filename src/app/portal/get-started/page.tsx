@@ -69,7 +69,7 @@ function moneyLabel(monthlyUsd: number) {
 }
 
 function RequiredMark() {
-  return <span className="ml-1 align-text-top text-[color:var(--color-brand-pink)]">*</span>;
+  return <span className="ml-1 align-text-top text-(--color-brand-pink)">*</span>;
 }
 
 function bundleTitle(id: PackagePreset) {
@@ -396,8 +396,8 @@ function PortalGetStartedInner() {
             : res.status === 403
               ? "Signup is currently unavailable. If you already have an account, sign in."
               : res.status >= 500
-                ? "We couldn’t create your account right now. Please try again in a few minutes."
-                : "Unable to create account.";
+                ? "Your account did not create yet. Try again here in a moment or sign in if you already have one."
+                : "Your account did not create. Try again here or sign in if you already have one.";
 
       const msg = serverError || fallbackBase;
 
@@ -411,7 +411,7 @@ function PortalGetStartedInner() {
     if (billingPreference === "credits") {
       const starterCredits = 50;
       setLoading(false);
-      window.location.assign(`${appBase}/app/onboarding?creditsAdded=${starterCredits}`);
+      router.replace(`${appBase}/app/onboarding?creditsAdded=${starterCredits}`, { scroll: false });
       return;
     }
 
@@ -438,19 +438,19 @@ function PortalGetStartedInner() {
       });
       const confirmJson = await confirmRes.json().catch(() => null);
       if (!confirmRes.ok || !confirmJson?.ok) {
-        setError(confirmJson?.error || "Unable to activate services");
+        setError(confirmJson?.error || "Your services did not activate yet. Retry here or head back into onboarding.");
         router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`, { scroll: false });
         return;
       }
 
       const bonusCredits = typeof confirmJson?.bonusCredits === "number" ? Math.max(0, Math.trunc(confirmJson.bonusCredits)) : 0;
       const query = bonusCredits > 0 ? `?creditsAdded=${bonusCredits}` : "";
-      window.location.assign(`${appBase}/app/onboarding${query}`);
+      router.replace(`${appBase}/app/onboarding${query}`, { scroll: false });
       return;
     }
 
     if (!checkoutRes.ok || !checkoutJson?.ok || !checkoutJson?.url) {
-      const msg = checkoutJson?.error || (checkoutRes.status === 401 ? "Unauthorized" : "Unable to start checkout");
+      const msg = checkoutJson?.error || (checkoutRes.status === 401 ? "Unauthorized" : "Checkout did not start. Sign in again or open billing to try once more.");
       toast.error(msg);
       setError(msg);
       if (checkoutRes.status === 401 || checkoutRes.status === 403) {
@@ -458,7 +458,7 @@ function PortalGetStartedInner() {
         return;
       }
 
-      window.location.assign(`${appBase}/app/billing`);
+      router.push(`${appBase}/app/billing`, { scroll: false });
       return;
     }
 
@@ -791,14 +791,14 @@ function PortalGetStartedInner() {
                               <div className="text-sm font-semibold text-zinc-900">{bundleTitle(id)}</div>
                               <div className="flex items-center gap-2">
                                 {isChosen ? (
-                                  <span className="rounded-full bg-[color:var(--color-brand-pink)] px-2 py-1 text-xs font-semibold text-white">You chose</span>
+                                  <span className="rounded-full bg-(--color-brand-pink) px-2 py-1 text-xs font-semibold text-white">You chose</span>
                                 ) : null}
                                 {isRecommended ? (
                                   <span className="rounded-full bg-emerald-600 px-2 py-1 text-xs font-semibold text-white">Recommended</span>
                                 ) : null}
                               </div>
                             </div>
-                            <div className="mt-2 break-words text-sm text-zinc-600">Includes: {bundlePlanIds(id).map((pid) => planById(pid)?.title || pid).join(", ")}</div>
+                            <div className="mt-2 wrap-break-word text-sm text-zinc-600">Includes: {bundlePlanIds(id).map((pid) => planById(pid)?.title || pid).join(", ")}</div>
                             {checked ? <div className="mt-2 text-xs font-semibold text-zinc-700">Selected</div> : null}
                           </button>
                         );
@@ -849,7 +849,7 @@ function PortalGetStartedInner() {
                       <div className="flex min-w-0 items-start justify-between gap-4">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold text-zinc-900">Core Portal</div>
-                          <div className="mt-1 break-words text-sm text-zinc-600">Includes Inbox/Outbox, Media Library, Tasks, and Reporting.</div>
+                          <div className="mt-1 wrap-break-word text-sm text-zinc-600">Includes Inbox/Outbox, Media Library, Tasks, and Reporting.</div>
                         </div>
                         <div className="shrink-0 text-right">
                           <div className="text-sm font-semibold text-zinc-900">{moneyLabel(39)}</div>
@@ -887,7 +887,7 @@ function PortalGetStartedInner() {
                           >
                             <div className="min-w-0">
                               <div className="text-sm font-semibold text-zinc-900">{p.title}</div>
-                              <div className="mt-1 break-words text-sm text-zinc-600">{p.description}</div>
+                              <div className="mt-1 wrap-break-word text-sm text-zinc-600">{p.description}</div>
                               {checked && p.quantityConfig ? (
                                 <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-600">
                                   <div className="font-semibold text-zinc-700">{p.quantityConfig.label}</div>
@@ -926,7 +926,7 @@ function PortalGetStartedInner() {
                         "inline-flex w-full items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition",
                         showAllServices
                           ? "border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50"
-                          : "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                          : "border-(--color-brand-blue) bg-(--color-brand-blue) text-white hover:opacity-95",
                       )}
                       onClick={() => setShowAllServices((v) => !v)}
                     >
@@ -954,7 +954,7 @@ function PortalGetStartedInner() {
                             >
                               <div className="min-w-0">
                                 <div className="text-sm font-semibold text-zinc-900">{p.title}</div>
-                                <div className="mt-1 break-words text-sm text-zinc-600">{p.description}</div>
+                                <div className="mt-1 wrap-break-word text-sm text-zinc-600">{p.description}</div>
                                 {checked && p.quantityConfig ? (
                                   <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-600">
                                     <div className="font-semibold text-zinc-700">{p.quantityConfig.label}</div>
@@ -1027,6 +1027,27 @@ function PortalGetStartedInner() {
                       {supportCode ? (
                         <span className="ml-2 inline-block">Support code: {supportCode}</span>
                       ) : null}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                        onClick={() => {
+                          window.location.assign(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`);
+                        }}
+                      >
+                        Sign in
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                        onClick={() => {
+                          setError(null);
+                          setSupportCode(null);
+                        }}
+                      >
+                        Try again
+                      </button>
                     </div>
                   </div>
                 ) : null}

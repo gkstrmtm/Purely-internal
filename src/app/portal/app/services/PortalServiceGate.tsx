@@ -128,12 +128,14 @@ function LockedShell(opts: {
 
   const billingUnlockHref =
     opts.state === "paused" || opts.state === "canceled"
-      ? `${opts.basePath}/app/billing`
+      ? `${opts.basePath}/app/billing#pa-billing-services`
       : opts.entitlementKey
         ? `${opts.basePath}/app/billing?buy=${encodeURIComponent(opts.entitlementKey)}&autostart=1`
-        : `${opts.basePath}/app/billing`;
+        : `${opts.basePath}/app/billing#pa-billing-services`;
+  const helpHref = `${opts.basePath}/tutorials/${opts.slug}`;
+  const askPuraHref = `${opts.basePath}/app/ai-chat?onboarding=1`;
 
-  const primaryCta = opts.state === "paused" || opts.state === "canceled" ? "Open Billing" : `Unlock ${opts.title}`;
+  const primaryCta = opts.state === "paused" || opts.state === "canceled" ? `Resume ${opts.title}` : `Enable ${opts.title}`;
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -151,9 +153,9 @@ function LockedShell(opts: {
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
             {opts.state === "paused" || opts.state === "canceled"
-              ? "This service is turned off in Billing. Resume it any time to regain access."
+              ? "This service is currently off. Resume it from your service access section whenever you are ready to bring it back live."
               : opts.state === "coming_soon"
-                ? "This service isn’t available yet. It will appear here once it’s ready."
+                ? "This service is still being rolled out. You can preview the walkthrough now so the setup path is already clear when it goes live."
                 : "This service isn’t included in your current plan. You can add it any time."}
           </p>
         </div>
@@ -194,16 +196,16 @@ function LockedShell(opts: {
             </div>
           ) : null}
         </div>
-      </div>
+
         <div className="space-y-4">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="text-sm font-semibold text-zinc-900">Next step</div>
             <div className="mt-2 text-sm text-zinc-600">
               {opts.state === "paused" || opts.state === "canceled"
-                ? "Open Billing to turn this service back on."
+                ? "Resume this service from service access, then come back here to continue setup."
                 : opts.state === "coming_soon"
-                  ? "Keep using the rest of your services while this one is being prepared."
-                  : "Turn this service on in Billing, then come back here to configure it."}
+                  ? "Use the walkthrough now so you already know the setup path when access opens up."
+                  : "Enable this service now, then come back here to configure it."}
             </div>
             <div className="mt-4 flex flex-col gap-3">
               {opts.state !== "coming_soon" ? (
@@ -222,8 +224,30 @@ function LockedShell(opts: {
               </Link>
             </div>
           </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-900">Need help getting this live?</div>
+            <div className="mt-2 text-sm text-zinc-600">
+              Open the walkthrough for the exact setup path, or let Pura help you decide what to unlock, configure, and test first.
+            </div>
+            <div className="mt-4 flex flex-col gap-3">
+              <Link
+                href={helpHref}
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+              >
+                Open walkthrough
+              </Link>
+              <Link
+                href={askPuraHref}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                Ask Pura for help
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
+    </div>
   );
 }
 

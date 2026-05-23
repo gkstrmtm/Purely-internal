@@ -226,6 +226,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
   const [, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
 
@@ -417,106 +418,123 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     const isFirstLoad = !hasLoadedOnceRef.current;
     if (isFirstLoad) setLoading(true);
     else setRefreshing(true);
+    setLoadError(null);
 
     let didLoad = false;
 
     try {
+      const [
+        siteRes,
+        settingsExternalRes,
+        settingsInternalRes,
+        tagsRes,
+        creditsRes,
+        usageRes,
+        listExternalRes,
+        listInternalRes,
+        funnelDomainsRes,
+      ] = await Promise.all([
+        fetch("/api/portal/newsletter/site", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/newsletter/automation/settings?kind=external", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/newsletter/automation/settings?kind=internal", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/newsletter/newsletters?kind=external&take=100", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/newsletter/newsletters?kind=internal&take=100", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+      ]);
 
-    const [
-      siteRes,
-      settingsExternalRes,
-      settingsInternalRes,
-      tagsRes,
-      creditsRes,
-      usageRes,
-      listExternalRes,
-      listInternalRes,
-      funnelDomainsRes,
-    ] = await Promise.all([
-      fetch("/api/portal/newsletter/site", { cache: "no-store", headers: variantHeaders }),
-      fetch("/api/portal/newsletter/automation/settings?kind=external", { cache: "no-store", headers: variantHeaders }),
-      fetch("/api/portal/newsletter/automation/settings?kind=internal", { cache: "no-store", headers: variantHeaders }),
-      fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }),
-      fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders }),
-      fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store", headers: variantHeaders }),
-      fetch("/api/portal/newsletter/newsletters?kind=external&take=100", { cache: "no-store", headers: variantHeaders }),
-      fetch("/api/portal/newsletter/newsletters?kind=internal&take=100", { cache: "no-store", headers: variantHeaders }),
-      fetch("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
-    ]);
+      const siteJson = (await siteRes.json().catch(() => ({}))) as any;
+      const settingsExternalJson = (await settingsExternalRes.json().catch(() => ({}))) as any;
+      const settingsInternalJson = (await settingsInternalRes.json().catch(() => ({}))) as any;
+      const tagsJson = (await tagsRes.json().catch(() => ({}))) as any;
+      const creditsJson = (await creditsRes.json().catch(() => ({}))) as any;
+      const usageJson = (await usageRes.json().catch(() => ({}))) as any;
+      const listExternalJson = (await listExternalRes.json().catch(() => ({}))) as any;
+      const listInternalJson = (await listInternalRes.json().catch(() => ({}))) as any;
+      const funnelDomainsJson = funnelDomainsRes ? (((await funnelDomainsRes.json().catch(() => ({}))) as any) ?? {}) : {};
 
-    const siteJson = (await siteRes.json().catch(() => ({}))) as any;
-    const settingsExternalJson = (await settingsExternalRes.json().catch(() => ({}))) as any;
-    const settingsInternalJson = (await settingsInternalRes.json().catch(() => ({}))) as any;
-    const tagsJson = (await tagsRes.json().catch(() => ({}))) as any;
-    const creditsJson = (await creditsRes.json().catch(() => ({}))) as any;
-    const usageJson = (await usageRes.json().catch(() => ({}))) as any;
-    const listExternalJson = (await listExternalRes.json().catch(() => ({}))) as any;
-    const listInternalJson = (await listInternalRes.json().catch(() => ({}))) as any;
-    const funnelDomainsJson = funnelDomainsRes ? (((await funnelDomainsRes.json().catch(() => ({}))) as any) ?? {}) : {};
-
-      if (!siteRes.ok) toast.error(siteJson?.error ?? "Unable to load newsletter site");
-      if (!settingsExternalRes.ok) toast.error(settingsExternalJson?.error ?? "Unable to load newsletter settings");
-      if (!settingsInternalRes.ok) toast.error(settingsInternalJson?.error ?? "Unable to load newsletter settings");
-      if (!tagsRes.ok) toast.error(tagsJson?.error ?? "Unable to load contact tags");
+      if (!siteRes.ok) {
+        const message = siteJson?.error ?? "Newsletter workspace did not load. Retry here, open settings, or ask Pura to help.";
+        toast.error(message);
+        setLoadError((prev) => prev ?? message);
+      }
+      if (!settingsExternalRes.ok) {
+        const message = settingsExternalJson?.error ?? "Newsletter settings did not load. Retry here, open settings, or ask Pura to help.";
+        toast.error(message);
+        setLoadError((prev) => prev ?? message);
+      }
+      if (!settingsInternalRes.ok) {
+        const message = settingsInternalJson?.error ?? "Newsletter settings did not load. Retry here, open settings, or ask Pura to help.";
+        toast.error(message);
+        setLoadError((prev) => prev ?? message);
+      }
+      if (!tagsRes.ok) toast.error(tagsJson?.error ?? "Contact tags did not load. Retry this page or open settings to review the audience.");
 
       if (siteRes.ok) {
         setSite(siteJson?.site ?? null);
         didLoad = true;
       }
 
-    if (funnelDomainsRes && funnelDomainsRes.ok && funnelDomainsJson?.ok === true) {
-      setFunnelDomains(Array.isArray(funnelDomainsJson.domains) ? (funnelDomainsJson.domains as FunnelBuilderDomain[]) : []);
-    } else {
-      setFunnelDomains((prev) => (prev === null ? [] : prev));
-    }
+      if (funnelDomainsRes && funnelDomainsRes.ok && funnelDomainsJson?.ok === true) {
+        setFunnelDomains(Array.isArray(funnelDomainsJson.domains) ? (funnelDomainsJson.domains as FunnelBuilderDomain[]) : []);
+      } else {
+        setFunnelDomains((prev) => (prev === null ? [] : prev));
+      }
 
-    const prevSettingsCache = settingsCacheRef.current;
-    const nextSettingsCache = {
-      external: prevSettingsCache.external,
-      internal: prevSettingsCache.internal,
-    };
-    if (settingsExternalRes.ok && settingsExternalJson?.settings) nextSettingsCache.external = settingsExternalJson.settings as Settings;
-    if (settingsInternalRes.ok && settingsInternalJson?.settings) nextSettingsCache.internal = settingsInternalJson.settings as Settings;
-    setSettingsCache(nextSettingsCache);
-    setSettings(nextSettingsCache[audienceRef.current] ?? null);
+      const prevSettingsCache = settingsCacheRef.current;
+      const nextSettingsCache = {
+        external: prevSettingsCache.external,
+        internal: prevSettingsCache.internal,
+      };
+      if (settingsExternalRes.ok && settingsExternalJson?.settings) nextSettingsCache.external = settingsExternalJson.settings as Settings;
+      if (settingsInternalRes.ok && settingsInternalJson?.settings) nextSettingsCache.internal = settingsInternalJson.settings as Settings;
+      setSettingsCache(nextSettingsCache);
+      setSettings(nextSettingsCache[audienceRef.current] ?? null);
 
-    if (settingsExternalRes.ok && settingsExternalJson?.settings) {
-      lastSavedSettingsJsonRef.current.external = JSON.stringify(nextSettingsCache.external);
-    }
-    if (settingsInternalRes.ok && settingsInternalJson?.settings) {
-      lastSavedSettingsJsonRef.current.internal = JSON.stringify(nextSettingsCache.internal);
-    }
+      if (settingsExternalRes.ok && settingsExternalJson?.settings) {
+        lastSavedSettingsJsonRef.current.external = JSON.stringify(nextSettingsCache.external);
+      }
+      if (settingsInternalRes.ok && settingsInternalJson?.settings) {
+        lastSavedSettingsJsonRef.current.internal = JSON.stringify(nextSettingsCache.internal);
+      }
 
-    if (tagsRes.ok) setTags(Array.isArray(tagsJson?.tags) ? tagsJson.tags : []);
+      if (tagsRes.ok) setTags(Array.isArray(tagsJson?.tags) ? tagsJson.tags : []);
 
-    if (creditsRes.ok) {
-      setCredits(typeof creditsJson?.credits === "number" ? creditsJson.credits : 0);
-    }
+      if (creditsRes.ok) {
+        setCredits(typeof creditsJson?.credits === "number" ? creditsJson.credits : 0);
+      }
 
-    if (usageRes.ok) {
-      setCreditsUsed30d(typeof usageJson?.creditsUsed?.range === "number" ? usageJson.creditsUsed.range : 0);
-      setGenerations30d(typeof usageJson?.generations?.range === "number" ? usageJson.generations.range : 0);
-    }
+      if (usageRes.ok) {
+        setCreditsUsed30d(typeof usageJson?.creditsUsed?.range === "number" ? usageJson.creditsUsed.range : 0);
+        setGenerations30d(typeof usageJson?.generations?.range === "number" ? usageJson.generations.range : 0);
+      }
 
-    const prevNewslettersCache = newslettersCacheRef.current;
-    const nextNewslettersCache = {
-      external: prevNewslettersCache.external,
-      internal: prevNewslettersCache.internal,
-    };
-    if (listExternalRes.ok) {
-      nextNewslettersCache.external = Array.isArray(listExternalJson?.newsletters)
-        ? (listExternalJson.newsletters as NewsletterRow[])
-        : [];
-    }
-    if (listInternalRes.ok) {
-      nextNewslettersCache.internal = Array.isArray(listInternalJson?.newsletters)
-        ? (listInternalJson.newsletters as NewsletterRow[])
-        : [];
-    }
-    setNewslettersCache(nextNewslettersCache);
-    setNewsletters(nextNewslettersCache[audienceRef.current] ?? []);
+      const prevNewslettersCache = newslettersCacheRef.current;
+      const nextNewslettersCache = {
+        external: prevNewslettersCache.external,
+        internal: prevNewslettersCache.internal,
+      };
+      if (listExternalRes.ok) {
+        nextNewslettersCache.external = Array.isArray(listExternalJson?.newsletters)
+          ? (listExternalJson.newsletters as NewsletterRow[])
+          : [];
+      }
+      if (listInternalRes.ok) {
+        nextNewslettersCache.internal = Array.isArray(listInternalJson?.newsletters)
+          ? (listInternalJson.newsletters as NewsletterRow[])
+          : [];
+      }
+      setNewslettersCache(nextNewslettersCache);
+      setNewsletters(nextNewslettersCache[audienceRef.current] ?? []);
 
       if (didLoad) hasLoadedOnceRef.current = true;
+    } catch (error) {
+      const fallbackMessage = "Newsletter workspace did not load. Retry here, open settings, or ask Pura to help.";
+      const message = error instanceof Error && error.message.trim() ? error.message.trim() : fallbackMessage;
+      setLoadError((prev) => prev ?? message);
+      toast.error(message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -756,7 +774,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
     const json = (await res.json().catch(() => ({}))) as any;
 
-    if (!res.ok) toast.error(json?.error ?? "Failed to save");
+    if (!res.ok) toast.error(json?.error ?? "Newsletter settings did not save. Retry here in settings or ask Pura to help.");
     else toast.success("Saved");
 
     setSaving(false);
@@ -815,7 +833,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.tag?.id) {
-        toast.error(String(json?.error || "Failed to create tag"));
+        toast.error(String(json?.error || "That tag did not save. Try again here or open People to organize the audience there."));
         return;
       }
 
@@ -979,7 +997,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     const res = await fetch(`/api/portal/newsletter/newsletters/${encodeURIComponent(newsletterId)}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
     const json = (await res?.json().catch(() => ({}))) as any;
     if (!res?.ok || !json?.ok || !json?.newsletter?.id) {
-      setDraftError(String(json?.error || "Failed to load draft"));
+      setDraftError(String(json?.error || "This draft did not load. Retry here or ask Pura to help."));
       setDraftLoading(false);
       return;
     }
@@ -1017,7 +1035,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         });
         const json = (await res.json().catch(() => ({}))) as any;
         if (!res.ok || !json?.ok || !json?.newsletter?.id) {
-          toast.error(String(json?.error || "Failed to create newsletter"));
+          toast.error(String(json?.error || "That newsletter did not save. Review it here and try again."));
           return;
         }
         toast.success(status === "READY" ? "Manual newsletter created (READY)" : "Manual newsletter created");
@@ -1056,7 +1074,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       );
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) {
-        setDraftError(String(json?.error || "Failed to save"));
+        setDraftError(String(json?.error || "This draft did not save. Review it here and try again."));
         return;
       }
       toast.success(hostedOnly ? "Hosted page updated" : "Draft saved");
@@ -1091,7 +1109,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       if (json?.error === "INSUFFICIENT_CREDITS") {
         toast.error("Not enough credits. Add credits in Billing.");
       } else {
-        toast.error(json?.error ?? "Failed to generate");
+        toast.error(json?.error ?? "That newsletter did not generate. Try again here or keep editing this panel.");
       }
       setGenerating(false);
       return;
@@ -1109,7 +1127,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     const res = await fetch(`/api/portal/newsletter/newsletters/${newsletterId}/send`, { method: "POST", headers: variantHeaders });
     const json = (await res.json().catch(() => ({}))) as any;
     if (!res.ok) {
-      toast.error(json?.error ?? "Failed to send");
+      toast.error(json?.error ?? "That newsletter did not send. Try again here or keep editing this panel.");
       return;
     }
     toast.success("Sent");
@@ -1133,7 +1151,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) {
-        const message = String(json?.error || "Failed to delete newsletter");
+        const message = String(json?.error || "This draft did not delete. Retry here or close the draft, then delete it again in the list view.");
         if (isDraftOpenTarget) setDraftError(message);
         else toast.error(message);
         return;
@@ -1283,6 +1301,37 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         </div>
       </div>
 
+      {loadError ? (
+        <div className="mt-6 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+          <div className="font-semibold">Newsletter needs attention</div>
+          <div className="mt-1 text-red-800">{loadError}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void refresh();
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("settings")}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Open settings
+            </button>
+            <Link
+              href={`${basePath}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       {tab === "newsletters" ? (
         <>
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -1346,8 +1395,28 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 <tbody>
                   {newsletters.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-4 text-zinc-600" colSpan={4}>
-                        No newsletters yet.
+                      <td className="px-4 py-5 text-zinc-600" colSpan={4}>
+                        <div className="font-semibold text-zinc-900">No newsletters yet</div>
+                        <div className="mt-1 text-sm text-zinc-600">Create the first newsletter to draft content, preview delivery, and start building a repeatable send flow.</div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <button
+                            type="button"
+                            className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity duration-100 hover:opacity-90"
+                            onClick={() => {
+                              setComposerOpen(true);
+                              setMode("ai");
+                              setAiStep("delivery");
+                            }}
+                          >
+                            Create first newsletter
+                          </button>
+                          <Link
+                            href={`${basePath}/app/ai-chat?onboarding=1`}
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Ask Pura for help
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -1689,7 +1758,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           const up = await fetch("/api/uploads", { method: "POST", body: fd });
                           const upBody = (await up.json().catch(() => ({}))) as any;
                           if (!up.ok || !upBody.url) {
-                            toast.error(String(upBody.error || "Upload failed"));
+                            toast.error(String(upBody.error || "That file did not upload. Try again here or keep editing this panel."));
                             return;
                           }
                           setManualAssetUrl(String(upBody.url));
@@ -1848,7 +1917,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                                 });
                                 const json = (await res.json().catch(() => ({}))) as any;
                                 if (!res.ok || !json?.ok || !json?.item?.shareUrl) {
-                                  toast.error(String(json?.error || "Import failed"));
+                                  toast.error(String(json?.error || "That image did not add. Try again here or keep working from this preview."));
                                   return;
                                 }
                                 setManualAssetUrl(String(json.item.shareUrl));
@@ -2486,7 +2555,25 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     );
                   })
                 ) : (
-                  <div className="text-xs text-zinc-500">No audience tags selected yet.</div>
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No audience tags selected yet</div>
+                    <div className="mt-1">Pick existing tags or create one now so this newsletter goes to the right audience.</div>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateTag(true)}
+                        className="inline-flex items-center justify-center rounded-2xl bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
+                      >
+                        Create tag
+                      </button>
+                      <Link
+                        href={`${basePath}/app/people/contacts`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Open People
+                      </Link>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -2648,7 +2735,24 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           </div>
                         ))
                       ) : (
-                        <div className="text-sm text-zinc-600">No manual people selected.</div>
+                        <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">No manual people selected</div>
+                          <div className="mt-1">Pick contacts from People first if this newsletter should go to a hand-picked list.</div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Link
+                              href={`${basePath}/app/people/contacts`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Open People
+                            </Link>
+                            <Link
+                              href={`${basePath}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Ask Pura
+                            </Link>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2745,7 +2849,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           </button>
                         ))
                       ) : (
-                        <div className="text-sm text-zinc-600">No extra emails added.</div>
+                        <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">No extra emails added</div>
+                          <div className="mt-1">Add one above or upload a CSV if this internal send should reach people outside the default user list.</div>
+                        </div>
                       )}
                     </div>
 
@@ -2811,7 +2918,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             await navigator.clipboard.writeText(publicBaseUrl);
                             toast.success("Copied");
                           } catch {
-                            toast.error("Copy failed");
+                            toast.error("That link did not copy. Try again here or open the preview directly.");
                           }
                         }}
                       >
@@ -2839,7 +2946,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             await navigator.clipboard.writeText(livePublicBaseUrl);
                             toast.success("Copied");
                           } catch {
-                            toast.error("Copy failed");
+                            toast.error("That link did not copy. Try again here or open the live page directly.");
                           }
                         }}
                       >
@@ -2949,7 +3056,29 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Draft fields</div>
 
                   {draftError ? (
-                    <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{draftError}</div>
+                    <div className="mt-3 rounded-3xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                      <div className="font-semibold text-red-900">Draft editor needs attention</div>
+                      <div className="mt-1">{draftError}</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {draftId ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void openDraft(draftId);
+                            }}
+                            className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                          >
+                            Retry
+                          </button>
+                        ) : null}
+                        <Link
+                          href={`${basePath}/app/ai-chat?onboarding=1`}
+                          className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                        >
+                          Ask Pura
+                        </Link>
+                      </div>
+                    </div>
                   ) : null}
 
                   {draftStatus === "SENT" ? (
@@ -3052,7 +3181,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                               const up = await fetch("/api/uploads", { method: "POST", body: fd });
                               const upBody = (await up.json().catch(() => ({}))) as any;
                               if (!up.ok || !upBody.url) {
-                                toast.error(String(upBody.error || "Upload failed"));
+                                toast.error(String(upBody.error || "That file did not upload. Try again here or keep editing this panel."));
                                 return;
                               }
                               setAssetUrl(String(upBody.url));
@@ -3392,7 +3521,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     });
                     const json = (await res.json().catch(() => ({}))) as any;
                     if (!res.ok || !json?.ok || !json?.site) {
-                      toast.error(String(json?.error || "Failed to save hosted pages"));
+                      toast.error(String(json?.error || "Hosted page settings did not save. Try again here or keep editing this panel."));
                       return;
                     }
                     setSite(json.site as Site);

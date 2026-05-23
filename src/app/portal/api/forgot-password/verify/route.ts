@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { z } from "zod";
 
-import { createAndSendPortalPasswordResetCode } from "@/lib/portalPasswordReset";
+import { verifyPortalPasswordResetCode } from "@/lib/portalPasswordReset";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 const bodySchema = z.object({
   email: z.string().trim().email().max(200),
-  channel: z.enum(["email", "sms"]).optional(),
+  code: z.string().trim().min(4).max(12),
 });
 
 export async function POST(req: Request) {
@@ -20,13 +20,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
   }
 
-  try {
-    const result = await createAndSendPortalPasswordResetCode({ email: parsed.data.email, variant, channel: parsed.data.channel || "email" });
-    if (!result.ok) {
-      return NextResponse.json({ ok: false, error: result.reason }, { status: 400 });
-    }
-  } catch {
-    return NextResponse.json({ ok: false, error: "Unable to send code right now." }, { status: 500 });
+  const result = await verifyPortalPasswordResetCode({ ...parsed.data, variant });
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.reason }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true });

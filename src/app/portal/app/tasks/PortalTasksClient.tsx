@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
@@ -44,7 +46,10 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalTasksClient() {
   const toast = useToast();
+  const pathname = usePathname() || "";
+  const appBase = pathname.startsWith("/credit") ? "/credit/app" : "/portal/app";
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [viewerUserId, setViewerUserId] = useState<string>("");
 
@@ -106,6 +111,7 @@ export function PortalTasksClient() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [tasksRes, assigneesRes] = await Promise.all([
         fetch("/api/portal/tasks?status=ALL", { cache: "no-store" }),
@@ -113,7 +119,7 @@ export function PortalTasksClient() {
       ]);
 
       const tasksJson = (await tasksRes.json()) as any;
-      if (!tasksRes.ok || !tasksJson?.ok) throw new Error(String(tasksJson?.error || "Failed to load tasks"));
+      if (!tasksRes.ok || !tasksJson?.ok) throw new Error(String(tasksJson?.error || "Tasks did not load. Retry here, create a new task, or ask Pura to help."));
       setTasks(Array.isArray(tasksJson.tasks) ? (tasksJson.tasks as TaskRow[]) : []);
       setViewerUserId(typeof tasksJson.viewerUserId === "string" ? tasksJson.viewerUserId : "");
 
@@ -124,7 +130,9 @@ export function PortalTasksClient() {
         }
       }
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to load"));
+      const message = String(e?.message || "Tasks did not load. Retry here, create a new task, or ask Pura to help.");
+      toast.error(message);
+      setLoadError(message);
     } finally {
       setLoading(false);
     }
@@ -290,7 +298,25 @@ export function PortalTasksClient() {
                 </div>
               ))
             ) : (
-              <div className="px-3 py-2 text-sm text-zinc-500">No done tasks.</div>
+              <div className="px-3 py-2 text-sm text-zinc-500">
+                <div className="font-semibold text-zinc-900">No done tasks</div>
+                <div className="mt-1 text-xs text-zinc-500">Completed work will land here. Create the next task now if you want something new to move through the list.</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreateOpen(true)}
+                    className="rounded-xl bg-[rgba(29,78,216,0.12)] px-2.5 py-1.5 text-[11px] font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
+                  >
+                    New task
+                  </button>
+                  <Link
+                    href={`${appBase}/ai-chat?onboarding=1`}
+                    className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Ask Pura
+                  </Link>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -336,6 +362,37 @@ export function PortalTasksClient() {
           </button>
         </div>
       </div>
+
+      {loadError ? (
+        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Tasks need attention</div>
+          <div className="mt-1">{loadError}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void load();
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              New task
+            </button>
+            <Link
+              href={`${appBase}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">

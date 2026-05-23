@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useToast } from "@/components/ToastProvider";
 import { AppModal } from "@/components/AppModal";
@@ -102,9 +103,11 @@ function daysBetweenIso(startIso: string, endIso: string): number {
 }
 
 export function SettingsTabsClient({ generalOnly = false }: { generalOnly?: boolean } = {}) {
+  const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const toast = useToast();
+  const portalBase = useMemo(() => (pathname?.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
 
   const tab = useMemo<TabKey>(() => (generalOnly ? "general" : normalizeTab(searchParams?.get("tab"))), [generalOnly, searchParams]);
   const focus = (searchParams?.get("focus") || "").trim().toLowerCase();
@@ -156,9 +159,9 @@ export function SettingsTabsClient({ generalOnly = false }: { generalOnly?: bool
 
       {tab === "general" ? (
         <GeneralTab
+          portalBase={portalBase}
           onGoServices={() => {
-            const base = typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "/credit" : "/portal";
-            router.push(`${base}/app/services`, { scroll: false });
+            router.push(`${portalBase}/app/services`, { scroll: false });
           }}
           toast={toast}
         />
@@ -180,9 +183,11 @@ export function SettingsTabsClient({ generalOnly = false }: { generalOnly?: bool
 }
 
 function GeneralTab({
+  portalBase,
   onGoServices,
   toast,
 }: {
+  portalBase: string;
   onGoServices: () => void;
   toast: ReturnType<typeof useToast>;
 }) {
@@ -192,9 +197,11 @@ function GeneralTab({
   const [services, setServices] = useState<ServicesStatusResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingRes | null>(null);
   const [serviceUsage, setServiceUsage] = useState<Record<string, number>>({});
+  const mountedRef = useRef(true);
   const [referral, setReferral] = useState<ReferralRes>(null);
   const [referralOpen, setReferralOpen] = useState(false);
   const [referralLoading, setReferralLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -228,15 +235,14 @@ function GeneralTab({
     }
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
+  const loadSettingsOverview = useCallback(async () => {
+      setLoadError(null);
       const [pRes, cRes, sRes] = await Promise.all([
         fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any),
         fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any),
         fetch("/api/portal/services/status", { cache: "no-store" }).catch(() => null as any),
       ]);
-      if (!mounted) return;
+      if (!mountedRef.current) return;
 
       if (pRes?.ok) {
         const p = (await pRes.json().catch(() => null)) as ProfileRes | null;
@@ -247,7 +253,8 @@ function GeneralTab({
         setPhone(formatPhoneForDisplay(u?.phone ?? ""));
       } else {
         const j = pRes ? await pRes.json().catch(() => ({})) : ({} as any);
-        setProfile({ ok: false, error: j?.error ?? "Unable to load" } as any);
+        setLoadError(j?.error ?? "General settings did not load. Retry here, open services, or ask Pura to help.");
+        setProfile({ ok: false, error: j?.error ?? "General settings did not load. Retry here, open services, or ask Pura to help." } as any);
       }
 
       if (cRes?.ok) setCredits(((await cRes.json().catch(() => null)) as CreditsRes | null) ?? null);
@@ -262,7 +269,7 @@ function GeneralTab({
         fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store" }).catch(() => null as any),
       ]);
 
-      if (!mounted) return;
+      if (!mountedRef.current) return;
 
       if (rRes?.ok) setReporting(((await rRes.json().catch(() => null)) as ReportingRes | null) ?? null);
       else setReporting(null);
@@ -280,12 +287,15 @@ function GeneralTab({
       }
 
       setServiceUsage(nextUsage);
-    })();
-
-    return () => {
-      mounted = false;
-    };
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadSettingsOverview();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [loadSettingsOverview]);
 
   const billingModel = services && "ok" in services && services.ok ? services.billingModel : undefined;
   const creditsOnly = billingModel === "credits";
@@ -332,7 +342,7 @@ function GeneralTab({
 
       const json = res ? ((await res.json().catch(() => ({}))) as any) : null;
       if (!res || !res.ok || !json?.ok) {
-        toast.error(json?.error || (!res ? "Unable to reach server" : "Unable to save"));
+        toast.error(json?.error || (!res ? "We could not reach settings. Retry this save or ask Pura to help." : "Settings did not save. Retry this save or ask Pura to help."));
         return;
       }
 
@@ -403,7 +413,7 @@ function GeneralTab({
         const body = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          toast.error(body?.error ?? "Unable to purchase credits");
+          toast.error(body?.error ?? "Credits checkout did not start. Retry here in settings.");
           try {
             if (checkoutTab && !checkoutTab.closed) checkoutTab.close();
           } catch {
@@ -492,6 +502,37 @@ function GeneralTab({
 
   return (
     <div className="mt-6">
+      {loadError ? (
+        <div className="mb-6 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">General settings need attention</div>
+          <div className="mt-1">{loadError}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void loadSettingsOverview();
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={onGoServices}
+              className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Open services
+            </button>
+            <Link
+              href={`${portalBase}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-stretch">
         <div className="h-full">
           <div className="flex h-full flex-col">
@@ -524,7 +565,11 @@ function GeneralTab({
                 placeholder="+1 (555) 123-4567"
               />
               {!phoneValidation.ok && phone.trim() ? (
-                <div className="mt-2 text-xs text-red-700">{phoneValidation.error}</div>
+                <div className="mt-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                  <div className="font-semibold text-red-900">Phone number needs attention</div>
+                  <div className="mt-1">{phoneValidation.error}</div>
+                  <div className="mt-2 text-red-800/80">Use a full number with area code so alerts, reminders, and support follow-ups reach the right place.</div>
+                </div>
               ) : null}
             </div>
 
@@ -621,6 +666,8 @@ function GeneralTab({
           purchaseAvailable={Boolean((credits as any)?.purchaseAvailable ?? true)}
           creditUsdValue={typeof (credits as any)?.creditUsdValue === "number" ? (credits as any).creditUsdValue : null}
           estimatedMonthlyCredits={estimatedMonthlyCredits}
+          helpHref={`${portalBase}/app/ai-chat?onboarding=1`}
+          reviewHref={`${portalBase}/app/settings?tab=billing`}
           onStartCheckout={startCreditsCheckout}
         />
 
@@ -646,7 +693,25 @@ function GeneralTab({
               ))}
             </div>
           ) : (
-            <div className="mt-3 flex-1 text-sm text-zinc-600">No services found.</div>
+            <div className="mt-3 flex-1 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
+              <div className="font-semibold text-zinc-900">No services are active yet</div>
+              <div className="mt-1">Open Services to choose what this workspace should launch first, or ask Pura to map the fastest setup path.</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-100"
+                  onClick={onGoServices}
+                >
+                  Open services
+                </button>
+                <Link
+                  href={`${portalBase}/app/ai-chat?onboarding=1`}
+                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
           )}
 
           <div className="mt-auto pt-4">
@@ -749,7 +814,7 @@ function GeneralTab({
                       await navigator.clipboard.writeText(referral.url);
                       toast.success("Copied referral link.");
                     } catch {
-                      toast.error("Unable to copy.");
+                      toast.error("That referral link did not copy. Retry here.");
                     }
                   })();
                 }}

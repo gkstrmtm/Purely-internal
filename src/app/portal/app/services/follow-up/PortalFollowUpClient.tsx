@@ -370,12 +370,12 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     fd.set("file", file);
     const res = await fetch("/api/uploads", { method: "POST", body: fd });
     const body = (await res.json().catch(() => ({}))) as any;
-    if (!res.ok) throw new Error((typeof body?.error === "string" ? body.error : null) ?? "Upload failed");
+    if (!res.ok) throw new Error((typeof body?.error === "string" ? body.error : null) ?? "That attachment did not upload. Try again here or keep editing this step.");
 
     const mediaItem = body?.mediaItem;
     const mediaItemId = typeof mediaItem?.id === "string" ? mediaItem.id : "";
     if (!mediaItemId) {
-      throw new Error("Upload succeeded, but this file couldn't be added to the media library for attachments.");
+      throw new Error("That file did not attach. Try again here or choose a different file.");
     }
 
     return {
@@ -421,7 +421,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         toast.error("Insufficient credits to generate.");
         return null;
       }
-      toast.error((json as any)?.error || "Failed to generate step");
+      toast.error((json as any)?.error || "That follow-up step did not generate. Try again here or keep editing this step.");
       return null;
     }
 
@@ -472,6 +472,42 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     }
 
     return { body: bodyCoerced.slice(0, 8000) };
+  }
+
+  async function runAiDraft() {
+    if (!aiDraftModal) return;
+    setAiDraftBusy(true);
+    setAiDraftError(null);
+    try {
+      const draft = await generateDraft({
+        kind: aiDraftModal.kind,
+        stepName: aiDraftModal.stepName,
+        prompt: aiDraftInstruction.trim() || undefined,
+        existingSubject: aiDraftModal.kind === "EMAIL" ? aiDraftModal.existingSubject : undefined,
+        existingBody: aiDraftModal.existingBody,
+      });
+
+      if (!draft) return;
+
+      if (aiDraftModal.kind === "EMAIL") {
+        const subject = (draft.subject ?? aiDraftModal.existingSubject ?? "").trim();
+        aiDraftModal.apply({
+          email: {
+            subjectTemplate: subject || "Follow-up",
+            bodyTemplate: String(draft.body || ""),
+          },
+        });
+      } else {
+        aiDraftModal.apply({ sms: { bodyTemplate: String(draft.body || "") } });
+      }
+
+      setAiDraftModal(null);
+      setAiDraftInstruction("");
+    } catch (e: any) {
+      setAiDraftError(String(e?.message || "That draft did not generate. Retry here or ask Pura to help."));
+    } finally {
+      setAiDraftBusy(false);
+    }
   }
 
   function insertAtCursor(current: string, insert: string, el: HTMLInputElement | HTMLTextAreaElement | null) {
@@ -554,17 +590,17 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
           setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
         } else {
-          setError(json.error ?? "Unable to load follow-up settings");
+          setError(json.error ?? "Follow-up did not load. Retry here, open booking settings, or ask Pura to help.");
         }
       } else if (settingsRes.timedOut) {
-        setError("Follow-up took too long to load. Try again in a moment.");
+        setError("Follow-up took too long to load. Retry here, open booking settings, or ask Pura to help.");
       } else {
-        setError(settingsRes.body?.error ?? "Unable to load follow-up settings");
+        setError(settingsRes.body?.error ?? "Follow-up did not load. Retry here, open booking settings, or ask Pura to help.");
       }
 
       didLoad = true;
     } catch {
-      setError("Unable to load follow-up settings");
+      setError("Follow-up did not load. Retry here, open booking settings, or ask Pura to help.");
     } finally {
       if (mountedRef.current) {
         if (didLoad) hasLoadedOnceRef.current = true;
@@ -585,13 +621,17 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     return Boolean(me?.entitlements?.booking);
   }, [isEmbedded, me]);
 
-  const refreshTags = useCallback(async () => {
+  const refreshTags = useCallback(async (opts?: { suppressErrorToast?: boolean }) => {
     setTagsLoading(true);
     try {
       const res = await fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json.ok || !Array.isArray(json.tags)) {
-        throw new Error(typeof json?.error === "string" ? json.error : "Failed to load tags");
+        throw new Error(
+          typeof json?.error === "string"
+            ? json.error
+            : "Contact tags did not load. Refresh this page or create the tag again from this step.",
+        );
       }
       const next = (json.tags as any[])
         .map((t: any) => ({
@@ -604,10 +644,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       setOwnerTags(next);
     } catch {
       setOwnerTags([]);
+      if (!opts?.suppressErrorToast) {
+        toast.error("Contact tags did not load. Refresh this page or create the tag again from this step.");
+      }
     } finally {
       setTagsLoading(false);
     }
-  }, [variantHeaders]);
+  }, [toast, variantHeaders]);
 
   useEffect(() => {
     if (!unlocked) return;
@@ -630,11 +673,22 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json.ok || !json.tag?.id) {
-        throw new Error(typeof json?.error === "string" ? json.error : "Failed to create tag");
+        throw new Error(typeof json?.error === "string" ? json.error : "That tag did not save. Try again here or keep using the current tags.");
       }
 
       const createdId = String(json.tag.id);
-      await refreshTags();
+      const createdTag: ContactTag = {
+        id: createdId,
+        name: typeof json.tag?.name === "string" ? String(json.tag.name).slice(0, 60) : name.slice(0, 60),
+        color: typeof json.tag?.color === "string" ? String(json.tag.color) : null,
+      };
+      setOwnerTags((prev) => {
+        const next = prev.filter((tag) => tag.id !== createdId);
+        next.push(createdTag);
+        next.sort((a, b) => a.name.localeCompare(b.name));
+        return next;
+      });
+      await refreshTags({ suppressErrorToast: true });
 
       const stepId = createTagStepId;
       if (stepId) patchStepById(stepId, { tagId: createdId });
@@ -643,7 +697,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       setCreateTagStepId(null);
       toast.success("Created tag");
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to create tag"));
+      toast.error(String(e?.message || "That tag did not save. Try again here or keep using the current tags."));
     } finally {
       setCreateTagBusy(false);
     }
@@ -807,7 +861,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     };
     setBusy(false);
     if (!res.ok || !json.ok || !json.settings) {
-      setError(json.error ?? "Unable to save");
+      setError(json.error ?? "These follow-up settings did not save. Retry here or review the steps again.");
       return;
     }
     setSettings(json.settings);
@@ -866,7 +920,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; note?: string };
     setTestBusy(false);
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Test send failed");
+      setError(json.error ?? "That test did not send. Retry here or review the destination first.");
       return;
     }
     toast.success(json.note ?? "Sent");
@@ -933,6 +987,34 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           >
             All services
           </Link>
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className={(isEmbedded ? "mt-4" : "mt-6") + " rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"}>
+          <div className="font-semibold">Follow-up needs attention</div>
+          <div className="mt-1 text-red-800">{error}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Retry
+            </button>
+            <Link
+              href={`${portalBase}/app/services/booking/settings`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Open booking settings
+            </Link>
+            <Link
+              href={`${portalBase}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Ask Pura
+            </Link>
+          </div>
         </div>
       ) : null}
 
@@ -1126,7 +1208,31 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           ))
                         ) : (
                           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                            No saved templates yet.
+                            <div className="font-semibold text-zinc-900">No saved templates yet</div>
+                            <div className="mt-1">Load a built-in template first, then save your own version once the timing and copy feel right.</div>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                onClick={() => {
+                                  setChainTemplateDraftName("");
+                                  setChainTemplatePicker({
+                                    title: chainTemplatePicker.title,
+                                    stepsSnapshot: chainTemplatePicker.stepsSnapshot,
+                                    setSteps: chainTemplatePicker.setSteps,
+                                  });
+                                }}
+                              >
+                                Browse templates
+                              </button>
+                              <Link
+                                href={`${portalBase}/tutorials/follow-up`}
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                              >
+                                Open guide
+                              </Link>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1645,7 +1751,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                                         },
                                                       });
                                                     } catch (err: any) {
-                                                      toast.error(String(err?.message || "Upload failed"));
+                                                      toast.error(String(err?.message || "That attachment did not upload. Try again here or keep editing this step."));
                                                     } finally {
                                                       setUploadBusyStepId((prev) => (prev === s.id ? null : prev));
                                                     }
@@ -1831,7 +1937,43 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                             );
                           })
                         ) : (
-                          <div className="text-sm text-zinc-600">No steps yet.</div>
+                          <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                            <div className="font-semibold text-zinc-900">No steps yet</div>
+                            <div className="mt-1">Start with one email or SMS step, or load a template so this chain is ready faster.</div>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => addStep(makeBlankStep("EMAIL"))}
+                                className="inline-flex items-center justify-center rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                              >
+                                Add email step
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => addStep(makeBlankStep("SMS"))}
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                              >
+                                Add SMS step
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                                onClick={() => {
+                                  setChainTemplateDraftName("");
+                                  setChainTemplatePicker({
+                                    title: opts.title,
+                                    stepsSnapshot: steps,
+                                    setSteps: opts.setSteps,
+                                  });
+                                }}
+                              >
+                                Load template
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1884,7 +2026,24 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                         ))}
                       </div>
                     ) : (
-                      <div className="mt-4 text-sm text-zinc-600">No calendars configured yet.</div>
+                      <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                        <div className="font-semibold text-zinc-900">No calendars configured yet</div>
+                        <div className="mt-1">Follow-up rules can run against specific booking calendars once at least one calendar exists.</div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`${portalBase}/app/services/booking/settings`}
+                            className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                          >
+                            Open Booking settings
+                          </Link>
+                          <Link
+                            href={`${portalBase}/tutorials/booking`}
+                            className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                          >
+                            Booking walkthrough
+                          </Link>
+                        </div>
+                      </div>
                     )}
                   </>
                 );
@@ -2000,7 +2159,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                         ) : (
                           <span className="text-zinc-700">PENDING</span>
                         )}
-                        {q.lastError ? <div className="mt-1 text-xs text-red-700">{q.lastError}</div> : null}
+                        {q.lastError ? (
+                          <div className="mt-1 text-xs text-red-700">
+                            <span className="font-semibold text-red-800">Delivery issue.</span>{" "}
+                            {q.lastError}
+                            {canLink ? " Open this thread in Inbox to review what failed." : " Review the follow-up rule and contact record before retrying this path."}
+                          </div>
+                        ) : null}
                       </div>
                     </>
                   );
@@ -2025,7 +2190,31 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   );
                 })
               ) : (
-                <div className="px-4 py-6 text-sm text-zinc-600">No follow-ups queued yet.</div>
+                <div className="px-4 py-6 text-sm text-zinc-600">
+                  <div className="font-semibold text-zinc-900">No follow-ups queued yet</div>
+                  <div className="mt-1">Once an appointment qualifies for this automation, upcoming and recently sent follow-ups show here.</div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTab("settings")}
+                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      Edit follow-up rules
+                    </button>
+                    <Link
+                      href={`${portalBase}/app/services/booking?tab=appointments`}
+                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      Open appointments
+                    </Link>
+                    <Link
+                      href={`${portalBase}/app/ai-chat?onboarding=1`}
+                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      Ask Pura for help
+                    </Link>
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -2208,40 +2397,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               type="button"
               className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               disabled={aiDraftBusy || !aiDraftModal}
-              onClick={async () => {
-                if (!aiDraftModal) return;
-                setAiDraftBusy(true);
-                setAiDraftError(null);
-                try {
-                  const draft = await generateDraft({
-                    kind: aiDraftModal.kind,
-                    stepName: aiDraftModal.stepName,
-                    prompt: aiDraftInstruction.trim() || undefined,
-                    existingSubject: aiDraftModal.kind === "EMAIL" ? aiDraftModal.existingSubject : undefined,
-                    existingBody: aiDraftModal.existingBody,
-                  });
-
-                  if (!draft) return;
-
-                  if (aiDraftModal.kind === "EMAIL") {
-                    const subject = (draft.subject ?? aiDraftModal.existingSubject ?? "").trim();
-                    aiDraftModal.apply({
-                      email: {
-                        subjectTemplate: subject || "Follow-up",
-                        bodyTemplate: String(draft.body || ""),
-                      },
-                    });
-                  } else {
-                    aiDraftModal.apply({ sms: { bodyTemplate: String(draft.body || "") } });
-                  }
-
-                  setAiDraftModal(null);
-                  setAiDraftInstruction("");
-                } catch (e: any) {
-                  setAiDraftError(String(e?.message || "Failed to generate"));
-                } finally {
-                  setAiDraftBusy(false);
-                }
+              onClick={() => {
+                void runAiDraft();
               }}
             >
               {aiDraftBusy ? "Drafting…" : "Generate"}
@@ -2278,7 +2435,28 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           </label>
 
           {aiDraftError ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{aiDraftError}</div>
+            <div className="rounded-3xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              <div className="font-semibold text-red-900">AI draft needs attention</div>
+              <div className="mt-1">{aiDraftError}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void runAiDraft();
+                  }}
+                  disabled={aiDraftBusy || !aiDraftModal}
+                  className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  Retry
+                </button>
+                <Link
+                  href={`${portalBase}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
           ) : null}
 
           <div className="text-xs text-zinc-500">

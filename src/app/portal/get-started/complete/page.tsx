@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AppModal } from "@/components/AppModal";
@@ -35,15 +35,16 @@ function PortalGetStartedCompleteInner() {
   const [modalOpen, setModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const confirmOnboarding = useCallback(async () => {
+    if (!sessionId && !bypass) {
+      router.replace(`${portalBase}/get-started`, { scroll: false });
+      return;
+    }
 
-    (async () => {
-      if (!sessionId && !bypass) {
-        router.replace(`${portalBase}/get-started`, { scroll: false });
-        return;
-      }
+    setLoading(true);
+    setError(null);
 
+    try {
       const res = await fetch("/api/portal/billing/onboarding-confirm", {
         method: "POST",
         headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalBase === "/credit" ? "credit" : "portal" },
@@ -51,14 +52,13 @@ function PortalGetStartedCompleteInner() {
       });
 
       const json = await res.json().catch(() => null);
-      if (!mounted) return;
 
       if (!res.ok || !json?.ok) {
         if (res.status === 401 || res.status === 403) {
           router.replace(`${portalBase}/login`, { scroll: false });
           return;
         }
-        setError(json?.error || "Unable to activate services");
+        setError(json?.error || "Your services did not activate yet. Retry here, jump back into setup, or open onboarding.");
         setLoading(false);
         return;
       }
@@ -67,12 +67,15 @@ function PortalGetStartedCompleteInner() {
       setBonusCredits(credits);
       setLoading(false);
       setModalOpen(true);
-    })();
+    } catch {
+      setError("Your services did not finish activating. Retry here, jump back into setup, or open onboarding.");
+      setLoading(false);
+    }
+  }, [bypass, portalBase, router, sessionId]);
 
-    return () => {
-      mounted = false;
-    };
-  }, [router, sessionId, bypass, portalBase]);
+  useEffect(() => {
+    void confirmOnboarding();
+  }, [confirmOnboarding]);
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
@@ -83,8 +86,36 @@ function PortalGetStartedCompleteInner() {
             We&apos;re activating your portal services now.
           </div>
           <div className="mt-6 text-sm text-zinc-600">
-            {loading ? "Please wait." : error ? "Something went wrong. You can close this tab or try again." : "Almost done…"}
+            {loading ? "Please wait." : error ? "Activation paused. Retry here or jump back into setup." : "Almost done…"}
           </div>
+          {error ? (
+            <>
+              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => void confirmOnboarding()}
+                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Retry activation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.replace(`${portalBase}/get-started`, { scroll: false })}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Back to setup
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.replace(`${portalBase}/app/onboarding`, { scroll: false })}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open onboarding
+                </button>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -102,7 +133,7 @@ function PortalGetStartedCompleteInner() {
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
               onClick={() => {
                 setModalOpen(false);
                 router.replace(`${portalBase}/app/onboarding`, { scroll: false });

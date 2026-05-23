@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 
@@ -50,45 +50,42 @@ export function DiscountCheckoutClient(props: {
   const title = useMemo(() => serviceTitle(props.serviceSlug), [props.serviceSlug]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const startDiscountCheckout = useCallback(async () => {
+    setError(null);
 
-    (async () => {
-      const moduleKey = moduleKeyForServiceSlug(props.serviceSlug);
-      const promoCode = String(props.promoCode || "").trim();
-      const campaignId = String(props.campaignId || "").trim();
-      if (!moduleKey) {
-        if (mounted) setError("Unknown service for discount.");
-        return;
-      }
-      if (!promoCode && !campaignId) {
-        if (mounted) setError("Missing discount details.");
-        return;
-      }
+    const moduleKey = moduleKeyForServiceSlug(props.serviceSlug);
+    const promoCode = String(props.promoCode || "").trim();
+    const campaignId = String(props.campaignId || "").trim();
+    if (!moduleKey) {
+      setError("Unknown service for discount.");
+      return;
+    }
+    if (!promoCode && !campaignId) {
+      setError("Missing discount details.");
+      return;
+    }
 
-      const successPath = `${props.basePath}/app/billing?checkout=success`;
-      const cancelPath = `${props.basePath}/app/billing?checkout=cancel`;
+    const successPath = `${props.basePath}/app/billing?checkout=success`;
+    const cancelPath = `${props.basePath}/app/billing?checkout=cancel`;
 
-      const res = await fetch("/api/portal/billing/checkout-module", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ module: moduleKey, promoCode: promoCode || undefined, campaignId: campaignId || undefined, serviceSlug: props.serviceSlug, successPath, cancelPath }),
-      }).catch(() => null);
+    const res = await fetch("/api/portal/billing/checkout-module", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ module: moduleKey, promoCode: promoCode || undefined, campaignId: campaignId || undefined, serviceSlug: props.serviceSlug, successPath, cancelPath }),
+    }).catch(() => null);
 
-      const body = (await res?.json().catch(() => ({}))) as any;
-      if (!res?.ok || !body?.ok || typeof body?.url !== "string") {
-        const msg = String(body?.error || "Unable to start checkout");
-        if (mounted) setError(msg);
-        return;
-      }
+    const body = (await res?.json().catch(() => ({}))) as any;
+    if (!res?.ok || !body?.ok || typeof body?.url !== "string") {
+      setError(String(body?.error || "Discount checkout did not start. Retry here, go to billing, or ask Pura to help."));
+      return;
+    }
 
-      window.location.href = body.url;
-    })();
-
-    return () => {
-      mounted = false;
-    };
+    window.location.href = body.url;
   }, [props.basePath, props.campaignId, props.promoCode, props.serviceSlug]);
+
+  useEffect(() => {
+    void startDiscountCheckout();
+  }, [startDiscountCheckout]);
 
   return (
     <div className="mx-auto w-full max-w-xl p-6">
@@ -98,8 +95,28 @@ export function DiscountCheckoutClient(props: {
 
         {error ? (
           <>
-            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
-            <div className="mt-4">
+            <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              <div className="font-semibold text-red-900">Discount checkout needs attention</div>
+              <div className="mt-1">{error}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void startDiscountCheckout();
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Retry
+                </button>
+                <Link
+                  href={`${props.basePath}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
               <Link
                 href={`${props.basePath}/app/billing`}
                 className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"

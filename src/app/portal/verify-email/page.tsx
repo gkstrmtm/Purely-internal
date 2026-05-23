@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
@@ -13,16 +13,17 @@ function VerifyEmailInner() {
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [message, setMessage] = useState<string>("");
 
-  useEffect(() => {
-    let alive = true;
+  const runVerification = useCallback(async () => {
+    if (!token) {
+      setStatus("error");
+      setMessage("Missing verification token.");
+      return;
+    }
 
-    async function run() {
-      if (!token) {
-        setStatus("error");
-        setMessage("Missing verification token.");
-        return;
-      }
+    setStatus("loading");
+    setMessage("");
 
+    try {
       const res = await fetch("/api/portal/auth/verify-email", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -30,7 +31,6 @@ function VerifyEmailInner() {
       });
 
       const json = (await res.json().catch(() => ({}))) as any;
-      if (!alive) return;
 
       if (res.ok && json?.ok) {
         setStatus("ok");
@@ -39,14 +39,27 @@ function VerifyEmailInner() {
       }
 
       setStatus("error");
-      setMessage(json?.error || "Unable to verify this link.");
+      setMessage(json?.error || "This link did not verify. Retry here, head back to sign in, or return to the portal.");
+    } catch {
+      setStatus("error");
+      setMessage("This link did not verify. Retry here, head back to sign in, or return to the portal.");
+    }
+  }, [token]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function run() {
+      if (!alive) return;
+
+      await runVerification();
     }
 
     void run();
     return () => {
       alive = false;
     };
-  }, [token]);
+  }, [runVerification]);
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
@@ -56,13 +69,27 @@ function VerifyEmailInner() {
           <div className="mt-2 text-sm text-zinc-600">
             {status === "loading" ? "Verifying…" : message}
           </div>
+          {status === "error" ? (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              If the link is older, it may have expired. Retry once, then return to sign in and request a fresh verification email if needed.
+            </div>
+          ) : null}
 
           <div className="mt-6 flex flex-col gap-2">
+            {status === "error" ? (
+              <button
+                type="button"
+                onClick={() => void runVerification()}
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-center text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+              >
+                Retry verification
+              </button>
+            ) : null}
             <Link
               href={`${portalBase}/login`}
               className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-center text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
             >
-              Sign in
+              {status === "ok" ? "Sign in" : "Back to sign in"}
             </Link>
             <Link
               href={portalBase}

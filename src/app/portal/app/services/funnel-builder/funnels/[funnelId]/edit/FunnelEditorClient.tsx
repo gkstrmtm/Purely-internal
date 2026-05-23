@@ -172,11 +172,11 @@ function getPricingSpeechRecognitionCtor(source: Window & typeof globalThis): Pr
 
 function friendlyPricingSpeechError(event: PricingSpeechRecognitionErrorEventLike) {
   const code = String(event.error || "").trim().toLowerCase();
-  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied.";
-  if (code === "no-speech") return "No speech was detected. Try again and speak a little closer to the mic.";
-  if (code === "audio-capture") return "This browser could not access a working microphone.";
-  if (code === "network") return "Speech recognition hit a network issue. Try again.";
-  return "Speech recognition stopped unexpectedly.";
+  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied. Allow access and retry here, or keep typing.";
+  if (code === "no-speech") return "No speech was detected. Retry here and speak a little closer to the mic, or keep typing.";
+  if (code === "audio-capture") return "This browser could not access a working microphone. Retry here or keep typing.";
+  if (code === "network") return "Speech recognition hit a network issue. Retry here or keep typing.";
+  return "Speech recognition stopped unexpectedly. Retry here or keep typing.";
 }
 
 function PricingAssistMicIcon({ active }: { active: boolean }) {
@@ -306,20 +306,20 @@ function normalizeFunnelEditorError(action: string, error: unknown, status?: num
   }
   if (normalized.includes("invalid slug")) return "Use letters, numbers, and dashes for the page path.";
   if (normalized.includes("invalid name")) return "Add a clearer page name and try again.";
-  if (action.includes("read aloud")) return "We couldn't generate read aloud audio right now.";
-  if (action.includes("page chat")) return "The page assistant could not respond right now.";
-  if (action.includes("publish")) return "We couldn't publish this page right now. Review any highlighted issues and try again.";
+  if (action.includes("read aloud")) return "Read aloud audio did not generate. Try again here or keep editing the page.";
+  if (action.includes("page chat")) return "The page assistant did not respond. Retry here or keep editing the page.";
+  if (action.includes("publish")) return "This page did not publish. Review any highlighted issues and try again.";
   if (action.includes("generate html") || action.includes("whole-page") || action.includes("page source")) {
-    return "We couldn't update the page source right now.";
+    return "The page source did not update. Try again here or keep editing the page.";
   }
   if (action.includes("load funnel") || action.includes("load pages") || action.includes("load threads")) {
-    return "We couldn't load this funnel workspace right now.";
+    return "This funnel workspace did not load. Retry here, open funnels, or ask Pura to help.";
   }
-  if (action.includes("create page")) return "We couldn't create this page right now.";
-  if (action.includes("save page")) return "We couldn't save this page right now.";
-  if (action.includes("delete page")) return "We couldn't delete this page right now.";
-  if (normalized.includes("failed")) return `We couldn't ${action} right now. Please try again.`;
-  return message || `We couldn't ${action} right now. Please try again.`;
+  if (action.includes("create page")) return "This page did not create. Try again here or keep editing the funnel.";
+  if (action.includes("save page")) return "This page did not save. Try again here or keep editing it.";
+  if (action.includes("delete page")) return "This page did not delete. Try again here or reopen it from the funnel.";
+  if (normalized.includes("failed")) return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
+  return message || `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
 }
 
 function sanitizeAiContextMediaItems(raw: unknown): AiContextMediaItem[] {
@@ -531,7 +531,7 @@ function SidebarStatusPill({
 
 function SidebarRouteChip({ label }: { label: string }) {
   return (
-    <div className="inline-flex max-w-full rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-medium leading-4 text-zinc-600 [overflow-wrap:anywhere]">
+    <div className="inline-flex max-w-full rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-medium leading-4 text-zinc-600 wrap-anywhere">
       {label}
     </div>
   );
@@ -722,10 +722,6 @@ type CodeToken = {
 const CODE_SURFACE_LINE_HEIGHT = 24;
 const CODE_SURFACE_VERTICAL_PADDING = 24;
 const CODE_SURFACE_FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
-
-function countMeaningfulCodeLines(value: string) {
-  return splitCodeLines(value).filter((line) => line.trim()).length;
-}
 
 function stripDiffMarkers(value: string) {
   return splitCodeLines(value)
@@ -1773,23 +1769,27 @@ function buildTransactionReadiness(opts: {
   const visit = (blocks: CreditFunnelBlock[]) => {
     for (const block of blocks) {
       if (!block || typeof block !== "object") continue;
-      const props: any = block.props || {};
-      const text = normalizeInlineText(String(props.text || props.heading || props.title || props.productName || props.label || ""));
+      const props = block.props && typeof block.props === "object" ? (block.props as Record<string, any>) : {};
+      const text = String(
+        props.text || props.label || props.title || props.heading || props.buttonText || props.ctaText || props.name || "",
+      ).trim();
 
       switch (block.type) {
         case "calendarEmbed": {
-          const calendarId = String(props.calendarId || "").trim();
           pushPointer(bookingPointers, bookingSeen, {
             blockId: block.id,
             kind: "Booking block",
-            label: opts.bookingCalendarTitleById?.[calendarId] || text || "Calendar embed",
-            detail: calendarId ? `calendarId: ${calendarId}` : "embedded calendar",
+            label: text || "Calendar",
+            detail: String(props.calendarId || "").trim() || "embedded calendar",
           });
           break;
         }
+        case "formLink":
         case "button": {
-          const href = String(props.href || "").trim();
-          if (/(\/book\/|#book\b|booking|schedule|calendar)/i.test(href)) {
+          const href = String(props.href || props.url || "").trim();
+          if (!href) break;
+
+          if (/(book|schedule|calendar)/i.test(href)) {
             pushPointer(bookingPointers, bookingSeen, {
               blockId: block.id,
               kind: "Booking CTA",
@@ -2224,7 +2224,6 @@ function AnimatedAssistantMessageText({
     };
   // tokens is derived from normalizedContent; both changing at once would
   // reset visibleCount, which is correct behavior.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animate, tokens, onComplete]);
 
   const isComplete = visibleCount >= tokens.length;
@@ -2636,14 +2635,14 @@ function DirectionWorkbenchPanel({
     player.onended = () => setAudioPlayingKey((current) => (current === messageKey ? null : current));
     player.onerror = () => {
       setAudioPlayingKey((current) => (current === messageKey ? null : current));
-      toast.error("Read aloud could not play this response");
+      toast.error("Read aloud did not play. Retry here.");
     };
 
     const playback = player.play();
     if (playback && typeof playback.catch === "function") {
       playback.catch(() => {
         setAudioPlayingKey((current) => (current === messageKey ? null : current));
-        toast.error("Read aloud could not start");
+        toast.error("Read aloud did not start. Retry here.");
       });
     }
     setAudioPlayingKey(messageKey);
@@ -4054,14 +4053,6 @@ function buildPageConversionFocus(intent: FunnelPageIntentProfile) {
   };
 }
 
-function getLatestBlockChatMessage(messages: BlockChatMessage[], role: BlockChatMessage["role"]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role === role) return message;
-  }
-  return null;
-}
-
 function ToggleSwitch({
   checked,
   disabled,
@@ -4424,38 +4415,6 @@ function maybeHexFromCssColor(raw: string | undefined | null): string | null {
 
   return null;
 }
-
-function collectHexSwatchesFromUnknown(value: unknown, out: string[], depth = 0) {
-  if (depth > 10) return;
-  if (value == null) return;
-
-  if (typeof value === "string") {
-    const hex = maybeHexFromCssColor(value);
-    if (hex) out.push(hex);
-    return;
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value) collectHexSwatchesFromUnknown(item, out, depth + 1);
-    return;
-  }
-
-  if (typeof value === "object") {
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      if (typeof entry === "string") {
-        const looksLikeColor =
-          key.toLowerCase().includes("color") || entry.trim().startsWith("#") || entry.trim().toLowerCase().startsWith("rgb");
-        if (looksLikeColor) {
-          const hex = maybeHexFromCssColor(entry);
-          if (hex) out.push(hex);
-          continue;
-        }
-      }
-      collectHexSwatchesFromUnknown(entry, out, depth + 1);
-    }
-  }
-}
-
 function compactStyle(style: BlockStyle | undefined): BlockStyle | undefined {
   if (!style) return undefined;
   const next: any = { ...style };
@@ -4722,7 +4681,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   },
                 );
                 const json = (await res.json().catch(() => null)) as any;
-                if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to export HTML");
+                if (!res.ok || !json || json.ok !== true) {
+                  throw new Error(json?.error || "HTML export did not finish. Retry here on this page or keep editing here.");
+                }
                 const page = json.page as Partial<Page> | undefined;
                 if (page?.id) {
                   setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
@@ -4731,7 +4692,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   await load();
                 }
               } catch (e) {
-                setError((e as any)?.message ? String((e as any).message) : "Failed to export HTML");
+                setError(
+                  (e as any)?.message
+                    ? String((e as any).message)
+                    : "HTML export did not finish. Retry here on this page or keep editing here.",
+                );
               } finally {
                 setBusy(false);
               }
@@ -4902,7 +4867,35 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </div>
               </header>
 
-              {error ? <div className="mx-4 mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+              {error ? (
+                <div className="mx-4 mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <div className="font-semibold text-red-900">Funnel editor needs attention</div>
+                  <div className="mt-1">{error}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void load();
+                      }}
+                      className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                    >
+                      Retry
+                    </button>
+                    <Link
+                      href={`${basePath}/app/services/funnel-builder`}
+                      className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                    >
+                      Open funnels
+                    </Link>
+                    <Link
+                      href={`${basePath}/app/ai-chat?onboarding=1`}
+                      className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                    >
+                      Ask Pura
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
 
               {selectedPage && selectedPage.editorMode !== "MARKDOWN" ? (
                 <div
@@ -5357,7 +5350,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 {selectedBlock.props.src ? (
                                   <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Image selected.</div>
                                 ) : (
-                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No image selected.</div>
+                                  <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-600">
+                                    <div className="font-semibold text-zinc-900">No image selected</div>
+                                    <div className="mt-1">Choose an existing asset or upload one with the controls above so this block has something visible to render.</div>
+                                  </div>
                                 )}
 
                                 <label className="block">
@@ -5439,7 +5435,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             } as any);
                                             toast.success("Video uploaded and selected");
                                           } catch (err) {
-                                            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                                  const msg = (err as any)?.message ? String((err as any).message) : "That video did not upload. Try again here or choose another file.";
                                             toast.error(msg);
                                           } finally {
                                             setUploadingImageBlockId(null);
@@ -5478,7 +5474,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 {String((selectedBlock.props as any).src || "").trim() ? (
                                   <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Video selected.</div>
                                 ) : (
-                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No video selected.</div>
+                                  <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-600">
+                                    <div className="font-semibold text-zinc-900">No video selected</div>
+                                    <div className="mt-1">Choose a saved asset or upload a video above so this block can play real media instead of staying empty.</div>
+                                  </div>
                                 )}
 
                                 <label className="block">
@@ -5665,7 +5664,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                                   } as any);
                                                   toast.success("Poster uploaded and selected");
                                                 } catch (err) {
-                                                  const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                                  const msg = (err as any)?.message ? String((err as any).message) : "That poster did not upload. Try again here or choose another image.";
                                                   toast.error(msg);
                                                 } finally {
                                                   setUploadingImageBlockId(null);
@@ -5696,7 +5695,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                           <div className="mt-1 break-all font-mono text-xs text-zinc-700">{String((selectedBlock.props as any)?.posterUrl || "").trim()}</div>
                                         </div>
                                       ) : (
-                                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No poster selected.</div>
+                                        <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-600">
+                                          <div className="font-semibold text-zinc-900">No poster selected</div>
+                                          <div className="mt-1">Add a poster above if you want a cleaner preview before the video plays, especially on slower connections.</div>
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -7424,14 +7426,19 @@ export function FunnelEditorClient({
       const res = await fetch("/api/portal/funnel-builder/sales/products", { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
-        throw new Error((json && typeof json.error === "string" && json.error) || "Unable to load Stripe products");
+        throw new Error(
+          (json && typeof json.error === "string" && json.error)
+            || "Stripe products did not load. Retry this panel or create a new product below.",
+        );
       }
       const items = Array.isArray(json.products) ? (json.products as any[]) : [];
       const coerced = items.map((item) => coerceStripeProductLite(item)).filter((item): item is StripeProductLite => Boolean(item));
       setStripeProducts(coerced);
     } catch (e) {
-      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to load Stripe products";
-      setStripeProductsError(msg || "Unable to load Stripe products");
+      const msg = e && typeof e === "object" && "message" in e
+        ? String((e as any).message)
+        : "Stripe products did not load. Retry this panel or create a new product below.";
+      setStripeProductsError(msg || "Stripe products did not load. Retry this panel or create a new product below.");
     } finally {
       setStripeProductsBusy(false);
     }
@@ -7461,7 +7468,10 @@ export function FunnelEditorClient({
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
-        throw new Error((json && typeof json.error === "string" && json.error) || "Unable to create Stripe product");
+        throw new Error(
+          (json && typeof json.error === "string" && json.error)
+            || "That Stripe product did not save. Review the details here, then save it again.",
+        );
       }
       const created = coerceStripeProductLite(json.product);
       if (!created) throw new Error("Stripe product was created, but the response was incomplete");
@@ -7478,9 +7488,11 @@ export function FunnelEditorClient({
       toast.success("Stripe product created");
       return created;
     } catch (e) {
-      const message = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to create Stripe product";
-      setStripeProductsError(message || "Unable to create Stripe product");
-      toast.error(message || "Unable to create Stripe product");
+      const message = e && typeof e === "object" && "message" in e
+        ? String((e as any).message)
+        : "That Stripe product did not save. Review the details here, then save it again.";
+      setStripeProductsError(message || "That Stripe product did not save. Review the details here, then save it again.");
+      toast.error(message || "That Stripe product did not save. Review the details here, then save it again.");
       return null;
     } finally {
       setStripeProductsBusy(false);
@@ -7603,7 +7615,7 @@ export function FunnelEditorClient({
   const [selectedHtmlRegionKey, setSelectedHtmlRegionKey] = useState<string | null>(null);
   const [selectedTextTarget, setSelectedTextTarget] = useState<CreditFunnelEditorTextTarget | null>(null);
   const [busyPhaseIdx, setBusyPhaseIdx] = useState(0);
-  const [aiResultBanner, setAiResultBanner] = useState<{ summary: string; at: string; tone: "success" | "warning" } | null>(null);
+  const [, setAiResultBanner] = useState<{ summary: string; at: string; tone: "success" | "warning" } | null>(null);
   const [aiWorkFocus, setAiWorkFocus] = useState<null | {
     mode: "builder" | "page";
     label: string;
@@ -7612,7 +7624,7 @@ export function FunnelEditorClient({
     blockId: string | null;
   }>(null);
   const [htmlChangeActivity, setHtmlChangeActivity] = useState<HtmlChangeActivityItem[]>([]);
-  const [builderChangeActivity, setBuilderChangeActivity] = useState<BuilderChangeActivityItem[]>([]);
+  const [, setBuilderChangeActivity] = useState<BuilderChangeActivityItem[]>([]);
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanelMode>("structure");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [pageRailDetailPanel, setPageRailDetailPanel] = useState<PageRailDetailPanel | null>(null);
@@ -7685,7 +7697,7 @@ export function FunnelEditorClient({
     return hostedPath ? toRuntimeHostedUrl(`${hostedPath}${pageSlugSuffix}`, runtimeHostedOrigin) : null;
   }, [funnel?.assignedDomain, funnel?.slug, funnel?.id, isLocalPreview, runtimeHostedOrigin, selectedPublicPageSlug]);
 
-  const [brandPalette, setBrandPalette] = useState<null | { primary?: string; secondary?: string; accent?: string; text?: string }>(null);
+  const [, setBrandPalette] = useState<null | { primary?: string; secondary?: string; accent?: string; text?: string }>(null);
   const [businessProfileSummary, setBusinessProfileSummary] = useState<BusinessProfileSummary | null>(null);
   const [businessProfileTemplateVars, setBusinessProfileTemplateVars] = useState<Record<string, string>>({});
   const [foundationArtifact, setFoundationArtifact] = useState<FunnelFoundationArtifact | null>(null);
@@ -8749,7 +8761,7 @@ export function FunnelEditorClient({
       const items = await uploadToMediaLibrary([file], { maxFiles: 1 });
       const first = items[0];
       const nextUrl = String(first?.shareUrl || "").trim();
-      if (!nextUrl) throw new Error("Upload succeeded, but did not return a URL");
+      if (!nextUrl) throw new Error("That file uploaded, but no URL came back. Retry here or choose another file.");
       return { url: nextUrl, mediaItem: first ?? null };
     }
 
@@ -8762,8 +8774,8 @@ export function FunnelEditorClient({
         headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
       });
     } catch (e) {
-      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Blob upload failed";
-      throw new Error(msg || "Blob upload failed");
+      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "That file did not upload. Try again here or choose another file.";
+      throw new Error(msg || "That file did not upload. Try again here or choose another file.");
     }
 
     // Create a media library item that points to the blob.
@@ -8786,13 +8798,13 @@ export function FunnelEditorClient({
       throw new Error(
         typeof finalizeJson?.error === "string"
           ? finalizeJson.error
-          : "Upload succeeded, but could not add to media library",
+          : "That file did not add. Try again here or choose another file.",
       );
     }
 
     const mediaItem = finalizeJson.item as PortalMediaPickItem;
     const nextUrl = String(mediaItem.shareUrl || blob.url || "").trim();
-    if (!nextUrl) throw new Error("Upload did not return a URL");
+    if (!nextUrl) throw new Error("That file did not attach. Try again here or choose another file.");
     return { url: nextUrl, mediaItem };
   }, [portalVariant, uploadToMediaLibrary]);
 
@@ -8835,8 +8847,8 @@ export function FunnelEditorClient({
 
       toast.success(`Uploaded ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}`);
     } catch (e) {
-      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Upload failed";
-      toast.error(msg || "Upload failed");
+      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Those files did not upload. Try again here or choose different files.";
+      toast.error(msg || "Those files did not upload. Try again here or choose different files.");
     } finally {
       setAiContextUploadBusy(false);
     }
@@ -9372,7 +9384,7 @@ export function FunnelEditorClient({
       pricingAssistRecognitionRef.current = null;
       pricingAssistDictationFieldKeyRef.current = null;
       setPricingAssistDictatingFieldKey(null);
-      setPricingAssistDictationError("Speech-to-text could not start in this browser session.");
+      setPricingAssistDictationError("Speech-to-text did not start in this browser session. Retry here or keep typing.");
     }
   }, [pricingAssistDictatingFieldKey, stopPricingAssistDictation, updatePricingAssistFieldValue]);
   useEffect(() => {
@@ -10515,14 +10527,14 @@ export function FunnelEditorClient({
           );
           const json = (await res.json().catch(() => null)) as any;
           if (!res.ok || !json || json.ok !== true || !json.foundation) {
-            throw new Error(json?.error || "Unable to resolve foundation");
+            throw new Error(json?.error || "This foundation did not refresh yet.");
           }
           if (foundationArtifactRequestRef.current !== requestId) return;
           setFoundationArtifact(json.foundation as FunnelFoundationArtifact);
         } catch (e) {
           if (foundationArtifactRequestRef.current !== requestId) return;
-          const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to resolve foundation";
-          setFoundationArtifactError(msg || "Unable to resolve foundation");
+          const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "This foundation did not refresh yet.";
+          setFoundationArtifactError(msg || "This foundation did not refresh yet.");
         } finally {
           if (foundationArtifactRequestRef.current === requestId) setFoundationArtifactBusy(false);
         }
@@ -10828,11 +10840,11 @@ export function FunnelEditorClient({
     const formsJson = formsRes ? ((await formsRes.json().catch(() => null)) as any) : null;
     const analyticsJson = analyticsRes ? ((await analyticsRes.json().catch(() => null)) as any) : null;
     if (!fRes.ok || !fJson || fJson.ok !== true)
-      throw new Error(fJson?.error || "Failed to load funnel");
+      throw new Error(fJson?.error || "This funnel workspace did not load. Retry here, open funnels, or ask Pura to help.");
     if (!pRes.ok || !pJson || pJson.ok !== true)
-      throw new Error(pJson?.error || "Failed to load pages");
+      throw new Error(pJson?.error || "This funnel workspace did not load. Retry here, open funnels, or ask Pura to help.");
     if (!tRes.ok || !tJson || tJson.ok !== true)
-      throw new Error(tJson?.error || "Failed to load threads");
+      throw new Error(tJson?.error || "This funnel workspace did not load. Retry here, open funnels, or ask Pura to help.");
 
     const cachedDraft = readFunnelEditorDraftCache(funnelId);
     const liveDirtyPages = (pagesRef.current || []).filter((page) => dirtyPageIdsRef.current[page.id]);
@@ -10927,13 +10939,15 @@ export function FunnelEditorClient({
         body: JSON.stringify({ seo: funnel.seo ?? null }),
       });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save SEO");
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "SEO changes did not save. Review this section here, then save again or ask Pura.");
+      }
       savedFunnelSeoKeyRef.current = serializeFunnelSeoDraft(json.funnel?.seo ?? null);
       setFunnel(json.funnel as Funnel);
       setSeoDirty(false);
       toast.success("SEO saved");
     } catch (e) {
-      const msg = (e as any)?.message ? String((e as any).message) : "Failed to save SEO";
+      const msg = (e as any)?.message ? String((e as any).message) : "SEO changes did not save. Review this section here, then save again or ask Pura.";
       setSeoError(msg);
       toast.error(msg);
     } finally {
@@ -10955,12 +10969,16 @@ export function FunnelEditorClient({
         }),
       });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save booking route");
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Booking route changes did not save. Review this section here, then save again.");
+      }
       setFunnel(json.funnel as Funnel);
       setFunnelBookingDirty(false);
       toast.success("Booking route saved");
     } catch (e) {
-      const msg = (e as any)?.message ? String((e as any).message) : "Failed to save booking route";
+      const msg = (e as any)?.message
+        ? String((e as any).message)
+        : "Booking route changes did not save. Review this section here, then save again.";
       setFunnelBookingError(msg);
       toast.error(msg);
     } finally {
@@ -11117,7 +11135,7 @@ export function FunnelEditorClient({
 
     const draft = buildOfferFromStripeProduct(product, { id: `offer_${newId()}`, label });
     if (!draft) {
-      toast.error("Unable to build an offer from that Stripe product");
+      toast.error("That offer did not build. Review the Stripe product here and try again.");
       return null;
     }
 
@@ -11182,7 +11200,7 @@ export function FunnelEditorClient({
       );
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true || !json.thread) {
-        throw new Error(json?.error || "Failed to save thread");
+        throw new Error(json?.error || "This thread did not save. Retry here or reopen the funnel workspace.");
       }
       const nextThread = json.thread as FunnelThread;
       upsertThreadLocal(nextThread);
@@ -11323,7 +11341,9 @@ export function FunnelEditorClient({
           },
         );
         const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save");
+        if (!res.ok || !json || json.ok !== true) {
+          throw new Error(json?.error || "Page changes did not save. Review this page here, then save again.");
+        }
         const latestRequestSeq = pageSaveRequestRef.current[pageId] || 0;
         if (requestSeq !== latestRequestSeq) return true;
 
@@ -11390,7 +11410,7 @@ export function FunnelEditorClient({
 
         return true;
       } catch (e) {
-        const message = (e as any)?.message ? String((e as any).message) : "Failed to save";
+        const message = (e as any)?.message ? String((e as any)?.message) : "Page changes did not save. Review this page here, then save again.";
         const trackingContext = readTrackingContextFromWindow({
           pageId,
           pageSlug: selectedPage?.slug || null,
@@ -11469,7 +11489,7 @@ export function FunnelEditorClient({
     setSelectedPageLocal({ slug: normalizedSlug });
     const saved = await savePage({ slug: normalizedSlug });
     if (!saved) {
-      setSetupPageSlugError("Failed to save the page path.");
+      setSetupPageSlugError("The page path did not save. Review it here, then save it again.");
       return false;
     }
 
@@ -11659,11 +11679,11 @@ export function FunnelEditorClient({
         const created = await uploadToMediaLibrary(list, { maxFiles: 1 });
         const item = created[0];
         const nextUrl = String(item?.shareUrl || item?.previewUrl || item?.downloadUrl || "").trim();
-        if (!nextUrl) throw new Error("Upload succeeded, but did not return a URL");
+        if (!nextUrl) throw new Error("That tab icon uploaded, but no URL came back. Retry here or choose another image.");
         await setPageFaviconUrl(nextUrl);
         toast.success("Tab icon updated");
       } catch (err) {
-        const message = (err as any)?.message ? String((err as any).message) : "Could not update the tab icon";
+        const message = (err as any)?.message ? String((err as any).message) : "That tab icon did not update. Retry here or choose another image.";
         toast.error(message);
       } finally {
         setPageFaviconUploadBusy(false);
@@ -11740,12 +11760,15 @@ export function FunnelEditorClient({
         body: JSON.stringify({ metaPixelId: normalizeEditorMetaPixelId(nextPixelIdRaw) }),
       });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save funnel tracking");
-      setFunnel(json.funnel as Funnel);
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Funnel tracking did not save. Review this section here, then save again.");
+      }
       toast.success(json?.funnel?.trackingSettings?.funnelPixelId ? "Funnel Meta pixel saved" : "Funnel Meta pixel cleared");
       return true;
     } catch (e) {
-      const message = (e as any)?.message ? String((e as any).message) : "Failed to save funnel tracking";
+      const message = (e as any)?.message
+        ? String((e as any).message)
+        : "Funnel tracking did not save. Review this section here, then save again.";
       setError(message);
       toast.error(message);
       return false;
@@ -15002,7 +15025,7 @@ export function FunnelEditorClient({
       await navigator.clipboard.writeText(funnelLiveHref);
       toast.success("Live funnel URL copied");
     } catch {
-      toast.error("Could not copy live funnel URL");
+      toast.error("That live funnel URL did not copy. Retry here.");
     }
   }, [funnelLiveHref, toast]);
 
@@ -15405,6 +15428,26 @@ export function FunnelEditorClient({
           ))}
         </div>
       ) : null}
+
+      {(!commerceReadyOfferCount || purchaseReadinessItem?.status !== "ready") ? (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {selectedPricingBlock ? (
+            <button
+              type="button"
+              onClick={() => setPricingEditorOpen(true)}
+              className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50"
+            >
+              Open pricing editor
+            </button>
+          ) : null}
+          <Link
+            href={`${basePath}/app/ai-chat?onboarding=1`}
+            className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50"
+          >
+            Ask Pura for help
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
   const searchRailDetail = (
@@ -15546,7 +15589,28 @@ export function FunnelEditorClient({
       </label>
       <div className="text-xs leading-5 text-zinc-500">These fields become the hosted page title and search description when this funnel is served publicly.</div>
 
-      {seoError ? <div className="text-xs font-semibold text-red-700">{seoError}</div> : null}
+      {seoError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+          <div className="font-semibold text-red-900">Search preview needs attention</div>
+          <div className="mt-1 leading-5">{seoError}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={seoBusy}
+              onClick={() => void saveFunnelSeo()}
+              className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              {seoBusy ? "Saving…" : "Retry save"}
+            </button>
+            <Link
+              href={`${basePath}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between gap-3 border-t border-zinc-200 pt-2">
         <div className="text-xs text-zinc-500">
@@ -16175,7 +16239,7 @@ export function FunnelEditorClient({
             toast.success("Cropped image saved as a copy");
             setImageCropTarget(null);
           } catch (err) {
-            const msg = (err as any)?.message ? String((err as any).message) : "Crop upload failed";
+              const msg = (err as any)?.message ? String((err as any).message) : "That cropped image did not upload. Try again here or choose another image.";
             toast.error(msg);
           }
         }}
@@ -16388,7 +16452,30 @@ export function FunnelEditorClient({
                             </button>
                           </div>
 
-                          {setupPageSlugError ? <div className="mt-2 text-xs leading-5 text-red-600">{setupPageSlugError}</div> : null}
+                          {setupPageSlugError ? (
+                            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-700">
+                              <div className="font-semibold text-red-900">Page path needs attention</div>
+                              <div className="mt-1">{setupPageSlugError}</div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void commitSetupPageSlug();
+                                  }}
+                                  className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                                >
+                                  Try again
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setSetupPageSlugError(null)}
+                                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                                >
+                                  Clear message
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
 
                         {showFoundationOverviewStep ? (
@@ -17076,7 +17163,7 @@ export function FunnelEditorClient({
                     </div>
                     {foundationArtifactError ? (
                       <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-                        Foundation refresh failed, so this view is showing the structured fallback. {foundationArtifactError}
+                        Foundation refresh did not finish, so this view is showing the structured fallback. Keep working from this summary or use the prompts below. {foundationArtifactError}
                       </div>
                     ) : null}
                   </div>
@@ -17315,6 +17402,46 @@ export function FunnelEditorClient({
                       : dialogPathHelp}
                 </div>
 
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {!dialogHasRoute ? (
+                    <button
+                      type="button"
+                      disabled={quickCalendarBusy || !funnel || (dialogMode === "block" && dialogBlock?.type !== "calendarEmbed")}
+                      onClick={() =>
+                        void createQuickCalendarAndSyncFunnel({
+                          title: dialog?.type === "booking-routing" ? dialog.newCalendarTitle : "",
+                          routeTarget: dialogMode,
+                          blockId: dialogBlock?.type === "calendarEmbed" ? dialogBlock.id : null,
+                          openEditor: true,
+                        })
+                      }
+                      className={classNames(
+                        "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                        quickCalendarBusy || !funnel || (dialogMode === "block" && dialogBlock?.type !== "calendarEmbed")
+                          ? "bg-zinc-400"
+                          : "bg-(--color-brand-blue) hover:bg-blue-700",
+                      )}
+                    >
+                      {quickCalendarBusy ? "Creating..." : quickCreateButtonLabel}
+                    </button>
+                  ) : !dialogSetupComplete ? (
+                    <button
+                      type="button"
+                      onClick={() => openBookingCalendarEditor(dialogResolvedCalendarId)}
+                      className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    >
+                      Finish calendar setup
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, surface: "route" } : prev))}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    {dialogHasRoute ? "Change route" : "Attach existing calendar"}
+                  </button>
+                </div>
+
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className={classNames("rounded-2xl border px-4 py-3", dialogHasRoute ? "border-zinc-200 bg-white" : "border-amber-200 bg-amber-50")}>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Route</div>
@@ -17423,7 +17550,37 @@ export function FunnelEditorClient({
                         <div className="mt-2 text-sm leading-6 text-zinc-700">
                           Preset, timing, or availability defaults have unsaved changes for future calendars created from this funnel.
                         </div>
-                        {funnelBookingError ? <div className="mt-3 text-xs text-red-600">{funnelBookingError}</div> : null}
+                        {funnelBookingError ? (
+                          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                            <div className="font-semibold text-red-900">Booking defaults need attention</div>
+                            <div className="mt-1 leading-5">{funnelBookingError}</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={funnelBookingBusy || !funnelBookingDirty}
+                                onClick={() => {
+                                  void saveFunnelBookingRouting();
+                                }}
+                                className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                              >
+                                {funnelBookingBusy ? "Saving…" : "Try save again"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFunnelBookingError(null)}
+                                className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                              >
+                                Keep editing
+                              </button>
+                              <Link
+                                href={`${basePath}/app/ai-chat?onboarding=1`}
+                                className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                              >
+                                Ask Pura
+                              </Link>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -17573,7 +17730,35 @@ export function FunnelEditorClient({
                           </div>
                         </div>
 
-                        {quickCalendarError ? <div className="mt-3 text-xs text-red-600">{quickCalendarError}</div> : null}
+                        {quickCalendarError ? (
+                          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                            <div className="font-semibold text-red-900">Quick calendar setup hit a snag</div>
+                            <div className="mt-1 leading-5">{quickCalendarError}</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={quickCalendarBusy || !funnel || (dialogMode === "block" && dialogBlock?.type !== "calendarEmbed")}
+                                onClick={() =>
+                                  void createQuickCalendarAndSyncFunnel({
+                                    title: dialog?.type === "booking-routing" ? dialog.newCalendarTitle : "",
+                                    routeTarget: dialogMode,
+                                    blockId: dialogBlock?.type === "calendarEmbed" ? dialogBlock.id : null,
+                                    openEditor: true,
+                                  })
+                                }
+                                className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                              >
+                                Retry setup
+                              </button>
+                              <Link
+                                href={`${basePath}/app/ai-chat?onboarding=1`}
+                                className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                              >
+                                Ask Pura
+                              </Link>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="rounded-3xl border border-zinc-200 bg-white p-5">
@@ -17747,7 +17932,38 @@ export function FunnelEditorClient({
                             {`New calendars created from this popup start with the ${selectedBookingPreset.label.toLowerCase()} setup: ${resolvedFunnelBookingDefaults.durationMinutes} minutes, ${formatBookingNoticeWindow(resolvedFunnelBookingDefaults.minimumNoticeMinutes)}, ${resolvedFunnelBookingDefaults.timeZone}, and the ${selectedAvailabilityLabel.toLowerCase()} schedule.`}
                           </div>
 
-                          {funnelBookingError ? <div className="text-xs text-red-600">{funnelBookingError}</div> : null}
+                          {funnelBookingError ? (
+                            <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                              <div className="font-semibold text-red-900">Booking defaults need attention</div>
+                              <div className="mt-1 leading-5">{funnelBookingError}</div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void saveFunnelBookingRouting()}
+                                  disabled={funnelBookingBusy || !funnelBookingDirty}
+                                  className={classNames(
+                                    "rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700",
+                                    funnelBookingBusy || !funnelBookingDirty ? "cursor-not-allowed opacity-60" : "",
+                                  )}
+                                >
+                                  {funnelBookingBusy ? "Saving…" : "Try save again"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setFunnelBookingError(null)}
+                                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                                >
+                                  Keep editing
+                                </button>
+                                <Link
+                                  href={`${basePath}/app/ai-chat?onboarding=1`}
+                                  className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                                >
+                                  Ask Pura
+                                </Link>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
 
@@ -18080,7 +18296,48 @@ export function FunnelEditorClient({
                 </div>
               </div>
 
-              {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
+              {dialogError ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <div className="font-semibold text-red-900">Page plan needs attention</div>
+                  <div className="mt-1">{dialogError}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy || dialog?.type !== "create-page"}
+                      onClick={() => {
+                        if (dialog?.type !== "create-page") return;
+                        void performCreatePage({
+                          requestId: dialog.requestId,
+                          slug: dialog.slug,
+                          title: dialog.title,
+                          pageType: dialog.pageType,
+                          primaryCta: dialog.primaryCta,
+                          heroAssetMode: dialog.heroAssetMode,
+                          audience: dialog.audience,
+                          offer: dialog.offer,
+                          selectedOfferId: dialog.selectedOfferId,
+                        });
+                      }}
+                      className="rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {busy ? "Creating…" : "Try create again"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDialogError(null)}
+                      className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                    >
+                      Keep editing
+                    </button>
+                    <Link
+                      href={`${basePath}/app/ai-chat?onboarding=1`}
+                      className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                    >
+                      Ask Pura
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
             </div>
           );
         })()}
@@ -18208,7 +18465,43 @@ export function FunnelEditorClient({
             />
           </label>
 
-          {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
+          {dialogError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div className="font-semibold text-red-900">Form setup needs attention</div>
+              <div className="mt-1">{dialogError}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy || dialog?.type !== "create-form"}
+                  onClick={() => {
+                    if (dialog?.type !== "create-form") return;
+                    void performCreateForm({
+                      slug: dialog.slug,
+                      name: dialog.name,
+                      templateKey: dialog.templateKey,
+                      themeKey: dialog.themeKey,
+                    });
+                  }}
+                  className="rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  {busy ? "Creating…" : "Try create again"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDialogError(null)}
+                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Keep editing
+                </button>
+                <Link
+                  href={`${basePath}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
+          ) : null}
         </div>
       </AppModal>
 
@@ -18502,7 +18795,29 @@ export function FunnelEditorClient({
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500">
-              No references attached yet. Upload files or pick existing assets from your media library.
+              <div className="font-semibold text-zinc-900">No references attached yet</div>
+              <div className="mt-1">Upload files or pick existing assets from your media library so Pura can use them while planning and editing.</div>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy || aiContextUploadBusy}
+                  onClick={() => aiContextUploadInputRef.current?.click()}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {aiContextUploadBusy ? "Uploading..." : "Upload"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || aiContextUploadBusy}
+                  onClick={() => {
+                    setMediaPickerTarget({ type: "ai-context" });
+                    setMediaPickerOpen(true);
+                  }}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  From library
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -18779,7 +19094,7 @@ export function FunnelEditorClient({
                               event.stopPropagation();
                               openPricingSummaryEditor(itemIndex);
                             }}
-                            className="flex min-h-[92px] w-full flex-col items-start justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:border-zinc-300 hover:bg-white"
+                            className="flex min-h-23 w-full flex-col items-start justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:border-zinc-300 hover:bg-white"
                           >
                             <div className="max-h-12 overflow-hidden text-sm leading-6 text-zinc-700">
                               {summaryPreview || "No summary written yet. Open the writer when this tier needs longer package copy."}
@@ -19014,7 +19329,7 @@ export function FunnelEditorClient({
               const cardName = String(item.name || `Package ${itemIndex + 1}`).trim() || `Package ${itemIndex + 1}`;
               return (
                 <div
-                  className="fixed inset-0 z-[90] flex items-center justify-center bg-white/45 p-4 backdrop-blur-[3px]"
+                  className="fixed inset-0 z-90 flex items-center justify-center bg-white/45 p-4 backdrop-blur-[3px]"
                   onClick={closePricingSummaryEditor}
                 >
                   <div
@@ -19022,7 +19337,7 @@ export function FunnelEditorClient({
                     aria-modal="true"
                     aria-label={`Edit ${cardName} summary`}
                     onClick={(event) => event.stopPropagation()}
-                    className="w-[min(820px,calc(100vw-28px))] rounded-[32px] border border-zinc-200 bg-white shadow-[0_36px_120px_rgba(15,23,42,0.18)]"
+                    className="w-[min(820px,calc(100vw-28px))] rounded-4xl border border-zinc-200 bg-white shadow-[0_36px_120px_rgba(15,23,42,0.18)]"
                   >
                     <div className="flex items-start justify-between gap-4 px-6 pt-6">
                       <div className="min-w-0 flex-1">
@@ -19045,7 +19360,7 @@ export function FunnelEditorClient({
                         value={item.description ?? ""}
                         onChange={(e) => updateSelectedPricingGridItem(itemIndex, { description: e.target.value })}
                         rows={14}
-                        className="min-h-[52vh] w-full resize-none rounded-[24px] border border-zinc-200 bg-white px-5 py-4 text-[15px] leading-7 text-zinc-900 outline-none focus:border-zinc-300"
+                        className="min-h-[52vh] w-full resize-none rounded-3xl border border-zinc-200 bg-white px-5 py-4 text-[15px] leading-7 text-zinc-900 outline-none focus:border-zinc-300"
                         placeholder="Write the package summary, buyer fit, and what makes this tier worth choosing."
                       />
 
@@ -19067,7 +19382,7 @@ export function FunnelEditorClient({
 
             {pricingAssistComposerOpen ? (
               <div
-                className="fixed inset-0 z-[90] flex items-center justify-center bg-zinc-950/12 p-4 backdrop-blur-md"
+                className="fixed inset-0 z-90 flex items-center justify-center bg-zinc-950/12 p-4 backdrop-blur-md"
                 onClick={closePricingAssistComposer}
               >
                 <div
@@ -19136,7 +19451,7 @@ export function FunnelEditorClient({
                         </div>
                       </div>
 
-                      <div className="rounded-[24px] border border-blue-100 bg-[linear-gradient(180deg,rgba(248,250,252,0.9)_0%,rgba(239,246,255,0.72)_100%)] p-4 shadow-[0_14px_40px_rgba(59,130,246,0.06)]">
+                      <div className="rounded-3xl border border-blue-100 bg-[linear-gradient(180deg,rgba(248,250,252,0.9)_0%,rgba(239,246,255,0.72)_100%)] p-4 shadow-[0_14px_40px_rgba(59,130,246,0.06)]">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
@@ -19164,7 +19479,7 @@ export function FunnelEditorClient({
                             title={
                               pricingAssistDictationSupported
                                 ? (pricingAssistDictatingFieldKey === "overall" ? "Stop dictation" : "Dictate overall notes")
-                                : "Speech-to-text is not available in this browser"
+                                : "Speech-to-text is not available in this browser. Try Chrome or Safari."
                             }
                             aria-label={pricingAssistDictatingFieldKey === "overall" ? "Stop dictation" : "Dictate overall notes"}
                           >
@@ -19181,7 +19496,7 @@ export function FunnelEditorClient({
                         />
                       </div>
 
-                      <div className="rounded-[24px] border border-zinc-200 bg-white p-3">
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-3">
                         <div className="flex items-center justify-between gap-3 px-2 pb-3 pt-1">
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
@@ -19240,7 +19555,7 @@ export function FunnelEditorClient({
                                       title={
                                         pricingAssistDictationSupported
                                           ? (dictatingThisPackage ? "Stop dictation" : `Dictate notes for ${descriptor.packageName}`)
-                                          : "Speech-to-text is not available in this browser"
+                                          : "Speech-to-text is not available in this browser. Try Chrome or Safari."
                                       }
                                       aria-label={dictatingThisPackage ? "Stop dictation" : `Dictate notes for ${descriptor.packageName}`}
                                     >
@@ -19286,7 +19601,7 @@ export function FunnelEditorClient({
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200/80 px-6 py-4 text-xs text-zinc-500">
-                    <div className="flex-1 min-w-[280px]">
+                    <div className="flex-1 min-w-70">
                       {pricingAssistRefinementOpen ? (
                         <div className="rounded-[22px] border border-blue-100 bg-[linear-gradient(135deg,rgba(248,250,252,0.96)_0%,rgba(239,246,255,0.92)_62%,rgba(246,249,255,0.98)_100%)] p-3 shadow-[0_10px_30px_rgba(59,130,246,0.06)]">
                           <div className="flex items-start justify-between gap-3">
@@ -19319,7 +19634,7 @@ export function FunnelEditorClient({
                                 title={
                                   pricingAssistDictationSupported
                                     ? (pricingAssistDictatingFieldKey === "refinement" ? "Stop dictation" : "Dictate next-pass notes")
-                                    : "Speech-to-text is not available in this browser"
+                                    : "Speech-to-text is not available in this browser. Try Chrome or Safari."
                                 }
                                 aria-label={pricingAssistDictatingFieldKey === "refinement" ? "Stop dictation" : "Dictate next-pass notes"}
                               >
@@ -19891,7 +20206,7 @@ export function FunnelEditorClient({
                                   void navigator.clipboard?.writeText?.(currentPageSourceHtml || currentPagePublishedHtml || getFunnelPageDraftHtml(selectedPage));
                                   toast.success("HTML copied");
                                 } catch {
-                                  toast.error("Could not copy HTML");
+                                  toast.error("That HTML did not copy. Retry here.");
                                 }
                               }}
                               className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
@@ -19979,7 +20294,38 @@ export function FunnelEditorClient({
                           </div>
                         ) : (
                           <div className="flex h-full min-h-[36vh] items-center justify-center px-6 text-center text-sm text-zinc-400">
-                            {wholePageStatusMessage || "No page source available yet. Save the page to generate the source view."}
+                            <div className="max-w-lg">
+                              <div>{wholePageStatusMessage || "No page source available yet. Save the page to generate the source view."}</div>
+                              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                                {wholePageSourceEditable ? (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => beginSourceEditing({ selectAll: true })}
+                                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                    Start page source
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={busy || savingPage || !selectedPageDirty}
+                                    onClick={() => void saveCurrentPage()}
+                                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                    {savingPage ? "Saving..." : "Save draft"}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void setEditorMode(wholePageSourceEditable ? "CUSTOM_HTML" : "BLOCKS")}
+                                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  {wholePageSourceEditable ? "Stay in page mode" : "Open builder"}
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         )}
                       </WholePageLensWindow>
@@ -20095,7 +20441,38 @@ export function FunnelEditorClient({
                           </div>
                         ) : (
                           <div className="flex h-full min-h-[50vh] items-center justify-center rounded-[28px] border border-dashed border-zinc-300 bg-white px-6 text-center text-sm text-zinc-600">
-                            {wholePageSyncNotice || "No page source available yet. Save the page to generate the source view."}
+                            <div className="max-w-lg">
+                              <div>{wholePageSyncNotice || "No page source available yet. Save the page to generate the source view."}</div>
+                              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                                {wholePageSourceEditable ? (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => beginSourceEditing({ selectAll: true })}
+                                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                    Start page source
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={busy || savingPage || !selectedPageDirty}
+                                    onClick={() => void saveCurrentPage()}
+                                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                    {savingPage ? "Saving..." : "Save draft"}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void setEditorMode(wholePageSourceEditable ? "CUSTOM_HTML" : "BLOCKS")}
+                                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  {wholePageSourceEditable ? "Stay in page mode" : "Open builder"}
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         )}
                       </WholePageLensWindow>

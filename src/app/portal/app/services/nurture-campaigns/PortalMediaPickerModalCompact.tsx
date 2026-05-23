@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -55,12 +56,14 @@ export function PortalMediaPickerModalCompact({
   accept?: "any" | "image" | "video";
   zIndex?: number;
 }) {
+  const router = useRouter();
+  const nextBase = `/${variant === "credit" ? "credit" : "portal"}`;
   const [mounted, setMounted] = useState(false);
+  const [items, setItems] = useState<PortalMediaPickItem[]>([]);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [items, setItems] = useState<PortalMediaPickItem[]>([]);
 
   useEffect(() => {
     setMounted(true);
@@ -84,7 +87,7 @@ export function PortalMediaPickerModalCompact({
       if (!res.ok || !json || json.ok !== true) {
         setLoading(false);
         setItems([]);
-        setError(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load media");
+        setError(typeof (json as any)?.error === "string" ? (json as any).error : "Media did not load. Retry here or open media library.");
         return;
       }
 
@@ -165,7 +168,31 @@ export function PortalMediaPickerModalCompact({
               />
 
               {error ? (
-                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+                <div className="mt-3 rounded-3xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <div className="font-semibold text-red-900">Media picker needs attention</div>
+                  <div className="mt-1">{error}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                      onClick={() => {
+                        void load(q);
+                      }}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                      onClick={() => {
+                        onClose();
+                        router.push(`${nextBase}/app/services/media-library`, { scroll: false });
+                      }}
+                    >
+                      Open media library
+                    </button>
+                  </div>
+                </div>
               ) : null}
 
               <div className="mt-4">
@@ -226,7 +253,33 @@ export function PortalMediaPickerModalCompact({
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
-                    No files found.
+                    <div className="font-semibold text-zinc-900">No files found</div>
+                    <div className="mt-2 leading-6">
+                      {q.trim()
+                        ? "Nothing matches this search yet. Clear the filter or open Media Library to upload something new."
+                        : "This workspace does not have any files ready yet. Open Media Library to upload assets first."}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {q.trim() ? (
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => setQ("")}
+                        >
+                          Clear search
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                        onClick={() => {
+                          onClose();
+                          router.push(`${nextBase}/app/services/media-library`, { scroll: false });
+                        }}
+                      >
+                        Open media library
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -235,7 +288,7 @@ export function PortalMediaPickerModalCompact({
         </div>
       </div>
     );
-  }, [accept, busy, confirmLabel, error, filteredItems, loading, onClose, onPick, q, title, zIndex]);
+  }, [accept, busy, confirmLabel, error, filteredItems, load, loading, nextBase, onClose, onPick, q, router, title, zIndex]);
 
   if (!open || !mounted || typeof document === "undefined") return null;
   return createPortal(body, document.body);

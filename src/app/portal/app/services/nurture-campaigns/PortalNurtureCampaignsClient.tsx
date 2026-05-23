@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
@@ -105,6 +106,7 @@ export function PortalNurtureCampaignsClient() {
   const toast = useToast();
   const pathname = usePathname() || "";
   const portalVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
+  const appBase = portalVariant === "credit" ? "/credit/app" : "/portal/app";
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const isMobileApp = useMemo(() => {
@@ -194,10 +196,12 @@ export function PortalNurtureCampaignsClient() {
   }, [toast, variantHeaders]);
 
   const [loadingList, setLoadingList] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignListRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
 
   const [ownerTags, setOwnerTags] = useState<ContactTag[]>([]);
@@ -246,11 +250,12 @@ export function PortalNurtureCampaignsClient() {
 
   const refreshList = useCallback(async (opts?: { keepSelected?: boolean }) => {
     setLoadingList(true);
+    setListError(null);
     try {
       const res = await fetch("/api/portal/nurture/campaigns", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as ListRes;
       if (!res.ok || !json.ok || !Array.isArray((json as any).campaigns)) {
-        throw new Error(String((json as any).error || "Failed to load campaigns"));
+        throw new Error(String((json as any).error || "Nurture campaigns did not load. Retry here, start a campaign, or ask Pura to help."));
       }
       const next = (json as any).campaigns as CampaignListRow[];
       setCampaigns(next);
@@ -260,7 +265,9 @@ export function PortalNurtureCampaignsClient() {
         setSelectedId(next[0]?.id ?? null);
       }
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to load campaigns"));
+      const message = String(e?.message || "Nurture campaigns did not load. Retry here, start a campaign, or ask Pura to help.");
+      toast.error(message);
+      setListError(message);
       setCampaigns([]);
       if (!opts?.keepSelected) setSelectedId(null);
     } finally {
@@ -268,13 +275,13 @@ export function PortalNurtureCampaignsClient() {
     }
   }, [selectedId, toast, variantHeaders]);
 
-  const refreshTags = useCallback(async () => {
+  const refreshTags = useCallback(async (opts?: { suppressErrorToast?: boolean }) => {
     setLoadingTags(true);
     try {
       const res = await fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as TagsRes;
       if (!res.ok || !json.ok || !Array.isArray((json as any).tags)) {
-        throw new Error(String((json as any).error || "Failed to load tags"));
+        throw new Error(String((json as any).error || "Audience tags did not load. Refresh this page or create a tag from the campaign panel."));
       }
       const next = (json as any).tags
         .map((t: any) => ({ id: String(t?.id || ""), name: String(t?.name || "").slice(0, 60), color: typeof t?.color === "string" ? String(t.color) : null }))
@@ -283,23 +290,29 @@ export function PortalNurtureCampaignsClient() {
       setOwnerTags(next);
     } catch {
       setOwnerTags([]);
+      if (!opts?.suppressErrorToast) {
+        toast.error("Audience tags did not load. Refresh this page or create a tag from the campaign panel.");
+      }
     } finally {
       setLoadingTags(false);
     }
-  }, [variantHeaders]);
+  }, [toast, variantHeaders]);
 
   const refreshDetail = useCallback(async (campaignId: string) => {
     setLoadingDetail(true);
+    setDetailError(null);
     try {
       const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}`, { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as DetailRes;
       if (!res.ok || !json.ok || !(json as any).campaign?.id) {
-        throw new Error(String((json as any).error || "Failed to load campaign"));
+        throw new Error(String((json as any).error || "That campaign did not load. Retry here, open campaigns, or ask Pura to help."));
       }
       setDetail((json as any).campaign);
       setCampaignDirty(false);
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to load campaign"));
+      const message = String(e?.message || "That campaign did not load. Retry here, open campaigns, or ask Pura to help.");
+      toast.error(message);
+      setDetailError(message);
       setDetail(null);
       setCampaignDirty(false);
     } finally {
@@ -330,13 +343,13 @@ export function PortalNurtureCampaignsClient() {
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.id) {
-        throw new Error(String(json?.error || "Failed to create campaign"));
+        throw new Error(String(json?.error || "That campaign did not save. Try again here."));
       }
       toast.success("Campaign created");
       await refreshList({ keepSelected: true });
       setSelectedId(String(json.id));
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to create campaign"));
+      toast.error(String(e?.message || "That campaign did not save. Try again here."));
     }
   }, [refreshList, toast, variantHeaders]);
 
@@ -344,13 +357,13 @@ export function PortalNurtureCampaignsClient() {
     try {
       const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}`, { method: "DELETE", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as any;
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to delete"));
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "That campaign did not delete. Retry here or close this prompt and try again."));
       toast.success("Campaign deleted");
       setDetail((prev) => (prev?.id === campaignId ? null : prev));
       setSelectedId((prev) => (prev === campaignId ? null : prev));
       await refreshList();
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to delete campaign"));
+      toast.error(String(e?.message || "That campaign did not delete. Retry here or close this prompt and try again."));
     }
   }, [refreshList, toast, variantHeaders]);
 
@@ -382,13 +395,13 @@ export function PortalNurtureCampaignsClient() {
         return;
       }
 
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save"));
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "This campaign did not save. Retry here or review the campaign settings again."));
       toast.success("Saved");
       setCampaignDirty(false);
       await refreshList({ keepSelected: true });
       await refreshDetail(detail.id);
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to save"));
+      toast.error(String(e?.message || "This campaign did not save. Retry here or review the campaign settings again."));
     } finally {
       setSavingCampaign(false);
     }
@@ -404,12 +417,12 @@ export function PortalNurtureCampaignsClient() {
           body: JSON.stringify({ kind }),
         });
         const json = (await res.json().catch(() => ({}))) as any;
-        if (!res.ok || !json?.ok || !json?.id) throw new Error(String(json?.error || "Failed to add step"));
+        if (!res.ok || !json?.ok || !json?.id) throw new Error(String(json?.error || "That step did not save. Retry here or load a template instead."));
         toast.success("Step added");
         await refreshDetail(detail.id);
         await refreshList({ keepSelected: true });
       } catch (e: any) {
-        toast.error(String(e?.message || "Failed to add step"));
+        toast.error(String(e?.message || "That step did not save. Retry here or load a template instead."));
       }
     },
     [detail, refreshDetail, refreshList, toast, variantHeaders],
@@ -429,12 +442,12 @@ export function PortalNurtureCampaignsClient() {
           body: JSON.stringify(patch),
         });
         const json = (await res.json().catch(() => ({}))) as any;
-        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to update step"));
+        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "That step did not save. Retry here or review the step again."));
         await refreshDetail(detail.id);
         await refreshList({ keepSelected: true });
         if (opts?.toast !== false) toast.success("Step saved");
       } catch (e: any) {
-        toast.error(String(e?.message || "Failed to update step"));
+        toast.error(String(e?.message || "That step did not save. Retry here or review the step again."));
       }
     },
     [detail, refreshDetail, refreshList, toast, variantHeaders],
@@ -446,12 +459,12 @@ export function PortalNurtureCampaignsClient() {
       try {
         const res = await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, { method: "DELETE", headers: variantHeaders });
         const json = (await res.json().catch(() => ({}))) as any;
-        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to delete"));
+        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "That step did not delete. Retry here or review the campaign again."));
         toast.success("Step deleted");
         await refreshDetail(detail.id);
         await refreshList({ keepSelected: true });
       } catch (e: any) {
-        toast.error(String(e?.message || "Failed to delete step"));
+        toast.error(String(e?.message || "That step did not delete. Retry here or review the campaign again."));
       }
     },
     [detail, refreshDetail, refreshList, toast, variantHeaders],
@@ -481,7 +494,7 @@ export function PortalNurtureCampaignsClient() {
             body: JSON.stringify({ kind: s.kind }),
           });
           const json = (await res.json().catch(() => ({}))) as any;
-          if (!res.ok || !json?.ok || !json?.id) throw new Error(String(json?.error || "Failed to create step"));
+          if (!res.ok || !json?.ok || !json?.id) throw new Error(String(json?.error || "That template did not load. Retry here or keep building the steps manually."));
           const stepId = String(json.id);
 
           await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, {
@@ -500,7 +513,7 @@ export function PortalNurtureCampaignsClient() {
         await refreshList({ keepSelected: true });
         setTemplateOpen(false);
       } catch (e: any) {
-        toast.error(String(e?.message || "Failed to apply template"));
+        toast.error(String(e?.message || "That template did not load. Retry here or keep building the steps manually."));
       } finally {
         setTemplateBusy(false);
       }
@@ -518,12 +531,12 @@ export function PortalNurtureCampaignsClient() {
           body: JSON.stringify({ dryRun, tagIds: detail.audienceTagIds }),
         });
         const json = (await res.json().catch(() => ({}))) as any;
-        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Enroll failed"));
+        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Enrollment did not start. Retry here or review the audience tags first."));
         if (dryRun) toast.success(`Would enroll ${Number(json?.wouldEnroll || 0)} contacts`);
         else toast.success(`Enrolled ${Number(json?.enrolled || 0)} contacts`);
         await refreshList({ keepSelected: true });
       } catch (e: any) {
-        toast.error(String(e?.message || "Enroll failed"));
+        toast.error(String(e?.message || "Enrollment did not start. Retry here or review the audience tags first."));
       }
     },
     [detail, refreshList, toast, variantHeaders],
@@ -578,7 +591,19 @@ export function PortalNurtureCampaignsClient() {
                 );
               })
             ) : (
-              <div className="px-1 py-2 text-sm text-zinc-500">No campaigns yet.</div>
+              <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
+                <div className="font-semibold text-zinc-900">No campaigns yet</div>
+                <div className="mt-1">Create the first sequence so tags, steps, and enrollments have a live campaign to work with.</div>
+                <button
+                  type="button"
+                  onClick={() => void createCampaign()}
+                  className="mt-3 inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                  disabled={loadingList}
+                >
+                  <span className="text-base leading-none">+</span>
+                  <span>New campaign</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -627,6 +652,8 @@ export function PortalNurtureCampaignsClient() {
     [detail, updateStep],
   );
 
+  const loadError = detailError ?? listError;
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       <PortalBackToOnboardingLink />
@@ -652,6 +679,43 @@ export function PortalNurtureCampaignsClient() {
         </div>
       </div>
 
+      {loadError ? (
+        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Nurture campaigns need attention</div>
+          <div className="mt-1">{loadError}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void refreshList({ keepSelected: true });
+                if (selectedId) {
+                  void refreshDetail(selectedId);
+                }
+                void refreshTags();
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
+            >
+              Retry
+            </button>
+            {!campaigns.length ? (
+              <button
+                type="button"
+                onClick={() => void createCampaign()}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                New campaign
+              </button>
+            ) : null}
+            <Link
+              href={`${appBase}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-6">
         <div className="rounded-3xl border border-zinc-200 bg-white p-5">
           {isMobileApp ? (
@@ -661,7 +725,27 @@ export function PortalNurtureCampaignsClient() {
                 {loadingList ? (
                   <div className="text-sm text-zinc-600">Loading…</div>
                 ) : campaigns.length === 0 ? (
-                  <div className="text-sm text-zinc-600">No campaigns yet.</div>
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No campaigns yet</div>
+                    <div className="mt-1">Create the first campaign, then load a template or build the sequence step by step.</div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                        onClick={() => void createCampaign()}
+                        disabled={loadingList}
+                      >
+                        <span className="text-base leading-none">+</span>
+                        <span>New campaign</span>
+                      </button>
+                      <Link
+                        href={`${appBase}/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      >
+                        Ask Pura
+                      </Link>
+                    </div>
+                  </div>
                 ) : (
                   <PortalListboxDropdown
                     value={selectedId ?? campaigns[0]?.id ?? ""}
@@ -703,7 +787,34 @@ export function PortalNurtureCampaignsClient() {
           ) : loadingDetail ? (
             <div className="text-sm text-zinc-600">Loading campaign…</div>
           ) : !detail ? (
-            <div className="text-sm text-zinc-600">Campaign not found.</div>
+            <div className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
+              <div className="font-semibold text-red-900">Campaign needs attention</div>
+              <div className="mt-1">This campaign is not available right now. Retry here, open campaigns, or ask Pura to help.</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void refreshList({ keepSelected: true });
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(campaigns[0]?.id ?? null)}
+                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Open campaigns
+                </button>
+                <Link
+                  href={`${appBase}/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
           ) : (
             <div>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -821,7 +932,25 @@ export function PortalNurtureCampaignsClient() {
                       </span>
                     ))
                   ) : (
-                    <div className="text-xs text-zinc-500">No tags selected.</div>
+                    <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+                      <div className="font-semibold text-zinc-900">No tags selected</div>
+                      <div className="mt-1">Pick at least one audience tag or create one now so this campaign knows who should enter the sequence.</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCreateTagOpen(true)}
+                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        >
+                          Create tag
+                        </button>
+                        <Link
+                          href={`${appBase}/people/contacts`}
+                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        >
+                          Open People
+                        </Link>
+                      </div>
+                    </div>
                   )}
                 </div>
 
@@ -925,12 +1054,18 @@ export function PortalNurtureCampaignsClient() {
                                 });
                                 const json = (await res.json().catch(() => ({}))) as any;
                                 if (!res.ok || !json?.ok || !json?.tag?.id) {
-                                  throw new Error(String(json?.error || "Failed to create tag"));
+                                  throw new Error(String(json?.error || "That tag did not save. Try again here or open People to organize tags there."));
                                 }
                                 const tagId = String(json.tag.id);
                                 setCreateTagName("");
                                 setCreateTagOpen(false);
-                                await refreshTags();
+                                setOwnerTags((prev) => {
+                                  const next = prev.filter((tag) => tag.id !== tagId);
+                                  next.push({ id: tagId, name, color: createTagColor });
+                                  next.sort((a, b) => a.name.localeCompare(b.name));
+                                  return next;
+                                });
+                                await refreshTags({ suppressErrorToast: true });
                                 setDetail((p) => {
                                   if (!p) return p;
                                   const set = new Set(p.audienceTagIds);
@@ -940,7 +1075,7 @@ export function PortalNurtureCampaignsClient() {
                                 setCampaignDirty(true);
                                 toast.success("Tag created");
                               } catch (e: any) {
-                                toast.error(String(e?.message || "Failed to create tag"));
+                                toast.error(String(e?.message || "That tag did not save. Try again here or open People to organize tags there."));
                               } finally {
                                 setCreateTagBusy(false);
                               }
@@ -1095,7 +1230,33 @@ export function PortalNurtureCampaignsClient() {
                         />
                       ))
                   ) : (
-                    <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No steps yet.</div>
+                    <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                      <div className="font-semibold text-zinc-900">No steps yet</div>
+                      <div className="mt-1">Load a template or add the first SMS or email step so this campaign can actually nurture contacts.</div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                          onClick={() => setTemplateOpen(true)}
+                        >
+                          Load template
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                          onClick={() => void addStep("SMS")}
+                        >
+                          Add SMS step
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                          onClick={() => void addStep("EMAIL")}
+                        >
+                          Add email step
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1234,6 +1395,7 @@ function StepCard(props: {
   const { step, ownerTags, varPickerVariables, knownContactCustomVarKeys, campaignName, variantHeaders, index, total, onSave, onMoveUp, onMoveDown, onDelete } = props;
 
   const toast = useToast();
+  const appBase = variantHeaders[PORTAL_VARIANT_HEADER] === "credit" ? "/credit/app" : "/portal/app";
 
   const isMobileApp = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -1272,6 +1434,39 @@ function StepCard(props: {
   const [aiInstruction, setAiInstruction] = useState("");
   const [aiError, setAiError] = useState<string | null>(null);
   const [uploadBusy, setUploadBusy] = useState(false);
+
+  const runAiDraft = useCallback(async () => {
+    if (aiBusy) return;
+    setAiError(null);
+    setAiBusy(true);
+    try {
+      const res = await fetch("/api/portal/nurture/ai/generate-step", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...variantHeaders },
+        body: JSON.stringify({
+          kind,
+          campaignName,
+          prompt: aiInstruction.trim() || undefined,
+          existingSubject: kind === "EMAIL" ? subject : undefined,
+          existingBody: body,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "That draft did not generate. Retry here or ask Pura to help."));
+      if (kind === "EMAIL" && typeof json.subject === "string" && json.subject.trim()) {
+        setSubject(String(json.subject).slice(0, 200));
+      }
+      if (typeof json.body === "string") {
+        setBody(String(json.body).slice(0, 8000));
+        setDirty(true);
+      }
+      setAiModalOpen(false);
+    } catch (e: any) {
+      setAiError(String(e?.message || "That draft did not generate. Retry here or ask Pura to help."));
+    } finally {
+      setAiBusy(false);
+    }
+  }, [aiBusy, aiInstruction, body, campaignName, kind, subject, variantHeaders]);
 
   const subjectRef = useRef<HTMLInputElement | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1572,7 +1767,7 @@ function StepCard(props: {
                     const up = await fetch("/api/uploads", { method: "POST", body: fd });
                     const upBody = (await up.json().catch(() => ({}))) as any;
                     if (!up.ok || !upBody.url) {
-                      toast.error(String(upBody.error || "Upload failed"));
+                      toast.error(String(upBody.error || "That file did not upload. Retry here or keep editing the step first."));
                       return;
                     }
 
@@ -1689,7 +1884,30 @@ function StepCard(props: {
                 placeholder="Example: keep it friendly, ask for a quick reply, mention scheduling a 10-minute call"
                 disabled={aiBusy}
               />
-              {aiError ? <div className="mt-2 text-sm font-semibold text-red-600">{aiError}</div> : null}
+              {aiError ? (
+                <div className="mt-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <div className="font-semibold text-red-900">AI draft needs attention</div>
+                  <div className="mt-1">{aiError}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void runAiDraft();
+                      }}
+                      disabled={aiBusy}
+                      className="rounded-2xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      Retry
+                    </button>
+                    <Link
+                      href={`${appBase}/ai-chat?onboarding=1`}
+                      className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                    >
+                      Ask Pura
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-4 flex items-center justify-end gap-2">
@@ -1712,38 +1930,7 @@ function StepCard(props: {
                   "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
                 }
                 onClick={() => {
-                  if (aiBusy) return;
-                  setAiError(null);
-                  void (async () => {
-                    setAiBusy(true);
-                    try {
-                      const res = await fetch("/api/portal/nurture/ai/generate-step", {
-                        method: "POST",
-                        headers: { "content-type": "application/json", ...variantHeaders },
-                        body: JSON.stringify({
-                          kind,
-                          campaignName,
-                          prompt: aiInstruction.trim() || undefined,
-                          existingSubject: kind === "EMAIL" ? subject : undefined,
-                          existingBody: body,
-                        }),
-                      });
-                      const json = (await res.json().catch(() => ({}))) as any;
-                      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "AI draft failed"));
-                      if (kind === "EMAIL" && typeof json.subject === "string" && json.subject.trim()) {
-                        setSubject(String(json.subject).slice(0, 200));
-                      }
-                      if (typeof json.body === "string") {
-                        setBody(String(json.body).slice(0, 8000));
-                        setDirty(true);
-                      }
-                      setAiModalOpen(false);
-                    } catch (e: any) {
-                      setAiError(String(e?.message || "AI draft failed"));
-                    } finally {
-                      setAiBusy(false);
-                    }
-                  })();
+                  void runAiDraft();
                 }}
               >
                 {aiBusy ? "Drafting…" : "Generate"}

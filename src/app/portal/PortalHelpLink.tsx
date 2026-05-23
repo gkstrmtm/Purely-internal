@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { IconHelpCircle } from "@/app/portal/PortalIcons";
 
-function computeHelpHref(pathname: string | null): string {
+export function computePortalHelpHref(pathname: string | null): string {
   const path = pathname ?? "";
 
   const isCredit = path.startsWith("/credit");
@@ -26,9 +26,21 @@ function computeHelpHref(pathname: string | null): string {
     return `${base}/tutorials/dashboard`;
   }
 
+  if (internal.startsWith("/portal/app/onboarding")) {
+    return `${base}/tutorials/getting-started`;
+  }
+
   // Services list view.
   if (internal === "/portal/app/services" || internal.startsWith("/portal/app/services?")) {
     return `${base}/tutorials`;
+  }
+
+  if (internal.startsWith("/portal/app/tasks")) {
+    return `${base}/tutorials/tasks`;
+  }
+
+  if (internal.startsWith("/portal/app/disputes")) {
+    return `${base}/tutorials/dispute-letters`;
   }
 
   // Specific service page, e.g. /portal/app/services/inbox/...
@@ -61,6 +73,10 @@ function computeHelpHref(pathname: string | null): string {
     return `${base}/tutorials/billing`;
   }
 
+  if (internal.startsWith("/portal/app/discount")) {
+    return `${base}/tutorials/billing`;
+  }
+
   if (internal.startsWith("/portal/app/profile")) {
     return `${base}/tutorials/profile`;
   }
@@ -70,7 +86,7 @@ function computeHelpHref(pathname: string | null): string {
 
 export function PortalHelpLink({ glass = false }: { glass?: boolean }) {
   const pathname = usePathname();
-  const href = computeHelpHref(pathname);
+  const href = computePortalHelpHref(pathname);
 
   return (
     <Link

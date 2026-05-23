@@ -471,6 +471,7 @@ export function HostedServicePageEditorClient({
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [documents, setDocuments] = useState<HostedPageDocument[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState("");
@@ -518,6 +519,7 @@ export function HostedServicePageEditorClient({
 
   const loadDocuments = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`/api/portal/hosted-pages/documents?service=${serviceQueryValue(service)}`, {
         cache: "no-store",
@@ -525,7 +527,7 @@ export function HostedServicePageEditorClient({
       });
       const data = (await res.json().catch(() => null)) as HostedListResponse | null;
       if (!res.ok || !data?.ok || !Array.isArray(data.documents)) {
-        throw new Error(data?.error || `Failed to load ${serviceLabel.toLowerCase()} hosted page documents`);
+        throw new Error(data?.error || `${serviceLabel} page documents did not load. Retry here, head back to ${serviceLabel}, or ask Pura to help.`);
       }
 
       const nextDocuments = data.documents;
@@ -533,11 +535,24 @@ export function HostedServicePageEditorClient({
         (defaultPageKey ? nextDocuments.find((entry) => entry.pageKey === defaultPageKey) : null) ?? nextDocuments[0] ?? null;
 
       setDocuments(nextDocuments);
-      if (!preferred) throw new Error(`No ${serviceLabel.toLowerCase()} hosted page document found`);
+      if (!preferred) {
+        throw new Error(`${serviceLabel} page documents did not load. Retry here, head back to ${serviceLabel}, or ask Pura to help.`);
+      }
       setSelectedDocumentId(preferred.id);
       syncFromDocument(preferred);
     } catch (error) {
-      toast.error(`Could not load ${serviceLabel.toLowerCase()} page editor\n${error instanceof Error ? error.message : "Please try again."}`);
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : `${serviceLabel} page editor did not load. Retry here, head back to ${serviceLabel}, or ask Pura to help.`;
+      setLoadError(message);
+      toast.error(
+        `${serviceLabel} page editor needs attention\n${
+          error instanceof Error && error.message
+            ? error.message
+            : "Retry here, head back to the service, or ask Pura to help."
+        }`,
+      );
     } finally {
       setLoading(false);
     }
@@ -1495,7 +1510,29 @@ export function HostedServicePageEditorClient({
   if (!selectedDocument) {
     return (
       <div data-hosted-page-editor-root={service.toLowerCase()} className={rootClassName}>
-        <div className="px-6 py-10 text-sm text-rose-300">Could not load the {serviceLabel.toLowerCase()} hosted page document.</div>
+        <div className="px-6 py-10">
+          <div className="rounded-3xl border border-rose-400/30 bg-rose-500/10 p-6 text-sm text-rose-100">
+            <div className="text-base font-semibold text-white">{serviceLabel} page editor needs attention</div>
+            <div className="mt-2">{loadError || `${serviceLabel} page editor did not load. Retry here, head back to ${serviceLabel}, or ask Pura to help.`}</div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void loadDocuments();
+                }}
+                className={blueButtonClassName}
+              >
+                Retry
+              </button>
+              <Link href={`${appBase}${backHref}`} className={toolbarButtonClassName}>
+                Back to {serviceLabel}
+              </Link>
+              <Link href={`${appBase}/ai-chat?onboarding=1`} className={toolbarButtonClassName}>
+                Ask Pura
+              </Link>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

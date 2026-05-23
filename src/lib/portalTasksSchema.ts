@@ -1,6 +1,13 @@
 import { prisma } from "@/lib/db";
 
+let ensurePortalTasksSchemaPromise: Promise<void> | null = null;
+
 export async function ensurePortalTasksSchema() {
+  if (ensurePortalTasksSchemaPromise) {
+    return ensurePortalTasksSchemaPromise;
+  }
+
+  ensurePortalTasksSchemaPromise = (async () => {
   // Drift-hardening: create tables/types if missing.
   // NOTE: keep SQL Postgres-safe and idempotent.
   const statements: string[] = [
@@ -87,4 +94,10 @@ export async function ensurePortalTasksSchema() {
   for (const sql of statements) {
     await prisma.$executeRawUnsafe(sql);
   }
+  })().catch((error) => {
+    ensurePortalTasksSchemaPromise = null;
+    throw error;
+  });
+
+  return ensurePortalTasksSchemaPromise;
 }

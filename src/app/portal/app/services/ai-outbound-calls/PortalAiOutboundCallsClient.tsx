@@ -713,7 +713,7 @@ function sanitizeClientErrorText(error?: string | null) {
     return "Message delivery failed for this demo row.";
   }
   if (/^invalid\s+`/i.test(raw) || /__turbopack|prisma\./i.test(raw)) {
-    return "We couldn't load AI Outbound right now.";
+    return "AI Outbound did not load. Retry here or ask Pura for another route in.";
   }
   const brace = raw.indexOf("{");
   const bracket = raw.indexOf("[");
@@ -722,7 +722,7 @@ function sanitizeClientErrorText(error?: string | null) {
   const idx = [brace, bracket, stackMarker, tick].filter((n) => n >= 0).sort((a, b) => a - b)[0];
   const withoutJson = idx !== undefined ? raw.slice(0, idx).trim() : raw;
   const singleLine = withoutJson.replace(/\s+/g, " ").trim();
-  if (!singleLine) return "We couldn't load AI Outbound right now.";
+  if (!singleLine) return "AI Outbound did not load. Retry here or ask Pura for another route in.";
   if (singleLine.length > 240) return `${singleLine.slice(0, 239)}…`;
   return singleLine;
 }
@@ -1466,7 +1466,29 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
             {loading ? (
               <div className="px-1 py-2 text-sm text-zinc-500">Loading…</div>
             ) : campaigns.length === 0 ? (
-              <div className="px-1 py-2 text-sm text-zinc-500">No campaigns yet.</div>
+              <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-600">
+                <div className="font-semibold text-zinc-900">No campaigns yet</div>
+                <div className="mt-1">Create your first campaign to start configuring calls, messages, and testing from one place.</div>
+                <div className="mt-3 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void createCampaign()}
+                    className={classNames(
+                      "inline-flex items-center justify-center rounded-2xl px-3 py-2 text-xs font-semibold transition-colors duration-150",
+                      busy ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18",
+                    )}
+                  >
+                    {busy ? "Creating…" : "Create first campaign"}
+                  </button>
+                  <Link
+                    href={`${basePath}/app/ai-chat?onboarding=1`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Ask Pura to help
+                  </Link>
+                </div>
+              </div>
             ) : (
               campaigns.map((campaign) => {
                 const active = campaign.id === selectedId;
@@ -1494,7 +1516,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         </div>
       </div>
     );
-  }, [campaigns, loading, selected, selectedId, setTabAndRoute, settingsTab, tab]);
+  }, [basePath, busy, campaigns, createCampaign, loading, selected, selectedId, setTabAndRoute, settingsTab, tab]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -1845,7 +1867,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
         const json = (await res?.json?.().catch(() => null)) as any;
         if (!res || !res.ok || !json || json.ok !== true) {
-          throw new Error(json?.error || "Unable to refresh call artifacts");
+          throw new Error(json?.error || "Those call artifacts did not refresh. Try again here or check this call again in a moment.");
         }
 
         if (json.manualCall) setManualCall(json.manualCall as ManualCall);
@@ -1854,7 +1876,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         if (json.usedVoiceTranscript) toast.success("Updated transcript from voice platform");
         else toast.success(json.requestedTranscription ? "Requested transcript refresh (may take a minute)" : "Updated");
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Unable to refresh call artifacts");
+        toast.error(e instanceof Error ? e.message : "Those call artifacts did not refresh. Try again here or check this call again in a moment.");
       } finally {
         setManualCallSyncBusy(false);
       }
@@ -2068,7 +2090,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         }
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to load message details");
+      toast.error(error instanceof Error ? error.message : "Those message details did not load. Refresh details from this panel or ask Pura to help.");
     } finally {
       setMessageDetailLoading(false);
     }
@@ -2093,7 +2115,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Failed to start call");
+        throw new Error(json?.error || "That call did not start. Try again here or review the number in this panel.");
       }
 
       const id = String(json?.id || "").trim();
@@ -2105,7 +2127,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       toast.success("Calling…");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to start call");
+      toast.error(e instanceof Error ? e.message : "That call did not start. Try again here or review the number in this panel.");
     } finally {
       setManualCallBusy(false);
     }
@@ -2178,7 +2200,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
         const json = (await res?.json?.().catch(() => null)) as ApiGetManualCallResponse | null;
         if (!res || !res.ok || !json || (json as any).ok !== true || !(json as any).manualCall) {
-          throw new Error((json as any)?.error || "Unable to load call details");
+          throw new Error((json as any)?.error || "Those call details did not load. Refresh details from this panel or ask Pura to help.");
         }
         setCallDetail(makeCallDetailFromManualCall((json as any).manualCall as ManualCall));
       } else {
@@ -2188,13 +2210,13 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         ).catch(() => null as any);
         const json = (await res?.json?.().catch(() => null)) as ApiGetCallActivityDetailResponse | null;
         if (!res || !res.ok || !json || (json as any).ok !== true || !(json as any).detail) {
-          throw new Error((json as any)?.error || "Unable to load call details");
+          throw new Error((json as any)?.error || "Those call details did not load. Refresh details from this panel or ask Pura to help.");
         }
         setCallDetail({ ...((json as any).detail as CallActivityDetail), kind: "enrollment" });
       }
     } catch (e) {
       if (!row) {
-        toast.error(e instanceof Error ? e.message : "Unable to load call details");
+        toast.error(e instanceof Error ? e.message : "Those call details did not load. Refresh details from this panel or ask Pura to help.");
       }
     } finally {
       setCallDetailLoading(false);
@@ -2216,7 +2238,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         ).catch(() => null as any);
         const json = (await res?.json?.().catch(() => null)) as any;
         if (!res || !res.ok || !json || json.ok !== true) {
-          throw new Error(json?.error || "Unable to delete message activity");
+          throw new Error(json?.error || "That message activity did not delete. Try again here or reopen the row details.");
         }
         await loadMessagesActivity(selected.id);
       }
@@ -2224,7 +2246,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       setMessageDetail(null);
       toast.success("Deleted message activity");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unable to delete message activity");
+      toast.error(e instanceof Error ? e.message : "That message activity did not delete. Try again here or reopen the row details.");
     } finally {
       setMessageDetailActionBusy(null);
     }
@@ -2242,7 +2264,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, { method: "DELETE", headers: variantHeaders }).catch(() => null as any);
         const json = (await res?.json?.().catch(() => null)) as any;
         if (!res || !res.ok || !json || json.ok !== true) {
-          throw new Error(json?.error || "Unable to delete call activity");
+          throw new Error(json?.error || "That call activity did not delete. Try again here or reopen the row details.");
         }
         await loadManualCalls(selected.id);
       } else {
@@ -2252,7 +2274,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         ).catch(() => null as any);
         const json = (await res?.json?.().catch(() => null)) as any;
         if (!res || !res.ok || !json || json.ok !== true) {
-          throw new Error(json?.error || "Unable to delete call activity");
+          throw new Error(json?.error || "That call activity did not delete. Try again here or reopen the row details.");
         }
         await loadActivity(selected.id);
       }
@@ -2260,7 +2282,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       setCallDetail(null);
       toast.success("Deleted call activity");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unable to delete call activity");
+      toast.error(e instanceof Error ? e.message : "That call activity did not delete. Try again here or reopen the row details.");
     } finally {
       setCallDetailActionBusy(null);
     }
@@ -2281,13 +2303,13 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       ).catch(() => null as any);
       const json = (await res?.json?.().catch(() => null)) as any;
       if (!res || !res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Unable to queue another call");
+        throw new Error(json?.error || "That call did not queue. Try again here or review the call details first.");
       }
       toast.success("Queued another call");
       await loadActivity(selected.id);
       await openCallActivityDetail(id);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unable to queue another call");
+      toast.error(e instanceof Error ? e.message : "That call did not queue. Try again here or review the call details first.");
     } finally {
       setCallDetailActionBusy(null);
     }
@@ -2374,7 +2396,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const json = (await res.json().catch(() => null)) as ApiEnrollMessageContactResponse | null;
       if (!res.ok || !json || (json as any).ok !== true) {
-        throw new Error((json as any)?.error || "Enroll failed");
+        throw new Error((json as any)?.error || "That contact did not enroll. Retry here or review the selected contact first.");
       }
 
       toast.success(
@@ -2393,7 +2415,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       setManualEnrollModalOpen(false);
       void loadMessagesActivity(selected.id);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Enroll failed");
+      toast.error(e instanceof Error ? e.message : "That contact did not enroll. Retry here or review the selected contact first.");
     } finally {
       setManualEnrollBusy(false);
     }
@@ -2571,7 +2593,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const campaignsJson = (await campaignRes.json().catch(() => null)) as ApiGetCampaignsResponse | null;
       if (!campaignRes.ok || !campaignsJson || (campaignsJson as any).ok !== true) {
-        throw new Error((campaignsJson as any)?.error || "Failed to load campaigns");
+        throw new Error((campaignsJson as any)?.error || "AI Outbound did not load. Retry here or ask Pura for another route in.");
       }
 
       if (bookingCalendarsRes?.ok) {
@@ -2661,7 +2683,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       didLoad = true;
       void loadTags();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
+      setError(e instanceof Error ? e.message : "AI Outbound did not load. Retry here or ask Pura for another route in.");
     } finally {
       if (didLoad) hasLoadedOnceRef.current = true;
       setLoading(false);
@@ -2693,7 +2715,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const json = (await res.json().catch(() => null)) as ApiCreateCampaignResponse | null;
       if (!res.ok || !json || !json.ok) {
-        throw new Error((json as any)?.error || "Failed to create");
+        throw new Error((json as any)?.error || "That campaign did not save. Try again here.");
       }
 
       setCreateName("");
@@ -2702,7 +2724,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       setSelectedId(json.id);
       toast.success("Campaign created");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to create");
+      toast.error(e instanceof Error ? e.message : "That campaign did not save. Try again here.");
     } finally {
       setBusy(false);
     }
@@ -2728,7 +2750,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const json = (await res.json().catch(() => null)) as ApiCreateTagResponse | null;
       if (!res.ok || !json || !json.ok) {
-        throw new Error((json as any)?.error || "Failed to create tag");
+        throw new Error((json as any)?.error || "That tag did not save. Try again here or keep using the current audience tags.");
       }
 
       setNewTagName("");
@@ -2744,7 +2766,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       toast.success("Tag created");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to create tag");
+      toast.error(e instanceof Error ? e.message : "That tag did not save. Try again here or keep using the current audience tags.");
     } finally {
       setBusy(false);
     }
@@ -2857,15 +2879,15 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Failed to update");
+        throw new Error(json?.error || "This campaign did not save. Retry here or review the settings again.");
       }
 
       if (!isOutcomeTaggingOnlyPatch) {
         await loadAll();
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Failed to update";
-      if (message && message !== "Failed to update") toast.error(message);
+      const message = e instanceof Error ? e.message : "This campaign did not save. Retry here or review the settings again.";
+      if (message) toast.error(message);
       await loadAll().catch(() => null);
     }
   }, [loadAll, selected, toast, variantHeaders]);
@@ -2880,13 +2902,13 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       }).catch(() => null as any);
       const json = (await res?.json?.().catch(() => null)) as any;
       if (!res || !res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Failed to delete campaign");
+        throw new Error(json?.error || "That campaign did not delete. Retry here or close this prompt and try again.");
       }
       setDeleteCampaignConfirmOpen(false);
       toast.success("Campaign deleted");
       await loadAll();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete campaign");
+      toast.error(error instanceof Error ? error.message : "That campaign did not delete. Retry here or close this prompt and try again.");
     } finally {
       setDeleteCampaignBusy(false);
     }
@@ -2904,7 +2926,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Failed to sync agent");
+        throw new Error(json?.error || "That agent did not sync. Retry here or review these settings again.");
       }
 
       if (json.pulled) toast.success("Loaded agent settings");
@@ -2916,7 +2938,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       setCallsAgentSyncedAtIso(new Date().toISOString());
       await loadAll();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to sync agent");
+      toast.error(e instanceof Error ? e.message : "That agent did not sync. Retry here or review these settings again.");
     } finally {
       setCallsSyncBusy(false);
     }
@@ -2934,7 +2956,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Failed to sync agent");
+        throw new Error(json?.error || "That agent did not sync. Retry here or review these settings again.");
       }
 
       if (json.pulled) toast.success("Loaded agent settings");
@@ -2946,7 +2968,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       setMessagesAgentSyncedAtIso(new Date().toISOString());
       await loadAll();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to sync agent");
+      toast.error(e instanceof Error ? e.message : "That agent did not sync. Retry here or review these settings again.");
     } finally {
       setMessagesSyncBusy(false);
     }
@@ -3049,13 +3071,13 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         { method: "POST", headers: { "content-type": "application/json", ...variantHeaders }, body: JSON.stringify({}) },
       );
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Sync failed");
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "That knowledge base did not sync. Retry here or review these settings again.");
       const count = Array.isArray(json.locators) ? json.locators.length : 0;
       toast.success(count ? `Knowledge base synced (${count} docs)` : "Knowledge base synced");
       if (Array.isArray(json.errors) && json.errors.length) toast.error(String(json.errors[0] || ""));
       await loadAll();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Sync failed");
+      toast.error(e instanceof Error ? e.message : "That knowledge base did not sync. Retry here or review these settings again.");
     } finally {
       setKnowledgeBaseSyncBusy(false);
     }
@@ -3076,11 +3098,11 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         { method: "POST", body: fd, headers: variantHeaders },
       );
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Upload failed");
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "That file did not upload. Retry here or review these settings again.");
       toast.success("File added to knowledge base");
       await loadAll();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
+      toast.error(e instanceof Error ? e.message : "That file did not upload. Retry here or review these settings again.");
     } finally {
       setKnowledgeBaseUploadBusy(false);
     }
@@ -3097,13 +3119,13 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         { method: "POST", headers: { "content-type": "application/json", ...variantHeaders }, body: JSON.stringify({}) },
       );
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Sync failed");
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "That knowledge base did not sync. Retry here or review these settings again.");
       const count = Array.isArray(json.locators) ? json.locators.length : 0;
       toast.success(count ? `Knowledge base synced (${count} docs)` : "Knowledge base synced");
       if (Array.isArray(json.errors) && json.errors.length) toast.error(String(json.errors[0] || ""));
       await loadAll();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Sync failed");
+      toast.error(e instanceof Error ? e.message : "That knowledge base did not sync. Retry here or review these settings again.");
     } finally {
       setMessagesKnowledgeBaseSyncBusy(false);
     }
@@ -3124,11 +3146,11 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         { method: "POST", body: fd, headers: variantHeaders },
       );
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Upload failed");
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "That file did not upload. Retry here or review these settings again.");
       toast.success("File added to knowledge base");
       await loadAll();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
+      toast.error(e instanceof Error ? e.message : "That file did not upload. Retry here or review these settings again.");
     } finally {
       setMessagesKnowledgeBaseUploadBusy(false);
     }
@@ -3235,7 +3257,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       if (!res.ok || !json || (json as any).ok !== true) {
         if (kind === "calls") setCallsContextReport((json as any)?.analysis ?? null);
         else setMessagesContextReport((json as any)?.analysis ?? null);
-        throw new Error((json as any)?.error || "Failed to generate");
+        throw new Error((json as any)?.error || "That agent setup did not generate. Retry here or review these settings again.");
       }
 
       if (kind === "calls") setCallsContextReport((json as any).analysis ?? null);
@@ -3276,7 +3298,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       toast.success((json as any).warning ? "Generated (fallback)" : "Generated");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to generate");
+      toast.error(e instanceof Error ? e.message : "That agent setup did not generate. Retry here or review these settings again.");
     } finally {
       setGenerateBusy(false);
     }
@@ -3743,9 +3765,41 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     const kb = kind === "calls" ? selected?.knowledgeBase ?? null : selected?.messagesKnowledgeBase ?? null;
     const safe = ensureKnowledgeBase(kb);
     const count = Array.isArray(safe.locators) ? safe.locators.length : 0;
+    const syncBusy = kind === "calls" ? knowledgeBaseSyncBusy : messagesKnowledgeBaseSyncBusy;
 
     if (!hasKnowledgeBaseContent(kb)) {
-      return <div className="text-[11px] text-zinc-500">No knowledge base configured yet.</div>;
+      return (
+        <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/60 px-4 py-4 text-sm text-zinc-600">
+          <div className="font-semibold text-zinc-900">No knowledge base configured yet</div>
+          <div className="mt-1">Add notes, upload a file, or sync once you have the first context ready so this campaign stops guessing.</div>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              disabled={syncBusy || busy || !selected?.id}
+              onClick={() => {
+                void saveKnowledgeBaseDraft(kind);
+                if (kind === "calls") {
+                  void syncKnowledgeBase();
+                } else {
+                  void syncMessagesKnowledgeBase();
+                }
+              }}
+              className={classNames(
+                "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold transition-colors duration-150",
+                syncBusy || busy || !selected?.id ? "bg-zinc-200 text-zinc-600" : "bg-zinc-900 text-white hover:bg-zinc-800",
+              )}
+            >
+              {syncBusy ? "Syncing…" : "Sync knowledge base"}
+            </button>
+            <Link
+              href={`${basePath}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            >
+              Ask Pura for help
+            </Link>
+          </div>
+        </div>
+      );
     }
 
     return (
@@ -4005,14 +4059,43 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   </button>
                                 ))}
                               </div>
-                            ) : <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-xs text-zinc-500">No tags selected for this rule.</div>}
+                            ) : <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-xs text-zinc-600"><div className="font-semibold text-zinc-900">No tags selected for this rule</div><div className="mt-1">Pick at least one tag above so matched call outcomes route into the right audience or follow-up flow.</div></div>}
                           </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              ) : <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">No custom call outcome rules yet.</div>}
+              ) : (
+                <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
+                  <div className="font-semibold text-zinc-900">No custom call outcome rules yet</div>
+                  <div className="mt-1">Use the builder above to describe what happened on the call, then attach at least one tag so the campaign can sort contacts automatically.</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setNewCallOutcomeRuleDraft((current) => ({
+                        ...current,
+                        label: current.label || "Booked appointment",
+                        matchText: current.matchText || "booked an appointment, confirmed a time, or scheduled a call",
+                      }))}
+                    >
+                      Draft booked rule
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setNewCallOutcomeRuleDraft((current) => ({
+                        ...current,
+                        label: current.label || "Wrong number / do not call",
+                        matchText: current.matchText || "wrong number, do not call, stop calling, or remove me",
+                      }))}
+                    >
+                      Draft DNC rule
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
         </div>
@@ -4272,14 +4355,43 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   </button>
                                 ))}
                               </div>
-                            ) : <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-xs text-zinc-500">No tags selected for this rule.</div>}
+                            ) : <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-xs text-zinc-600"><div className="font-semibold text-zinc-900">No tags selected for this rule</div><div className="mt-1">Pick at least one tag above so matching replies can route into the right nurture or follow-up flow.</div></div>}
                           </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              ) : <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">No custom messaging outcome rules yet.</div>}
+              ) : (
+                <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
+                  <div className="font-semibold text-zinc-900">No custom messaging outcome rules yet</div>
+                  <div className="mt-1">Use the builder above to describe the reply pattern you care about, then attach at least one tag so message threads route into the right follow-up flow.</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setNewMessageOutcomeRuleDraft((current) => ({
+                        ...current,
+                        label: current.label || "Asked for pricing",
+                        matchText: current.matchText || "what does it cost, pricing, quote, or how much",
+                      }))}
+                    >
+                      Draft pricing rule
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setNewMessageOutcomeRuleDraft((current) => ({
+                        ...current,
+                        label: current.label || "Requested follow-up",
+                        matchText: current.matchText || "follow up next week, circle back later, not now, or remind me tomorrow",
+                      }))}
+                    >
+                      Draft follow-up rule
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
         </div>
@@ -4324,8 +4436,41 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       <div className={classNames("mt-0", tab === "testing" && !isMobileApp ? "flex min-h-0 flex-1 flex-col" : null)}>
         {error ? (
-          <div className="mb-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800">
-            {sanitizeClientErrorText(error) || "We couldn't load AI Outbound right now."}
+          <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="font-semibold text-red-900">AI Outbound needs attention</div>
+            <div className="mt-1">{sanitizeClientErrorText(error) || (campaigns.length === 0 ? "AI Outbound did not load. Retry here, create a campaign, or ask Pura for another route in." : "AI Outbound did not load. Retry here or ask Pura for another route in.")}</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void loadAll();
+                }}
+                className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Retry
+              </button>
+              {campaigns.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateName("");
+                    setCreateOpen(true);
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  New campaign
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  router.push(`${basePath}/app/ai-chat?onboarding=1`, { scroll: false });
+                }}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Ask Pura
+              </button>
+            </div>
           </div>
         ) : null}
         <div className={classNames(tab === "testing" && !isMobileApp ? "flex min-h-0 flex-1 flex-col" : null)}>
@@ -4337,7 +4482,32 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   {loading ? (
                     <div className="text-sm text-zinc-500">Loading…</div>
                   ) : campaigns.length === 0 ? (
-                    <div className="text-sm text-zinc-500">No campaigns yet.</div>
+                    <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm text-zinc-600">
+                      <div className="font-semibold text-zinc-900">No campaigns yet</div>
+                      <div className="mt-1">Create the first campaign to unlock calls, messages, testing, and setup for this workspace.</div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            setCreateName("");
+                            setCreateOpen(true);
+                          }}
+                          className={classNames(
+                            "inline-flex items-center justify-center rounded-2xl px-3 py-2 text-xs font-semibold transition-colors duration-150",
+                            busy ? "bg-zinc-200 text-zinc-600" : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200",
+                          )}
+                        >
+                          New campaign
+                        </button>
+                        <Link
+                          href={`${basePath}/app/ai-chat?onboarding=1`}
+                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-100"
+                        >
+                          Ask Pura
+                        </Link>
+                      </div>
+                    </div>
                   ) : (
                     <PortalSelectDropdown
                       value={selectedId ?? ""}
@@ -4641,7 +4811,31 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
                     {(() => {
                       if (!filteredMessagesActivityRows.length) {
-                        return <div className="mt-4 text-xs text-zinc-500">No activity yet.</div>;
+                        return (
+                          <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                            <div className="font-semibold text-zinc-900">No message activity yet</div>
+                            <div className="mt-1">Send a test or review the messaging setup so outbound threads start appearing here.</div>
+                            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                              <button
+                                type="button"
+                                onClick={() => setTabAndRoute("testing")}
+                                className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                              >
+                                Open testing
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTabAndRoute("settings");
+                                  setSettingsTab("messages");
+                                }}
+                                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                              >
+                                Review message setup
+                              </button>
+                            </div>
+                          </div>
+                        );
                       }
 
                       return (
@@ -4831,7 +5025,29 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-3 text-xs text-zinc-500">No activity yet.</div>
+                      <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                        <div className="font-semibold text-zinc-900">No call activity yet</div>
+                        <div className="mt-1">Run a test call or review the calls setup so new enrollments and outcomes start showing up here.</div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <button
+                            type="button"
+                            onClick={() => setTabAndRoute("testing")}
+                            className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                          >
+                            Open testing
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTabAndRoute("settings");
+                              setSettingsTab("calls");
+                            }}
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Review call setup
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -4873,7 +5089,33 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           <InlineElevenLabsAgentTester agentId={callsEffectiveAgentId} className="flex h-full min-h-160 flex-col" />
                         </div>
                       ) : (
-                        <div className="mt-4 rounded-2xl bg-zinc-50 p-4 text-sm text-zinc-600">No calls agent yet. Sync the calls agent first, then test here.</div>
+                        <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">No calls agent yet</div>
+                          <div className="mt-1">Sync the calls agent first, then come back here to test real voice behavior for this campaign.</div>
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                            <button
+                              type="button"
+                              disabled={callsSyncDisabled}
+                              onClick={() => void syncCallsAgent()}
+                              className={classNames(
+                                "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold transition-colors duration-150",
+                                callsSyncDisabled ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18",
+                              )}
+                            >
+                              {callsSyncBusy ? "Syncing…" : "Sync calls agent"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTabAndRoute("settings");
+                                setSettingsTab("calls");
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Open settings
+                            </button>
+                          </div>
+                        </div>
                       )}
                       </div>
                     </div>
@@ -4963,8 +5205,25 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
               {tab === "settings" ? (
                 <div className="mt-5 grid grid-cols-1 gap-5">
                   {settingsTab === "calls" && !voiceToolsApiKeyConfigured ? (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-                      Calls agent sync is not available for this account.
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-[11px] text-amber-900">
+                      <div className="font-semibold">Calls agent sync needs an API key first</div>
+                      <div className="mt-1 text-amber-800">
+                        Add the required API key in Profile so this campaign can sync its calls agent, or ask Pura to walk you through the setup.
+                      </div>
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <Link
+                          href={`${basePath}/app/profile`}
+                          className="inline-flex items-center justify-center rounded-2xl bg-white px-3 py-2 text-[11px] font-semibold text-zinc-900 hover:bg-amber-100"
+                        >
+                          Open API keys
+                        </Link>
+                        <Link
+                          href={`${basePath}/app/ai-chat?onboarding=1`}
+                          className="inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-amber-100/70 px-3 py-2 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
+                        >
+                          Ask Pura for help
+                        </Link>
+                      </div>
                     </div>
                   ) : null}
 
@@ -5079,7 +5338,36 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
                             <div className="mt-3 grid grid-cols-1 gap-2 pr-1">
                               {voiceTools.length === 0 ? (
-                                <div className="text-[11px] text-zinc-500">No tools are available yet.</div>
+                                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-[11px] text-zinc-600">
+                                  <div className="font-semibold text-zinc-900">No tools ready yet</div>
+                                  <div className="mt-1">
+                                    {voiceToolsApiKeyConfigured
+                                      ? "Sync the calls agent after saving your settings to load the tools that belong to this campaign."
+                                      : "Add the required API key in Profile first, then sync the calls agent to load available tools."}
+                                  </div>
+                                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                                    {voiceToolsApiKeyConfigured ? (
+                                      <button
+                                        type="button"
+                                        disabled={callsSyncDisabled}
+                                        onClick={() => void syncCallsAgent()}
+                                        className={classNames(
+                                          "inline-flex items-center justify-center rounded-2xl px-3 py-2 text-[11px] font-semibold transition-colors duration-150",
+                                          callsSyncDisabled ? "bg-zinc-200 text-zinc-600" : "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18",
+                                        )}
+                                      >
+                                        {callsSyncBusy ? "Syncing…" : "Sync calls agent"}
+                                      </button>
+                                    ) : (
+                                      <Link
+                                        href={`${basePath}/app/profile`}
+                                        className="inline-flex items-center justify-center rounded-2xl bg-white px-3 py-2 text-[11px] font-semibold text-zinc-900 hover:bg-zinc-100"
+                                      >
+                                        Open API keys
+                                      </Link>
+                                    )}
+                                  </div>
+                                </div>
                               ) : (
                                 voiceTools.map((t) => {
                                   const enabled = selectedToolKeys.includes(t.key);
@@ -5561,7 +5849,30 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                     {String(manualCall.status || "UNKNOWN").toUpperCase()}
                   </span>
                 </div>
-                {manualCall.lastError ? <div className="mt-2 text-xs text-red-700">{sanitizeClientErrorText(manualCall.lastError) || manualCall.lastError}</div> : null}
+                {manualCall.lastError ? (
+                  <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    <div className="font-semibold text-red-900">Manual call needs attention</div>
+                    <div className="mt-1">{sanitizeClientErrorText(manualCall.lastError) || manualCall.lastError}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {manualCallId ? (
+                        <button
+                          type="button"
+                          disabled={manualCallSyncBusy}
+                          onClick={() => void syncManualCallArtifacts(manualCallId)}
+                          className="rounded-2xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                        >
+                          {manualCallSyncBusy ? "Refreshing…" : "Refresh status"}
+                        </button>
+                      ) : null}
+                      <Link
+                        href={`${basePath}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                      >
+                        Ask Pura
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
                 {manualCallId ? (
                   <div className="mt-3 flex items-center justify-end">
                     <button
@@ -5678,7 +5989,25 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                     })}
                   </div>
                 ) : manualEnrollQuery.trim().length >= 2 ? (
-                  <div className="mt-2 text-xs text-zinc-500">No matches.</div>
+                  <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No matches</div>
+                    <div className="mt-1">Try a different name, phone, or email, or open People if the contact has not been added yet.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setManualEnrollQuery("")}
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Clear search
+                      </button>
+                      <Link
+                        href={`${basePath}/app/people/contacts`}
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Open People
+                      </Link>
+                    </div>
+                  </div>
                 ) : (
                   <div className="mt-2 text-xs text-zinc-500">Type at least 2 characters.</div>
                 )}
@@ -5847,7 +6176,31 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       {callDetail.callSid ? <div className="sm:col-span-2"><div className="text-[11px] font-semibold text-zinc-500">CallSid</div><div className="mt-1 break-all font-mono text-xs text-zinc-700">{callDetail.callSid}</div></div> : null}
                       {callDetail.conversationId ? <div className="sm:col-span-2"><div className="text-[11px] font-semibold text-zinc-500">Conversation</div><div className="mt-1 break-all font-mono text-xs text-zinc-700">{callDetail.conversationId}</div></div> : null}
                     </div>
-                    {callDetail.lastError ? <div className="mt-3 rounded-2xl bg-red-50 px-3 py-3 text-sm text-red-700">{sanitizeClientErrorText(callDetail.lastError) || callDetail.lastError}</div> : null}
+                    {callDetail.lastError ? (
+                      <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
+                        <div className="font-semibold text-red-900">Call details need attention</div>
+                        <div className="mt-1">{sanitizeClientErrorText(callDetail.lastError) || callDetail.lastError}</div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={callDetailLoading || !callDetailOpenId}
+                            onClick={() => {
+                              if (!callDetailOpenId) return;
+                              void openCallActivityDetail(callDetailOpenId);
+                            }}
+                            className="rounded-2xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                          >
+                            {callDetailLoading ? "Refreshing…" : "Refresh details"}
+                          </button>
+                          <Link
+                            href={`${basePath}/app/ai-chat?onboarding=1`}
+                            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                          >
+                            Ask Pura
+                          </Link>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="mt-4 flex flex-wrap gap-2">
                       {callDetail.kind !== "seeded" ? <button type="button" disabled={callDetailActionBusy !== null || callDetail.kind === "manual"} onClick={() => void retryCallActivity(callDetail.enrollmentId)} className={classNames("pa-ai-outbound-primary-action rounded-2xl px-4 py-2 text-sm font-semibold", callDetailActionBusy || callDetail.kind === "manual" ? "bg-zinc-200 text-zinc-600" : "bg-sky-100 text-(--color-brand-blue) hover:bg-sky-200")}>{callDetailActionBusy === "retry" ? "Queueing…" : callDetail.kind === "manual" ? "Manual call" : "Trigger another call"}</button> : null}
                     </div>
@@ -5878,7 +6231,64 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           </div>
                         ))}
                       </div>
-                    ) : <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white/60 px-4 py-4 text-sm text-zinc-600">No transcript is available yet for this call row.</div>}
+                    ) : (
+                      <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white/60 px-4 py-4 text-sm text-zinc-600">
+                        <div className="font-semibold text-zinc-900">{callDetail.kind === "manual" ? "Transcript still syncing" : callDetail.kind === "seeded" ? "Preview row only" : "No transcript yet"}</div>
+                        <div className="mt-1">{callDetail.kind === "manual" ? "This manual call transcript is still syncing. If the call just ended, give it a moment and reopen this row." : callDetail.kind === "seeded" ? "This preview row does not include a live transcript." : "No transcript has been attached to this call yet. If it just ran, give it a moment or queue another call after reviewing the setup."}</div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          {callDetail.kind === "manual" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCallDetailOpenId(null);
+                                setCallDetail(null);
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                            >
+                              Close and check again
+                            </button>
+                          ) : callDetail.kind === "seeded" ? (
+                            <button
+                              type="button"
+                              onClick={() => setTabAndRoute("testing")}
+                              className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                            >
+                              Open testing
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                disabled={callDetailActionBusy !== null}
+                                onClick={() => void retryCallActivity(callDetail.enrollmentId)}
+                                className={classNames(
+                                  "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold transition-colors duration-150",
+                                  callDetailActionBusy ? "bg-zinc-200 text-zinc-600" : "bg-zinc-900 text-white hover:bg-zinc-800",
+                                )}
+                              >
+                                {callDetailActionBusy === "retry" ? "Queueing…" : "Trigger another call"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTabAndRoute("settings");
+                                  setSettingsTab("calls");
+                                }}
+                                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                              >
+                                Review call setup
+                              </button>
+                            </>
+                          )}
+                          <Link
+                            href={`${basePath}/app/ai-chat?onboarding=1`}
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Ask Pura for help
+                          </Link>
+                        </div>
+                      </div>
+                    )}
                 </div>
                 <div className="lg:col-span-2 flex items-center justify-start pt-1">
                   <button type="button" disabled={callDetailActionBusy !== null} onClick={() => void deleteCallRow(callDetail)} className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold", callDetailActionBusy ? "bg-zinc-200 text-zinc-600" : "bg-red-50 text-red-700 hover:bg-red-100")}>{callDetailActionBusy === "delete" ? "Deleting…" : "Delete"}</button>
@@ -5923,7 +6333,30 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   <div><div className="text-[11px] font-semibold text-zinc-500">Reply attempts</div><div className="mt-1">{messageDetail.replyAttemptCount}</div></div>
                   {messageDetail.threadId ? <div className="sm:col-span-2"><div className="text-[11px] font-semibold text-zinc-500">Thread</div><div className="mt-1 break-all font-mono text-xs text-zinc-700">{messageDetail.threadId}</div></div> : null}
                 </div>
-                {(messageDetail.lastError || messageDetail.replyLastError) ? <div className="mt-4 rounded-2xl bg-red-50 px-3 py-3 text-sm text-red-700">{sanitizeClientErrorText(messageDetail.lastError || messageDetail.replyLastError) || messageDetail.lastError || messageDetail.replyLastError}</div> : null}
+                {(messageDetail.lastError || messageDetail.replyLastError) ? (
+                  <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
+                    <div className="font-semibold text-red-900">Message activity needs attention</div>
+                    <div className="mt-1">
+                      {sanitizeClientErrorText(messageDetail.lastError || messageDetail.replyLastError) || messageDetail.lastError || messageDetail.replyLastError}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={messageDetailLoading}
+                        onClick={() => void openMessageActivityDetail(messageDetail)}
+                        className="rounded-2xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                      >
+                        {messageDetailLoading ? "Refreshing…" : "Refresh details"}
+                      </button>
+                      <Link
+                        href={`${basePath}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                      >
+                        Ask Pura
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <div className="rounded-3xl border border-white/60 bg-white/55 p-4">
                 <div className="text-sm font-semibold text-zinc-900">Conversation transcript</div>
@@ -5947,7 +6380,35 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                     })}
                   </div>
                 ) : (
-                  <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white/70 px-3 py-3 text-sm text-zinc-600">No messages are available for this row yet.</div>
+                  <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white/70 px-4 py-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No messages yet</div>
+                    <div className="mt-1">No messages are attached to this row yet. If this outreach just ran, check back in a moment or review the messaging setup before sending the next test.</div>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTabAndRoute("settings");
+                          setSettingsTab("messages");
+                        }}
+                        className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      >
+                        Review message setup
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTabAndRoute("testing")}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Open testing
+                      </button>
+                      <Link
+                        href={`${basePath}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Ask Pura for help
+                      </Link>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

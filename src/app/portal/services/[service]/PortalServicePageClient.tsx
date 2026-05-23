@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { computePortalHelpHref } from "@/app/portal/PortalHelpLink";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
@@ -123,6 +124,8 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   const portalBase = variant === "credit" ? "/credit" : "/portal";
   const appBase = `${portalBase}/app`;
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: variant }), [variant]);
+  const helpHref = useMemo(() => computePortalHelpHref(pathname), [pathname]);
+  const askPuraHref = `${appBase}/ai-chat?onboarding=1`;
 
   const service = useMemo(
     () => {
@@ -137,35 +140,62 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true);
   const [pricing, setPricing] = useState<PortalPricing | null>(null);
   const [statusRes, setStatusRes] = useState<ServiceStatusRes | null>(null);
+  const [pricingLoadError, setPricingLoadError] = useState<string | null>(null);
+  const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const [pricingRes, statusRes] = await Promise.all([
-        fetch("/api/portal/pricing", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
-        fetch("/api/portal/services/status", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+  const loadServiceMeta = useCallback(
+    async (options?: { signal?: AbortSignal }) => {
+      setLoading(true);
+      setPricingLoadError(null);
+      setStatusLoadError(null);
+
+      const [pricingResult, statusResult] = await Promise.allSettled([
+        fetch("/api/portal/pricing", { cache: "no-store", headers: variantHeaders, signal: options?.signal }),
+        fetch("/api/portal/services/status", { cache: "no-store", headers: variantHeaders, signal: options?.signal }),
       ]);
-      if (!mounted) return;
-      if (pricingRes && pricingRes.ok) {
-        const body = (await pricingRes.json().catch(() => null)) as PortalPricing | null;
-        setPricing(body && (body as any).ok === true ? body : null);
+
+      if (options?.signal?.aborted) return;
+
+      if (pricingResult.status === "fulfilled" && pricingResult.value.ok) {
+        const body = (await pricingResult.value.json().catch(() => null)) as PortalPricing | null;
+        if (!options?.signal?.aborted) {
+          setPricing(body && (body as any).ok === true ? body : null);
+          if (!body || (body as any).ok !== true) {
+            setPricingLoadError("Pricing details are temporarily unavailable.");
+          }
+        }
       } else {
         setPricing(null);
+        setPricingLoadError("Pricing details are temporarily unavailable.");
       }
 
-      if (statusRes && statusRes.ok) {
-        const body = (await statusRes.json().catch(() => null)) as ServiceStatusRes | null;
-        setStatusRes(body);
+      if (statusResult.status === "fulfilled" && statusResult.value.ok) {
+        const body = (await statusResult.value.json().catch(() => null)) as ServiceStatusRes | null;
+        if (!options?.signal?.aborted) {
+          setStatusRes(body);
+          if (!body || body.ok !== true) {
+            setStatusLoadError("Live service status did not load. Retry here, open the service, or ask Pura for help.");
+          }
+        }
       } else {
         setStatusRes(null);
+        setStatusLoadError("Live service status did not load. Retry here, open the service, or ask Pura for help.");
       }
-      setLoading(false);
-    })();
 
+      if (!options?.signal?.aborted) {
+        setLoading(false);
+      }
+    },
+    [variantHeaders],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadServiceMeta({ signal: controller.signal });
     return () => {
-      mounted = false;
+      controller.abort();
     };
-  }, [variantHeaders]);
+  }, [loadServiceMeta]);
 
   const serviceStatus = statusRes && statusRes.ok === true ? statusRes.statuses?.[slug] ?? null : null;
   const state = String(serviceStatus?.state || "").toLowerCase();
@@ -187,13 +217,72 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
 
   const entitlementKey = service?.entitlementKey;
   const benefit = benefitCopyForService(slug, entitlementKey, variant);
+  const hasMetaLoadIssue = Boolean(pricingLoadError || statusLoadError);
 
   const billingUnlockHref =
     isPaused || isCanceled
-      ? `${appBase}/billing`
+      ? `${appBase}/billing#pa-billing-services`
       : entitlementKey
         ? `${appBase}/billing?buy=${encodeURIComponent(entitlementKey)}&autostart=1`
-        : `${appBase}/billing`;
+        : `${appBase}/billing#pa-billing-services`;
+  const billingPrimaryLabel = isPaused || isCanceled ? `Resume ${service?.title || "service"}` : `Enable ${service?.title || "service"}`;
+
+  const helpCard = (
+    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+      <div className="text-sm font-semibold text-zinc-900">Need help getting this live?</div>
+      <div className="mt-2 text-sm text-zinc-600">
+        Open the walkthrough for the exact setup path, or let Pura help you decide what to configure and test first.
+      </div>
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+        <Link
+          href={helpHref}
+          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+        >
+          Open walkthrough
+        </Link>
+        <Link
+          href={askPuraHref}
+          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+        >
+          Ask Pura for help
+        </Link>
+      </div>
+    </div>
+  );
+
+  const serviceMetaRecoveryCard = hasMetaLoadIssue ? (
+    <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+      <div className="text-base font-semibold">Service details are partially unavailable</div>
+      <div className="mt-2 leading-6">
+        {statusLoadError && pricingLoadError
+          ? "Live service status and pricing did not load. Retry here, open the service, or ask Pura for help while this page uses a safe fallback."
+          : statusLoadError
+            ? "Live service status did not load. Retry here, open the service, or keep working while this page uses a safe fallback."
+            : "Pricing details did not load. Retry here, open the service, or keep working while this page uses a safe fallback."}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => void loadServiceMeta()}
+          className="inline-flex items-center justify-center rounded-2xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:border-amber-400 hover:bg-amber-100"
+        >
+          Retry details
+        </button>
+        <Link
+          href={`${appBase}/billing`}
+          className="inline-flex items-center justify-center rounded-2xl border border-transparent px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          Open Billing
+        </Link>
+        <Link
+          href={askPuraHref}
+          className="inline-flex items-center justify-center rounded-2xl border border-transparent px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          Ask Pura
+        </Link>
+      </div>
+    </div>
+  ) : null;
 
   if (!service) {
     return (
@@ -233,6 +322,8 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
             All services
           </Link>
         </div>
+
+        {serviceMetaRecoveryCard}
 
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -279,10 +370,10 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               <div className="text-sm font-semibold text-zinc-900">Next step</div>
               <div className="mt-2 text-sm text-zinc-600">
                 {isPaused || isCanceled
-                  ? "Open Billing to turn this service back on."
+                  ? "Resume this service from service access to turn it back on."
                   : isComingSoon
                     ? "Keep using the rest of your services while this one is being prepared."
-                    : "Turn this service on in Billing, then come back here to configure it."}
+                    : "Enable this service now, then come back here to configure it."}
               </div>
               <div className="mt-4 flex flex-col gap-3">
                 {!isComingSoon ? (
@@ -290,7 +381,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
                     href={billingUnlockHref}
                     className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
                   >
-                    {isPaused || isCanceled ? "Open Billing" : "Unlock in Billing"}
+                    {billingPrimaryLabel}
                   </Link>
                 ) : null}
                 <Link
@@ -304,13 +395,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           </div>
         </div>
 
-        <div className="mt-4 text-sm text-zinc-600">
-          Need help picking the right setup? Email{" "}
-          <a className="font-semibold text-brand-ink hover:underline" href="mailto:support@purelyautomation.dev">
-            support@purelyautomation.dev
-          </a>
-          .
-        </div>
+        <div className="mt-4">{helpCard}</div>
       </div>
     );
   }
@@ -329,6 +414,8 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           All services
         </Link>
       </div>
+
+      {serviceMetaRecoveryCard}
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -444,7 +531,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
                   href={entitlementKey ? `${appBase}/billing?buy=${encodeURIComponent(entitlementKey)}&autostart=1` : `${appBase}/billing`}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
                 >
-                  Open Billing
+                  {entitlementKey ? `Enable ${service?.title || "service"}` : "Open service access"}
                 </Link>
                 <Link
                   href={`${appBase}/services`}
@@ -454,13 +541,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
                 </Link>
               </div>
 
-              <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                Need help getting this one live? Email{" "}
-                <a className="font-semibold text-brand-ink hover:underline" href="mailto:support@purelyautomation.dev">
-                  support@purelyautomation.dev
-                </a>
-                .
-              </div>
+              <div className="mt-6">{helpCard}</div>
             </div>
           )}
         </div>

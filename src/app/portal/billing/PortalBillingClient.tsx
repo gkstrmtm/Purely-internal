@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -147,13 +148,13 @@ function UpdateCardForm({
         });
 
         if (result.error) {
-          onError(result.error.message || "Unable to update card");
+          onError(result.error.message || "Your card did not update. Retry here in this form.");
           return;
         }
 
         const setupIntentId = (result.setupIntent as any)?.id ? String((result.setupIntent as any).id) : "";
         if (!setupIntentId) {
-          onError("Unable to confirm payment method");
+          onError("Your payment method did not confirm. Retry here in this form.");
           return;
         }
 
@@ -287,6 +288,7 @@ export function PortalBillingClient({
   const [checkoutNotice, setCheckoutNotice] = useState<null | { kind: "success" | "cancel"; message: string }>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const billingOverviewMountedRef = useRef(true);
 
   const billingColRef = useRef<HTMLDivElement | null>(null);
   const [billingColHeightPx, setBillingColHeightPx] = useState<number | null>(null);
@@ -454,7 +456,7 @@ export function PortalBillingClient({
       const res = await fetch("/api/portal/billing/billing-info", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as BillingInfoResponse;
       if (!res.ok) {
-        const message = (json as any)?.error ? String((json as any).error) : "Unable to load billing info";
+        const message = (json as any)?.error ? String((json as any).error) : "Billing info did not load. Retry here, open billing home, or ask Pura to help.";
         toast.error(message);
         setBillingInfo({ ok: false, error: message });
         return;
@@ -491,7 +493,7 @@ export function PortalBillingClient({
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || json?.ok === false) {
-        toast.error(String(json?.error || "Unable to save billing info"));
+        toast.error(String(json?.error || "Billing info did not save. Retry here or ask Pura to help."));
         return;
       }
       toast.success("Saved billing info.");
@@ -515,14 +517,14 @@ export function PortalBillingClient({
       const res = await fetch("/api/portal/billing/setup-intent", { method: "POST", cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.clientSecret) {
-        const msg = String(json?.error || "Unable to start card update");
+        const msg = String(json?.error || "Payment method update did not start. Retry here, open billing home, or ask Pura to help.");
         setUpdateCardError(msg);
         toast.error(msg);
         return;
       }
       setUpdateCardClientSecret(String(json.clientSecret));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Unable to start card update";
+      const msg = e instanceof Error ? e.message : "Payment method update did not start. Retry here, open billing home, or ask Pura to help.";
       setUpdateCardError(msg);
       toast.error(msg);
     } finally {
@@ -611,7 +613,7 @@ export function PortalBillingClient({
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || json?.ok === false) {
-        toast.error(String(json?.error || "Unable to finalize payment method"));
+        toast.error(String(json?.error || "Your payment method did not finalize. Retry here in billing."));
         return;
       }
       toast.success("Updated payment method.");
@@ -653,9 +655,10 @@ export function PortalBillingClient({
   }, [variantHeaders]);
 
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
+  const loadBillingOverview = useCallback(async () => {
+      setLoading(true);
+      setError(null);
+
       const [billingRes, summaryRes, creditsRes, servicesRes, subsRes, pricingRes] = await Promise.all([
         fetch("/api/billing/status", { cache: "no-store" }),
         fetch("/api/portal/billing/summary", { cache: "no-store", headers: variantHeaders }),
@@ -664,10 +667,10 @@ export function PortalBillingClient({
         fetch("/api/portal/billing/subscriptions", { cache: "no-store", headers: variantHeaders }),
         fetch("/api/portal/pricing", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
       ]);
-      if (!mounted) return;
+      if (!billingOverviewMountedRef.current) return;
       if (!billingRes.ok) {
         const body = await billingRes.json().catch(() => ({}));
-        setError(body?.error ?? "Unable to load billing");
+        setError(body?.error ?? "Billing details did not load. Retry here or ask Pura to help.");
         setLoading(false);
         return;
       }
@@ -732,11 +735,15 @@ export function PortalBillingClient({
       }
 
       setLoading(false);
-    })();
-    return () => {
-      mounted = false;
-    };
   }, [variantHeaders]);
+
+  useEffect(() => {
+    billingOverviewMountedRef.current = true;
+    void loadBillingOverview();
+    return () => {
+      billingOverviewMountedRef.current = false;
+    };
+  }, [loadBillingOverview]);
 
   useEffect(() => {
     try {
@@ -889,14 +896,14 @@ export function PortalBillingClient({
     const body = await res.json().catch(() => ({}));
     setActionBusy(null);
     if (!res.ok) {
-      setError(body?.error ?? "Unable to start checkout");
+      setError(body?.error ?? "Checkout did not start. Retry here or ask Pura to help.");
       return;
     }
     if (body?.url && typeof body.url === "string") {
       window.location.href = body.url;
       return;
     }
-    setError("Unable to start checkout");
+    setError("Checkout did not start. Retry here or ask Pura to help.");
   }
 
   function modulePurchasable(
@@ -978,7 +985,7 @@ export function PortalBillingClient({
     const body = await res.json().catch(() => ({}));
     setActionBusy(null);
     if (!res.ok || !body?.ok) {
-      setError(body?.error ?? "Unable to update service");
+      setError(body?.error ?? "That service did not update. Retry here or ask Pura to help.");
       return;
     }
     toast.success("Updated.");
@@ -999,7 +1006,7 @@ export function PortalBillingClient({
 
     if (!res.ok || !body?.ok) {
       setActionBusy(null);
-      setError(body?.error ?? "Unable to update credits-only billing");
+      setError(body?.error ?? "Credits-only billing did not update. Retry here or ask Pura to help.");
       return;
     }
 
@@ -1020,7 +1027,7 @@ export function PortalBillingClient({
     const body = await res.json().catch(() => ({}));
     setActionBusy(null);
     if (!res.ok) {
-      setError(body?.error ?? "Unable to update auto top-up");
+      setError(body?.error ?? "Auto top-up did not update. Retry here or ask Pura to help.");
       return;
     }
     setAutoTopUp(Boolean(body?.autoTopUp));
@@ -1050,7 +1057,7 @@ export function PortalBillingClient({
     setActionBusy(null);
 
     if (!res.ok) {
-      setError(body?.error ?? "Unable to purchase credits");
+      setError(body?.error ?? "Credits checkout did not start. Retry here or ask Pura to help.");
       return;
     }
 
@@ -1082,7 +1089,7 @@ export function PortalBillingClient({
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(body?.error ?? "Unable to cancel subscription");
+      setError(body?.error ?? "That subscription did not cancel. Retry here or ask Pura to help.");
       setActionBusy(null);
       return;
     }
@@ -1097,8 +1104,26 @@ export function PortalBillingClient({
 
   if (error) {
     return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
-        Something went wrong loading billing. Please refresh.
+      <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-800">
+        <div className="font-semibold text-red-900">Billing needs attention</div>
+        <div className="mt-1">{error}</div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              void loadBillingOverview();
+            }}
+            className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+          >
+            Retry
+          </button>
+          <Link
+            href={`${portalBase}/app/ai-chat?onboarding=1`}
+            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+          >
+            Ask Pura
+          </Link>
+        </div>
       </div>
     );
   }
@@ -1163,6 +1188,7 @@ export function PortalBillingClient({
   const monthlyText = creditsOnly ? "Upgrade" : status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
 
   const creditsCanceled = creditsOnly && creditsLifecycle?.state === "canceled";
+  const summaryLoadError = summary && "ok" in summary && summary.ok === false ? summary.error ?? "Subscription summary did not load. Retry here or ask Pura to help." : null;
 
   const sub = summary && "ok" in summary && summary.ok === true && summary.configured ? summary.subscription : undefined;
   const hasActiveSub = creditsOnly ? false : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
@@ -1171,8 +1197,8 @@ export function PortalBillingClient({
     ? "Upgrade to a monthly plan to activate subscriptions and monthly billing."
     : !status?.configured
       ? "Billing isn’t configured on this environment yet."
-      : summary && "ok" in summary && summary.ok === false
-        ? summary.error ?? "Unable to load summary"
+      : summaryLoadError
+        ? summaryLoadError
         : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)))
           ? "Your subscription is active."
           : internalMonthlyCents > 0
@@ -1465,6 +1491,7 @@ export function PortalBillingClient({
         purchaseAvailable={purchaseAvailable}
         creditUsdValue={creditUsdValue}
         estimatedMonthlyCredits={null}
+        helpHref={`${portalBase}/app/ai-chat?onboarding=1`}
         onStartCheckout={async (creditsToBuy) => {
           await startCreditsCheckout(creditsToBuy);
         }}
@@ -1536,6 +1563,29 @@ export function PortalBillingClient({
               <div className="mt-1 text-lg font-bold text-brand-ink">{monthlyText}</div>
             )}
             <div className="mt-1 text-xs text-zinc-500">{monthlyNote}</div>
+            {summaryLoadError ? (
+              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                <div className="font-semibold text-red-900">Subscription summary needs attention</div>
+                <div className="mt-1 leading-5">{summaryLoadError}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void refreshSummary();
+                    }}
+                    className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                  >
+                    Retry
+                  </button>
+                  <Link
+                    href={`${portalBase}/app/ai-chat?onboarding=1`}
+                    className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                  >
+                    Ask Pura
+                  </Link>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -1562,7 +1612,33 @@ export function PortalBillingClient({
           ) : null}
 
           {billingInfoError ? (
-            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{billingInfoError}</div>
+            <div className="mt-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <div className="font-semibold text-red-900">Billing info needs attention</div>
+              <div className="mt-1">{billingInfoError}</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void loadBillingInfo();
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                >
+                  Retry
+                </button>
+                <Link
+                  href={`${portalBase}/app/billing`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                >
+                  Open billing home
+                </Link>
+                <Link
+                  href={`${portalBase}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
           ) : null}
 
           {billingInfo && "ok" in billingInfo && billingInfo.ok && (billingInfo as any).stripeConfigured === false ? (
@@ -1584,15 +1660,30 @@ export function PortalBillingClient({
                 {updateCardOpen ? (
                   <div className="mt-4">
                     {updateCardError ? (
-                      <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                        {updateCardError}{" "}
-                        <button
-                          type="button"
-                          onClick={() => void openUpdateCard()}
-                          className="pa-billing-link-action ml-2 font-semibold text-brand-ink hover:underline"
-                        >
-                          Try again
-                        </button>
+                      <div className="mb-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                        <div className="font-semibold text-red-900">Payment method update needs attention</div>
+                        <div className="mt-1">{updateCardError}</div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void openUpdateCard()}
+                            className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                          >
+                            Retry
+                          </button>
+                          <Link
+                            href={`${portalBase}/app/billing`}
+                            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                          >
+                            Open billing home
+                          </Link>
+                          <Link
+                            href={`${portalBase}/app/ai-chat?onboarding=1`}
+                            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                          >
+                            Ask Pura
+                          </Link>
+                        </div>
                       </div>
                     ) : null}
 
@@ -1742,8 +1833,32 @@ export function PortalBillingClient({
             <div className="mt-1 text-sm text-zinc-600">Cancel any service any time.</div>
 
             {subscriptions && "ok" in subscriptions && subscriptions.ok === false ? (
-              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                {subscriptions.error ?? "Unable to load subscriptions."}
+              <div className="mt-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                <div className="font-semibold text-red-900">Subscriptions need attention</div>
+                <div className="mt-1">{subscriptions.error ?? "Subscriptions did not load. Retry here, open billing home, or ask Pura to help."}</div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void refreshSubscriptions();
+                    }}
+                    className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                  >
+                    Retry
+                  </button>
+                  <Link
+                    href={`${portalBase}/app/billing`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                  >
+                    Open billing home
+                  </Link>
+                  <Link
+                    href={`${portalBase}/app/ai-chat?onboarding=1`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                  >
+                    Ask Pura
+                  </Link>
+                </div>
               </div>
             ) : subscriptions && "ok" in subscriptions && subscriptions.ok === true && !subscriptions.configured ? (
               <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
@@ -1803,7 +1918,26 @@ export function PortalBillingClient({
                 })}
               </div>
             ) : (
-              <div className="mt-3 text-sm text-zinc-600">No active subscriptions found.</div>
+              <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white p-4 text-sm text-zinc-600">
+                <div className="font-semibold text-zinc-900">No active subscriptions found</div>
+                <div className="mt-1">Open Services to choose what should be enabled next, or ask Pura to help map the right plan for this workspace.</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => router.push(`${portalBase}/app/services`, { scroll: false })}
+                  >
+                    Open services
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    onClick={() => router.push(`${portalBase}/app/ai-chat?onboarding=1`, { scroll: false })}
+                  >
+                    Ask Pura for help
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         ) : null}
@@ -1854,7 +1988,33 @@ export function PortalBillingClient({
                 </div>
               </div>
             ) : (
-              <div className="mt-3 text-sm text-zinc-600">No services found.</div>
+              <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white p-4 text-sm text-zinc-600">
+                <div className="font-semibold text-zinc-900">No services active yet</div>
+                <div className="mt-1">Nothing is currently enabled for this workspace. Open Services to activate products, or review plans if you want to set the billing path first.</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => router.push(`${portalBase}/app/services`, { scroll: false })}
+                  >
+                    Open services
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    onClick={() => router.push(upgradeHref, { scroll: false })}
+                  >
+                    {creditsOnly ? "Upgrade plan" : "Review plans"}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => router.push(`${portalBase}/app/ai-chat?onboarding=1`, { scroll: false })}
+                  >
+                    Ask Pura
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         ) : null}
@@ -1885,7 +2045,15 @@ export function PortalBillingClient({
               >
                 {actionBusy === "topup" ? "Opening…" : "Buy credits"}
               </button>
-            ) : null}
+            ) : (
+              <button
+                type="button"
+                className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                onClick={() => setBuyCreditsOpen(true)}
+              >
+                Review credit setup
+              </button>
+            )}
           </div>
           <div className="text-right">
             <div className="text-xs text-zinc-500">Balance</div>
@@ -1924,14 +2092,14 @@ export function PortalBillingClient({
                 const next = await rotateReferral();
                 const url = next?.url || referral?.url;
                 if (!url) {
-                  toast.error("Unable to generate referral link");
+                  toast.error("That referral link did not generate. Retry here in billing.");
                   return;
                 }
                 try {
                   await navigator.clipboard.writeText(url);
                   toast.success("Referral link copied");
                 } catch {
-                  toast.error("Unable to copy link");
+                  toast.error("That referral link did not copy. Retry here in billing.");
                 }
               }}
             >
@@ -2077,7 +2245,14 @@ export function PortalBillingClient({
                                 Enable
                               </button>
                             ) : (
-                              <span className="hidden text-xs font-semibold text-zinc-400 sm:inline-flex">Not available</span>
+                              <button
+                                type="button"
+                                disabled={actionBusy !== null}
+                                onClick={() => router.push(`${portalBase}/tutorials/${encodeURIComponent(s.slug)}`, { scroll: false })}
+                                className="hidden rounded-2xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 disabled:opacity-60 sm:inline-flex"
+                              >
+                                Guide
+                              </button>
                             )
                           ) : state === "paused" || state === "canceled" ? (
                             <button
@@ -2130,7 +2305,13 @@ export function PortalBillingClient({
                                     Enable…
                                   </button>
                                 ) : (
-                                  <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">Not available</div>
+                                  <button
+                                    type="button"
+                                    className={classNames(portalGlassButtonClass, "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-white/80")}
+                                    onClick={() => router.push(`${portalBase}/tutorials/${encodeURIComponent(s.slug)}`, { scroll: false })}
+                                  >
+                                    Open walkthrough
+                                  </button>
                                 )
                               ) : state === "needs_setup" ? (
                                 <button
@@ -2141,7 +2322,13 @@ export function PortalBillingClient({
                                   {setupActionLabelForService(s.slug, label)}…
                                 </button>
                               ) : state === "coming_soon" ? (
-                                <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">Coming soon</div>
+                                <button
+                                  type="button"
+                                  className={classNames(portalGlassButtonClass, "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-white/80")}
+                                  onClick={() => router.push(`${portalBase}/tutorials/${encodeURIComponent(s.slug)}`, { scroll: false })}
+                                >
+                                  Open walkthrough
+                                </button>
                               ) : state === "paused" || state === "canceled" ? (
                                 <button
                                   type="button"
@@ -2247,6 +2434,22 @@ export function PortalBillingClient({
               <div className="font-semibold text-zinc-900">Want to add more?</div>
               <div className="mt-1 text-sm text-zinc-700">
                 {creditsOnly ? "Top up credits above, or open a service to configure it." : "Enable add-ons above, or open a service to configure it."}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => router.push(`${portalBase}/app/services`, { scroll: false })}
+                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                >
+                  Open services
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push(`${portalBase}/app/ai-chat?onboarding=1`, { scroll: false })}
+                  className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                >
+                  Ask Pura
+                </button>
               </div>
             </div>
           </div>
@@ -2416,6 +2619,7 @@ export function PortalBillingClient({
 
       {!creditsOnly ? (
         <div
+          id="pa-billing-add-services"
           className={[
             "rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2",
             creditsFirstForMobileApp ? "order-3" : null,

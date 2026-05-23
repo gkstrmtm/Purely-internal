@@ -109,7 +109,7 @@ export function PortalBillingUpgradeClient({ embedded }: { embedded?: boolean } 
     setBusy(null);
 
     if (!res || !res.ok || !json?.ok || !json?.url) {
-      const msg = json?.error || (!res ? "Unable to reach server" : "Unable to start checkout");
+      const msg = json?.error || (!res ? "Billing did not respond. Retry this package here or go back to billing." : "Checkout did not start. Retry this package here or go back to billing.");
       toast.error(msg);
       return;
     }

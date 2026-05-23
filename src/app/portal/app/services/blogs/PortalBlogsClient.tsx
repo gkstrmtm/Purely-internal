@@ -2,7 +2,7 @@
 
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -252,6 +252,7 @@ export function PortalBlogsClient({
   const toast = useToast();
   const uiPreview = usePortalUiPreview();
   const pathname = usePathname();
+  const router = useRouter();
   const appBase = currentAppBase(pathname);
   const portalVariant: PortalVariant = pathname?.startsWith("/credit") ? "credit" : "portal";
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
@@ -611,14 +612,14 @@ export function PortalBlogsClient({
       };
 
       if (!meRes.ok) {
-        setError((meJson as { error?: string })?.error ?? "Unable to load account");
+        setError((meJson as { error?: string })?.error ?? "This blog workspace did not load. Retry here, open blog setup, or ask Pura.");
         return;
       }
 
       setMe(meJson as Me);
 
       if (!siteRes.ok) {
-        setError(siteJson.error ?? "Unable to load blog settings");
+        setError(siteJson.error ?? "Blog setup did not load. Retry here, open blog setup, or ask Pura.");
       }
 
       const s = siteJson.site ?? null;
@@ -703,7 +704,7 @@ export function PortalBlogsClient({
         });
         const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance; error?: string };
         if (!res.ok || !json.ok || !json.appearance) {
-          toast.error(json.error ?? "Unable to save blog fonts");
+          toast.error(json.error ?? "Blog fonts did not save. Retry here in appearance settings.");
           return;
         }
         setAppearance(json.appearance);
@@ -811,7 +812,7 @@ export function PortalBlogsClient({
     });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to update archive state");
+      setError(json.error ?? "That post did not update. Retry here, open blog setup, or ask Pura.");
       return;
     }
 
@@ -843,7 +844,7 @@ export function PortalBlogsClient({
     const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE", headers: variantHeaders });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to delete post");
+      setError(json.error ?? "That post did not delete. Retry here, open blog setup, or ask Pura.");
       return;
     }
     setPosts((prev) => prev.filter((p) => p.id !== postId));
@@ -871,7 +872,7 @@ export function PortalBlogsClient({
     setSiteSaving(false);
 
     if (!res.ok || !json.ok || !json.site) {
-      setError(json.error ?? "Unable to create blog site");
+      setError(json.error ?? "Blog workspace did not create. Retry here, open blog setup, or ask Pura.");
       return;
     }
 
@@ -917,7 +918,7 @@ export function PortalBlogsClient({
     setSiteSaving(false);
 
     if (!res.ok || !json.ok || !json.site) {
-      setError(json.error ?? "Unable to save blog settings");
+      setError(json.error ?? "Blog settings did not save. Retry here, open blog setup, or ask Pura to help.");
       return;
     }
 
@@ -944,7 +945,7 @@ export function PortalBlogsClient({
 
     if (uiPreview) {
       const post = createPreviewBlogPost({ title: "" });
-      window.location.href = `${appBase}/services/blogs/${post.id}`;
+      router.push(`${appBase}/services/blogs/${post.id}`, { scroll: false });
       return;
     }
 
@@ -956,11 +957,11 @@ export function PortalBlogsClient({
 
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: { id: string }; error?: string };
     if (!res.ok || !json.ok || !json.post?.id) {
-      setError(json.error ?? "Unable to create draft");
+      setError(json.error ?? "That draft did not create. Retry here, open blog setup, or ask Pura.");
       return;
     }
 
-    window.location.href = `${appBase}/services/blogs/${json.post.id}`;
+    router.push(`${appBase}/services/blogs/${json.post.id}`, { scroll: false });
   }
 
   async function saveAutomation() {
@@ -1015,7 +1016,7 @@ export function PortalBlogsClient({
     setAutoSaving(false);
 
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to save automation settings");
+      setError(json.error ?? "Automation settings did not save. Retry here, open blog setup, or ask Pura to help.");
       return;
     }
 
@@ -1111,7 +1112,7 @@ export function PortalBlogsClient({
         });
         const finalizeJson = (await finalizeRes.json().catch(() => null)) as any;
         if (!finalizeRes.ok || !finalizeJson || finalizeJson.ok !== true || !finalizeJson.item) {
-          throw new Error(typeof finalizeJson?.error === "string" ? finalizeJson.error : "Upload failed");
+          throw new Error(typeof finalizeJson?.error === "string" ? finalizeJson.error : "Those context files did not add. Try again here or keep choosing files from this panel.");
         }
 
         addAutomationContextFile(finalizeJson.item as PortalMediaPickItem);
@@ -1119,7 +1120,7 @@ export function PortalBlogsClient({
 
       toast.success(list.length === 1 ? "Context file added." : "Context files added.");
     } catch (uploadError) {
-      toast.error(uploadError instanceof Error ? uploadError.message : "Unable to add context files.");
+      toast.error(uploadError instanceof Error ? uploadError.message : "Those context files did not add. Try again here or keep choosing files from this panel.");
     } finally {
       setAutoContextUploadBusy(false);
     }
@@ -1224,7 +1225,7 @@ export function PortalBlogsClient({
                       href={withFromOnboarding(`${appBase}/billing?buy=blog&autostart=1`)}
               className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
-              Unlock in Billing
+              Enable Automated Blogs
             </Link>
             <Link
                       href={withFromOnboarding(`${appBase}/services`)}
@@ -1242,6 +1243,37 @@ export function PortalBlogsClient({
     <div className="mx-auto w-full max-w-6xl">
       <PortalBackToOnboardingLink />
       <div className="flex justify-between gap-3" />
+
+      {error ? (
+        <div className="mt-6 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+          <div className="font-semibold">Blogs needs attention</div>
+          <div className="mt-1 text-red-800">{error}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void refreshAll();
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => onTabChange("settings")}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Open blog setup
+            </button>
+            <Link
+              href={`${appBase}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       {routeTab === "posts" ? (
         <>
@@ -1372,7 +1404,29 @@ export function PortalBlogsClient({
                       {posts.length === 0 ? (
                         <tr>
                           <td className="px-4 py-4 text-zinc-600" colSpan={4}>
-                            No posts yet. Create the first draft when you’re ready.
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <div className="font-semibold text-zinc-900">No posts yet</div>
+                                <div className="mt-1 text-sm text-zinc-600">Create the first draft when you’re ready, or open the page editor if you want the blog shell polished first.</div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void newDraft();
+                                  }}
+                                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity duration-100 hover:opacity-90"
+                                >
+                                  Create first post
+                                </button>
+                                <Link
+                                  href={blogPageEditorHref}
+                                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                                >
+                                  Open page editor
+                                </Link>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       ) : (
@@ -1698,10 +1752,10 @@ export function PortalBlogsClient({
                     setGeneratingNow(false);
                     applyPreviewSnapshot(readPreviewBlogState());
                     if (!previewPost?.id) {
-                      setError("Unable to generate a post right now.");
+                      setError("That post did not generate. Try again here or keep editing this automation panel.");
                       return;
                     }
-                    window.location.href = `${appBase}/services/blogs/${previewPost.id}`;
+                    router.push(`${appBase}/services/blogs/${previewPost.id}`, { scroll: false });
                     return;
                   }
 
@@ -1719,11 +1773,11 @@ export function PortalBlogsClient({
 
                   if (!res.ok || !json?.ok || !json?.postId) {
                     setGeneratingNow(false);
-                    setError(json?.error ?? "Unable to generate a post right now.");
+                    setError(json?.error ?? "That post did not generate. Try again here or keep editing this automation panel.");
                     return;
                   }
 
-                  window.location.href = `${appBase}/services/blogs/${json.postId}`;
+                  router.push(`${appBase}/services/blogs/${json.postId}`, { scroll: false });
                 }}
                 className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-fuchsia-500 via-sky-500 to-cyan-400 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(14,165,233,0.28)] transition hover:scale-[1.01] hover:opacity-95 disabled:scale-100 disabled:opacity-60"
               >
@@ -2295,7 +2349,10 @@ export function PortalBlogsClient({
                     </div>
                   ) : null}
 
-                  <div className="mt-4 text-xs text-zinc-500">No cancel button here by design. Close with the X once your domain is saved or verified.</div>
+                  <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+                    <div className="font-semibold text-zinc-900">Close from the X in the corner</div>
+                    <div className="mt-1">This verification sheet stays open by design while you copy DNS values. Once the domain is saved or verified, close it with the X.</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2329,7 +2386,7 @@ export function PortalBlogsClient({
                         className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-white/16"
                         onClick={() => {
                           setOpenPostMenu(null);
-                          window.location.href = `${appBase}/services/blogs/${p.id}`;
+                          router.push(`${appBase}/services/blogs/${p.id}`, { scroll: false });
                         }}
                         aria-label="Edit"
                         title="Edit"

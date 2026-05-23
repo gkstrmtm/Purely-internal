@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { AppModal } from "@/components/AppModal";
@@ -41,6 +42,8 @@ export function BuyCreditsModal({
   purchaseAvailable,
   creditUsdValue,
   estimatedMonthlyCredits,
+  helpHref,
+  reviewHref,
   onStartCheckout,
 }: {
   open: boolean;
@@ -48,6 +51,8 @@ export function BuyCreditsModal({
   purchaseAvailable: boolean;
   creditUsdValue: number | null;
   estimatedMonthlyCredits: number | null;
+  helpHref?: string | null;
+  reviewHref?: string | null;
   onStartCheckout: (credits: number) => Promise<void>;
 }) {
   const [creditsToBuy, setCreditsToBuy] = useState(500);
@@ -122,8 +127,31 @@ export function BuyCreditsModal({
       }
     >
       {!purchaseAvailable ? (
-        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-          Credit purchasing is unavailable right now.
+        <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-700">
+          <div className="font-semibold text-zinc-900">Credit purchasing is not ready yet</div>
+          <div className="mt-2 leading-6 text-zinc-600">
+            This workspace cannot open credit checkout right now. Review billing first, or ask Pura to walk you through the fastest way to get this account ready.
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {reviewHref ? (
+              <Link
+                href={reviewHref}
+                onClick={onClose}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                Review billing
+              </Link>
+            ) : null}
+            {helpHref ? (
+              <Link
+                href={helpHref}
+                onClick={onClose}
+                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              >
+                Ask Pura for help
+              </Link>
+            ) : null}
+          </div>
         </div>
       ) : (
         <>

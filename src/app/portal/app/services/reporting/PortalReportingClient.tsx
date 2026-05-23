@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
@@ -290,10 +290,12 @@ function ReportingPendingState({
   title,
   body,
   links,
+  action,
 }: {
   title: string;
   body: string;
   links: ReportingPendingLink[];
+  action?: { label: string; onClick: () => void } | null;
 }) {
   return (
     <div className="pa-reporting-pending mt-4 rounded-[28px] border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-[0_18px_48px_rgba(15,23,42,0.08)]">
@@ -302,6 +304,15 @@ function ReportingPendingState({
           <div className="text-sm font-semibold text-brand-ink">{title}</div>
           <p className="mt-2 text-sm leading-6 text-zinc-600">{body}</p>
           <div className="mt-4 flex flex-wrap gap-2">
+            {action ? (
+              <button
+                type="button"
+                onClick={action.onClick}
+                className="inline-flex items-center justify-center rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              >
+                {action.label}
+              </button>
+            ) : null}
             {links.map((link) => (
               <Link
                 key={link.href}
@@ -607,6 +618,7 @@ function MenuButton({
 }) {
   const open = openId === id;
   const pathname = usePathname() || "";
+  const router = useRouter();
   const resolvedGoToHref = toCurrentPortalHref(goToHref ?? null, pathname);
 
   const anchorRef = useRef<HTMLButtonElement | null>(null);
@@ -693,6 +705,10 @@ function MenuButton({
               className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-[rgba(219,234,254,0.42)]"
               onClick={() => {
                 setOpenId(null);
+                if (resolvedGoToHref.startsWith("/")) {
+                  router.push(resolvedGoToHref, { scroll: false });
+                  return;
+                }
                 window.location.href = resolvedGoToHref;
               }}
             >
@@ -771,7 +787,7 @@ export function PortalReportingClient() {
     });
     const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; data?: DashboardData };
     if (!res.ok || !body?.ok) {
-      setNote(body?.error ?? "Unable to add to dashboard");
+      setNote(body?.error ?? "That widget did not add. Try again here or keep choosing from this panel.");
       window.setTimeout(() => setNote(null), 2500);
       return;
     }
@@ -816,14 +832,14 @@ export function PortalReportingClient() {
 
       if (!repRes?.ok) {
         const body = (await repRes?.json?.().catch(() => ({}))) as { error?: string };
-        setError(body?.error ?? "Unable to load reporting");
+        setError(body?.error ?? "Reporting did not load. Retry here or open sales, billing, inbox, or booking while it catches up.");
         if (isFirstLoad) setData(null);
         return;
       }
 
       const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
       if (!rep?.ok) {
-        setError(rep?.error ?? "Unable to load reporting");
+        setError(rep?.error ?? "Reporting did not load. Retry here or open sales, billing, inbox, or booking while it catches up.");
         if (isFirstLoad) setData(null);
         return;
       }
@@ -1221,6 +1237,7 @@ export function PortalReportingClient() {
               : "We are still collecting reporting data for this account. If you are setting things up for the first time, the shortcuts below are the best next places to work."
           }
           links={reportingPendingLinks}
+          action={error ? { label: "Retry", onClick: () => { void load(range); } } : null}
         />
       ) : (
         <>

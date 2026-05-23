@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { IconEyeGlyph } from "@/app/portal/PortalIcons";
@@ -232,20 +233,20 @@ function normalizeFormEditorError(action: "load" | "save" | "delete", error: unk
   if (lowered === "not found") {
     if (action === "load") return "This form could not be loaded. It may have been deleted or you may no longer have access.";
     if (action === "delete") return "This form is already gone or is no longer available to this account.";
-    return "This form is no longer available. Refresh the builder and try again.";
+    return "This form is no longer available. Retry here or head back to the builder.";
   }
 
   if (lowered === "unauthorized" || lowered === "forbidden") {
-    if (action === "load") return "Your session cannot open this form right now. Refresh and try again.";
-    return "Your session cannot change this form right now. Refresh and try again.";
+    if (action === "load") return "Your session cannot open this form right now. Retry here or head back to the builder.";
+    return "Your session cannot change this form right now. Retry here or head back to the builder.";
   }
 
   if (/invalid slug/.test(lowered)) return "Use only letters, numbers, and dashes for the hosted path.";
   if (/invalid name/.test(lowered)) return "Add a form name before saving.";
 
-  if (action === "load") return "We could not load this form right now.";
-  if (action === "delete") return "We could not delete this form right now.";
-  return "We could not save this form right now.";
+  if (action === "load") return "This form did not load. Retry here, open forms, or ask Pura to help.";
+  if (action === "delete") return "This form did not delete. Retry here, open forms, or ask Pura to help.";
+  return "This form did not save. Retry here, open forms, or ask Pura to help.";
 }
 
 function normalizeStyle(rawSchema: any): FormStyle {
@@ -305,6 +306,7 @@ const SECONDARY_BUTTON_CLASS = `rounded-2xl border border-zinc-200 bg-white px-4
 const PRIMARY_BUTTON_CLASS = `rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white ${BUTTON_MOTION_CLASS} hover:bg-blue-700`;
 
 export function FormEditorClient({ basePath, formId }: { basePath: string; formId: string }) {
+  const router = useRouter();
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
 
   useEffect(() => {
@@ -367,7 +369,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   const statusLabel = formStatusLabel(form?.status);
   const statusHint = formStatusHint(form?.status);
 
-  const load = async () => {
+  const load = useMemo(() => async () => {
     setError(null);
     const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
     const json = (await res.json().catch(() => null)) as any;
@@ -393,7 +395,22 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       if (prev === null) return null;
       return Math.min(prev, Math.max(0, nextFields.length - 1));
     });
-  };
+  }, [formId]);
+
+  const reloadForm = useMemo(
+    () => async () => {
+      setBusy(true);
+      setError(null);
+      try {
+        await load();
+      } catch (e) {
+        setError(normalizeFormEditorError("load", e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -410,7 +427,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     };
     // Intentionally omit `load` from deps to avoid re-creating it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formId, form, fields]);
+  }, [form, fields, load]);
 
   const save = async (opts?: { name?: string; slug?: string; status?: Form["status"] }) => {
     if (!form || !fields) return;
@@ -469,7 +486,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { method: "DELETE" });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to delete");
-      window.location.href = backHref;
+      router.push(backHref, { scroll: false });
     } catch (e) {
       setError(normalizeFormEditorError("delete", e));
     } finally {
@@ -558,6 +575,59 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     setSelectedIdx(j);
   };
 
+  if (!form || fields === null) {
+    return (
+      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-3">
+          <Link href={backHref} className="text-sm font-semibold text-(--color-brand-blue) transition-all duration-100 hover:underline">
+            ← Back
+          </Link>
+          <span className="text-sm text-zinc-500">Form builder</span>
+        </div>
+
+        {error ? (
+          <div className="mt-6 rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+            <div className="text-base font-semibold text-red-900">This form builder needs attention</div>
+            <div className="mt-2 max-w-2xl leading-6">{error}</div>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  void reloadForm();
+                }}
+                className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Retry
+              </button>
+              <Link
+                href={backHref}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Open forms
+              </Link>
+              <Link
+                href={`${basePath}/app/ai-chat?onboarding=1`}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Ask Pura
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="h-5 w-32 animate-pulse rounded-full bg-zinc-100" aria-hidden="true" />
+            <div className="mt-4 space-y-3" aria-hidden="true">
+              <div className="h-16 rounded-2xl bg-zinc-50" />
+              <div className="h-40 rounded-2xl bg-zinc-50" />
+              <div className="h-28 rounded-2xl bg-zinc-50" />
+            </div>
+            <p className="mt-4 text-sm text-zinc-600">Loading the form builder and its current questions.</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="w-full min-w-0 overflow-x-hidden">
       {googleCss ? <style>{googleCss}</style> : null}
@@ -613,7 +683,46 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
           />
         </label>
-        {dialogError ? <div className="mt-3 text-sm font-semibold text-red-700">{dialogError}</div> : null}
+        {dialogError ? (
+          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div className="font-semibold text-red-900">Form name needs attention</div>
+            <div className="mt-1">{dialogError}</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (dialog?.type !== "rename-form") return;
+                  const name = dialog.value.trim();
+                  if (!name) {
+                    setDialogError("Name is required.");
+                    return;
+                  }
+                  void save({ name });
+                }}
+                className={classNames(
+                  "rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700",
+                  busy ? "cursor-not-allowed opacity-60" : "",
+                )}
+              >
+                {busy ? "Saving…" : "Try save again"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDialogError(null)}
+                className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Keep editing
+              </button>
+              <Link
+                href={`${basePath}/app/ai-chat?onboarding=1`}
+                className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Ask Pura
+              </Link>
+            </div>
+          </div>
+        ) : null}
       </AppModal>
 
       <AppModal
@@ -669,7 +778,46 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           />
           <div className="mt-1 text-xs text-zinc-500">Allowed: letters, numbers, and dashes.</div>
         </label>
-        {dialogError ? <div className="mt-3 text-sm font-semibold text-red-700">{dialogError}</div> : null}
+        {dialogError ? (
+          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div className="font-semibold text-red-900">Form slug needs attention</div>
+            <div className="mt-1">{dialogError}</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (dialog?.type !== "slug-form") return;
+                  const slug = slugifyName(dialog.value);
+                  if (!slug) {
+                    setDialogError("Slug is required.");
+                    return;
+                  }
+                  void save({ slug });
+                }}
+                className={classNames(
+                  "rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700",
+                  busy ? "cursor-not-allowed opacity-60" : "",
+                )}
+              >
+                {busy ? "Saving…" : "Try save again"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDialogError(null)}
+                className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Keep editing
+              </button>
+              <Link
+                href={`${basePath}/app/ai-chat?onboarding=1`}
+                className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Ask Pura
+              </Link>
+            </div>
+          </div>
+        ) : null}
       </AppModal>
 
       <AppModal
@@ -802,7 +950,47 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             <span className="text-sm font-semibold text-zinc-900">Required</span>
           </label>
 
-          {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
+          {dialogError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div className="font-semibold text-red-900">Question details need attention</div>
+              <div className="mt-1">{dialogError}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (dialog?.type !== "add-question") return;
+                    performAddQuestion({
+                      label: dialog.label,
+                      name: dialog.name,
+                      fieldType: dialog.fieldType,
+                      required: dialog.required,
+                      optionsText: dialog.optionsText,
+                    });
+                  }}
+                  className={classNames(
+                    "rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700",
+                    busy ? "cursor-not-allowed opacity-60" : "",
+                  )}
+                >
+                  {busy ? "Adding…" : "Try add again"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDialogError(null)}
+                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Keep editing
+                </button>
+                <Link
+                  href={`${basePath}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
+          ) : null}
         </div>
       </AppModal>
 
@@ -919,7 +1107,35 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         <span>The shared Preview/Live buttons use the exact hosted link with the form key.</span>
       </div>
 
-      {error ? <div className="mx-4 mb-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:mx-6 lg:mx-8">{error}</div> : null}
+      {error ? (
+        <div className="mx-4 mb-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:mx-6 lg:mx-8">
+          <div className="font-semibold text-red-900">Form builder needs attention</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void reloadForm();
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <Link
+              href={backHref}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Open forms
+            </Link>
+            <Link
+              href={`${basePath}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid min-h-[calc(100dvh-132px)] min-w-0 grid-cols-1 gap-0 bg-white xl:grid-cols-[260px_minmax(0,1fr)_360px]">
         <aside className="min-w-0 border-b border-zinc-200 bg-white p-4 xl:border-b-0 xl:border-r">
@@ -1041,8 +1257,28 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
               <div className="mt-6 space-y-4">
                 {(fields || []).length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-zinc-300 bg-white/70 p-6 text-sm text-zinc-600">
-                    No questions yet. Use the button below to add your first one.
+                  <div className="rounded-3xl border border-dashed border-zinc-300 bg-white/80 p-6">
+                    <div className="text-sm font-semibold text-zinc-900">No questions yet</div>
+                    <div className="mt-2 text-sm leading-6 text-zinc-600">
+                      Start with the first question so this form can collect real responses. You can reorder, style, and fine-tune every field after it is added.
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={addQuestion}
+                        className={classNames(PRIMARY_BUTTON_CLASS, "inline-flex items-center gap-2")}
+                      >
+                        <span className="text-base leading-none">+</span>
+                        Add first question
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedIdx(null)}
+                        className={SECONDARY_BUTTON_CLASS}
+                      >
+                        Open form settings
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   (fields || []).map((field, idx) => (

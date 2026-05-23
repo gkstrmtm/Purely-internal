@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -63,6 +64,7 @@ export function PortalAppearanceSettingsClient() {
   const allowedDefaultLoginPaths = useMemo(() => new Set(pageOptions.map((option) => option.value)), [pageOptions]);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [voiceLibraryLoading, setVoiceLibraryLoading] = useState(false);
   const [voicePreviewBusy, setVoicePreviewBusy] = useState(false);
@@ -123,10 +125,13 @@ export function PortalAppearanceSettingsClient() {
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
     if (!res?.ok || !json?.user) {
-      toastRef.current.error(json?.error || "Unable to load appearance settings");
+      const message = json?.error || "Appearance settings did not load. Retry here, open profile, or ask Pura to help.";
+      setLoadError(message);
+      toastRef.current.error(message);
       setLoading(false);
       return;
     }
@@ -224,7 +229,7 @@ export function PortalAppearanceSettingsClient() {
     const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
     setSaving(false);
     if (!res?.ok || json?.ok !== true || !json.user) {
-      toast.error(json?.error || "Unable to save appearance settings");
+      toast.error(json?.error || "Appearance settings did not save. Retry here or ask Pura to help.");
       return;
     }
 
@@ -294,6 +299,36 @@ export function PortalAppearanceSettingsClient() {
 
   return (
     <div className="space-y-6">
+      {loadError ? (
+        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Appearance settings need attention</div>
+          <div className="mt-1">{loadError}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void loadProfile();
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <Link
+              href={`${portalBase}/profile`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Open profile
+            </Link>
+            <Link
+              href={`${portalBase}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-brand-ink">Theme</h2>
         <p className="mt-1 text-sm text-zinc-600">

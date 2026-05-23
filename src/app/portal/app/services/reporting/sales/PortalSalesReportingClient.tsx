@@ -107,14 +107,14 @@ export function PortalSalesReportingClient() {
       if (!salesRes?.ok) {
         const body = (await salesRes?.json().catch(() => ({}))) as { error?: string };
         if (isFirstLoad) setData(null);
-        setError(body?.error ?? "Unable to load sales");
+        setError(body?.error ?? "Sales reporting did not load. Retry here or review Stripe setup while reporting catches up.");
         return;
       }
 
       const payload = ((await salesRes.json().catch(() => null)) as SalesReportPayload | null) ?? null;
       if (!payload || (payload as any).ok !== true) {
         if (isFirstLoad) setData(null);
-        setError((payload as any)?.error ?? "Unable to load sales");
+        setError((payload as any)?.error ?? "Sales reporting did not load. Retry here or review Stripe setup while reporting catches up.");
         return;
       }
 
@@ -170,7 +170,21 @@ export function PortalSalesReportingClient() {
       {status && (status as any).ok === true && !(status as any).encryptionConfigured ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Sales reporting setup unavailable</div>
-          <div className="mt-2 text-sm text-zinc-600">Please contact support to enable sales reporting for this deployment.</div>
+          <div className="mt-2 text-sm text-zinc-600">Sales reporting is waiting on deployment-level encryption before live payment data can be shown here.</div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Link
+              href={stripeSetupHref}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Review Stripe setup
+            </Link>
+            <Link
+              href={`${portalBase}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Ask Pura for help
+            </Link>
+          </div>
         </div>
       ) : null}
 
@@ -195,6 +209,36 @@ export function PortalSalesReportingClient() {
           />
         </div>
       </div>
+
+      {error ? (
+        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Sales reporting needs attention</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void load(range);
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <Link
+              href={stripeSetupHref}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Review Stripe setup
+            </Link>
+            <Link
+              href={`${portalBase}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       {loading && !hasLoadedOnceRef.current ? (
         <PortalPageLoadingShell showHeader={false} sections={2} minHeightClassName="min-h-[22rem]" className="mt-6 px-0 sm:px-0" />
@@ -234,7 +278,24 @@ export function PortalSalesReportingClient() {
               <div className="text-sm font-semibold text-zinc-900">Daily net</div>
               <div className="mt-3 space-y-2">
                 {(data as any).daily.length === 0 ? (
-                  <div className="text-sm text-zinc-600">No transactions in this range.</div>
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No transactions in this range</div>
+                    <div className="mt-1">Widen the date range or confirm the provider connection if you expected sales activity here.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href={stripeSetupHref}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Review provider setup
+                      </Link>
+                      <Link
+                        href={`${portalBase}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Ask Pura
+                      </Link>
+                    </div>
+                  </div>
                 ) : (
                   (data as any).daily.slice(-14).map((row: any) => (
                     <div key={row.day} className="flex items-center justify-between gap-4">
@@ -250,7 +311,24 @@ export function PortalSalesReportingClient() {
               <div className="text-sm font-semibold text-zinc-900">Recent transactions</div>
               <div className="mt-3 space-y-3">
                 {(data as any).recent.length === 0 ? (
-                  <div className="text-sm text-zinc-600">No recent transactions.</div>
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No recent transactions</div>
+                    <div className="mt-1">Recent provider activity will appear here after sales data starts syncing into this account.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href={stripeSetupHref}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Review provider setup
+                      </Link>
+                      <Link
+                        href={`${portalBase}/app/services/reporting/stripe`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Open Stripe reporting
+                      </Link>
+                    </div>
+                  </div>
                 ) : (
                   (data as any).recent.map((t: any) => (
                     <div key={t.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">

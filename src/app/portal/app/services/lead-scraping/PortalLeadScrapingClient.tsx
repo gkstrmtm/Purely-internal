@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -176,9 +177,9 @@ function getB2bSubTabFromPathname(
 }
 
 function getLeadScrapingLoadErrorMessage(mode: "pull" | "leads" | "settings") {
-  if (mode === "pull") return "Unable to load scraper.";
-  if (mode === "leads") return "Unable to load leads.";
-  return "Unable to load lead scraping.";
+  if (mode === "pull") return "Lead scraper did not load. Retry here, open settings, or ask Pura to help.";
+  if (mode === "leads") return "Leads did not load. Retry here, open settings, or ask Pura to help.";
+  return "Lead scraping did not load. Retry here, open settings, or ask Pura to help.";
 }
 
 function LeadScrapingShellBlock({ className }: { className?: string }) {
@@ -1196,7 +1197,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
       }
       toast.success(added > 0 ? `Imported ${added} exclusion${added === 1 ? "" : "s"}` : "Imported (no new exclusions)");
     } catch {
-      toast.error("Failed to import CSV");
+      toast.error("That CSV did not import. Try again here or keep editing this dialog.");
     } finally {
       setExcludeCsvBusy((prev) => ({ ...prev, [kind]: false }));
     }
@@ -1963,7 +1964,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
     setSaving(false);
 
     if (!res.ok) {
-      setError(getApiError(body) ?? "Failed to save settings");
+      setError(getApiError(body) ?? "Lead scraping settings did not save. Retry here or open settings to review them.");
       return false;
     }
 
@@ -2011,7 +2012,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
         setCancelingRun(false);
         return;
       }
-      setError("Failed to run");
+      setError("That run did not start. Retry here, open settings, or ask Pura to help.");
       setCancelingRun(false);
       return;
     }
@@ -2030,7 +2031,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
       if (res.status === 402 && body?.code === "INSUFFICIENT_CREDITS") {
         setError(body.error ?? "Not enough credits.");
       } else {
-        setError(getApiError(body) ?? "Failed to run");
+        setError(getApiError(body) ?? "That run did not start. Retry here, open settings, or ask Pura to help.");
       }
       return;
     }
@@ -2100,8 +2101,8 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
 
     if (!res.ok) {
       const errorText = typeof body?.error === "string" ? body.error : null;
-      setError(errorText ?? "Upload failed");
-      toast.error(errorText ?? "Upload failed");
+      setError(errorText ?? "That file did not upload. Try again here or reopen this panel.");
+      toast.error(errorText ?? "That file did not upload. Try again here or reopen this panel.");
       return;
     }
 
@@ -2109,8 +2110,8 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
     const url = typeof item?.shareUrl === "string" ? item.shareUrl : "";
     const label = typeof item?.fileName === "string" && item.fileName.trim() ? String(item.fileName).trim().slice(0, 120) : file.name.slice(0, 120);
     if (!url) {
-      setError("Upload did not return a URL");
-      toast.error("Upload did not return a URL");
+      setError("That file did not attach. Try again here or choose a different file.");
+      toast.error("That file did not attach. Try again here or choose a different file.");
       return;
     }
 
@@ -2231,7 +2232,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
         toast.error("Insufficient credits to generate.");
         return null;
       }
-      toast.error((json as any)?.error || "Failed to generate");
+      toast.error((json as any)?.error || "That outbound draft did not generate. Try again here or keep editing the instructions.");
       return null;
     }
 
@@ -2298,7 +2299,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
     setOutboundBusy(false);
 
     if (!res.ok) {
-      setError(getApiError(body) ?? "Failed to send outbound");
+      setError(getApiError(body) ?? "That outbound message did not send. Retry here or review the outbound setup.");
       return;
     }
 
@@ -2335,7 +2336,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
     setOutboundBusy(false);
 
     if (!res.ok) {
-      setError(getApiError(body) ?? "Failed to update approval");
+      setError(getApiError(body) ?? "Approval did not update. Retry here or review the outbound setup.");
       return;
     }
 
@@ -2481,7 +2482,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
     setComposeBusy(false);
 
     if (!res.ok) {
-      setError(getApiError(body) ?? "Failed to send message");
+      setError(getApiError(body) ?? "That message did not send. Retry here or review this lead first.");
       return;
     }
 
@@ -2575,7 +2576,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
     setLeadMutating(false);
 
     if (!res.ok) {
-      setError(getApiError(body) ?? "Failed to update lead");
+      setError(getApiError(body) ?? "That lead did not update. Retry here or review this lead again.");
       return false;
     }
 
@@ -2609,7 +2610,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
     setLeadMutating(false);
 
     if (!res.ok) {
-      setError(getApiError(body) ?? "Failed to delete lead");
+      setError(getApiError(body) ?? "That lead did not delete. Retry here or review the lead list again.");
       return;
     }
 
@@ -2656,12 +2657,12 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || json?.ok !== true || !Array.isArray(json?.tags)) {
-        throw new Error(String(json?.error || `Failed to ${checked ? "add" : "remove"} tag`));
+        throw new Error(String(json?.error || `That tag did not ${checked ? "attach" : "come off"}. Try again here or reopen this lead.`));
       }
       updateLeadContactTags(leadId, normalizeContactTags(json.tags));
     } catch (e: any) {
       updateLeadContactTags(leadId, previousTags);
-      toast.error(String(e?.message || "Failed to update tags"));
+      toast.error(String(e?.message || "Those tags did not update. Try again here or reopen this lead."));
     } finally {
       setLeadContactTagBusyId(null);
     }
@@ -2679,7 +2680,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
       });
       const body = (await res.json().catch(() => ({}))) as any;
       if (!res.ok) {
-        toast.error(getApiError(body) ?? "Failed to assign lead");
+        toast.error(getApiError(body) ?? "That lead did not assign. Try again here or keep editing the assignees.");
         return;
       }
 
@@ -2741,7 +2742,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
     });
     const body = (await res.json().catch(() => ({}))) as any;
     if (!res.ok) {
-      toast.error(getApiError(body) ?? "Failed to add to external newsletter");
+      toast.error(getApiError(body) ?? "This lead did not add to the newsletter. Try again here or review this lead first.");
       return;
     }
     toast.success(body?.added === 0 ? "Already on the external newsletter list" : "Added to external newsletter list");
@@ -2752,7 +2753,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
       toast.error("This lead needs a linked contact first.");
       return;
     }
-    window.location.href = `${portalBasePath}/app/people/contacts?contactId=${encodeURIComponent(contactId)}`;
+    router.push(`${portalBasePath}/app/people/contacts?contactId=${encodeURIComponent(contactId)}`, { scroll: false });
   }
 
   function openNurtureCampaignPicker(contactId: string | null | undefined) {
@@ -2789,7 +2790,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
       });
       const body = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || body?.ok !== true) {
-        toast.error(getApiError(body) ?? "Failed to add lead to nurture campaign");
+        toast.error(getApiError(body) ?? "This lead did not join that nurture campaign. Try again here or pick a different campaign.");
         return;
       }
 
@@ -2816,7 +2817,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || json?.ok !== true || !json?.tag?.id) {
-        throw new Error(String(json?.error || "Failed to create tag"));
+        throw new Error(String(json?.error || "That tag did not save. Try again here in this panel."));
       }
 
       const created: ContactTag = {
@@ -2839,7 +2840,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
         await setLeadContactTagChecked(activeLead.id, activeLead.contactId, created.id, true);
       }
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to create tag"));
+      toast.error(String(e?.message || "That tag did not save. Try again here in this panel."));
     } finally {
       setCreateContactTagBusy(false);
     }
@@ -3000,7 +3001,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
               });
               const body = (await res.json().catch(() => ({}))) as any;
               if (!res.ok || body?.ok !== true) {
-                throw new Error(getApiError(body) ?? "Failed to create variable");
+                throw new Error(getApiError(body) ?? "That variable did not save. Try again here or keep using the current variables.");
               }
               const raw =
                 body.customVariables && typeof body.customVariables === "object" && !Array.isArray(body.customVariables)
@@ -3055,7 +3056,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                     setOutboundAiDraftModal(null);
                     setOutboundAiDraftInstruction("");
                   } catch (e: any) {
-                    setOutboundAiDraftError(String(e?.message || "Failed to generate"));
+                      setOutboundAiDraftError(String(e?.message || "That outbound draft did not generate. Retry here or keep editing the instructions."));
                   } finally {
                     setOutboundAiDraftBusy(false);
                   }
@@ -3219,7 +3220,26 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                     </div>
 
                     {!aiCampaignsBusy && aiCampaigns && aiCampaigns.length === 0 ? (
-                      <div className="mt-2 text-xs text-zinc-500">No campaigns found.</div>
+                      <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600">
+                        <div className="font-semibold text-zinc-900">No campaigns found</div>
+                        <div className="mt-1">Create an AI outbound campaign first, then come back here to attach lead scraping runs to it.</div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => router.push(`${portalBasePath}/app/services/ai-outbound-calls`, { scroll: false })}
+                          >
+                            Open AI outbound
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                            onClick={() => router.push(`${portalBasePath}/app/ai-chat?onboarding=1`, { scroll: false })}
+                          >
+                            Ask Pura for help
+                          </button>
+                        </div>
+                      </div>
                     ) : null}
                   </label>
                 </div>
@@ -3648,7 +3668,35 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
   }
 
   if (!settings) {
-    return <LeadScrapingLoadingShell mode={initialScreenMode} message={initialScreenErrorMessage} />;
+    return (
+      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+        <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-900">
+          <div className="font-semibold">Lead Scraping needs attention</div>
+          <div className="mt-2 text-red-800">{initialScreenErrorMessage}</div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Retry
+            </button>
+            <Link
+              href={`${portalBasePath}/app/services/lead-scraping/settings`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Open settings
+            </Link>
+            <Link
+              href={`${portalBasePath}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const showInlineLeadDetail = isLeadMapLayout && leadOpen && Boolean(activeLead);
@@ -3910,7 +3958,17 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                 );
               })
             ) : (
-              <div className="text-sm text-zinc-600">No tags yet.</div>
+              <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-3 text-sm text-zinc-600">
+                <div className="font-semibold text-zinc-900">No tags yet</div>
+                <div className="mt-1">Create one here so this lead can be segmented for follow-up, nurture, or exports.</div>
+                <button
+                  type="button"
+                  className={classNames("mt-3 rounded-xl px-3 py-2 text-xs font-semibold", portalGlassButtonClass)}
+                  onClick={() => setCreateContactTagOpen(true)}
+                >
+                  Create tag
+                </button>
+              </div>
             )}
           </div>
           <div className="mt-4">
@@ -4113,7 +4171,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                 });
                 const body = (await res.json().catch(() => ({}))) as any;
                 if (!res.ok || body?.ok !== true) {
-                  throw new Error(getApiError(body) ?? "Failed to create variable");
+                  throw new Error(getApiError(body) ?? "That variable did not save. Try again here or keep using the current variables.");
                 }
                 const raw =
                   body.customVariables && typeof body.customVariables === "object" && !Array.isArray(body.customVariables)
@@ -4349,7 +4407,27 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
               />
             </div>
           </div>
-          {nurtureCampaignLoadError ? <div className="text-xs text-red-600">{nurtureCampaignLoadError}</div> : null}
+          {nurtureCampaignLoadError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+              <div className="font-semibold text-red-900">Nurture campaigns need attention</div>
+              <div className="mt-1 leading-5">{nurtureCampaignLoadError}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                >
+                  Retry
+                </button>
+                <Link
+                  href={`${portalBasePath}/app/services/nurture-campaigns`}
+                  className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Open nurture campaigns
+                </Link>
+              </div>
+            </div>
+          ) : null}
         </div>
       </AppModal>
     </>
@@ -4542,7 +4620,20 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                               ))}
                             </div>
                           ) : (
-                            <div className="mt-3 text-xs text-zinc-500">No locations selected yet.</div>
+                            <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-3 text-xs text-zinc-600">
+                              <div className="font-semibold text-zinc-900">No locations selected yet</div>
+                              <div className="mt-1">Add at least one city, zip, or region so the next pull knows where to search.</div>
+                              <button
+                                type="button"
+                                className="mt-3 rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
+                                onClick={() => {
+                                  setLocationSearch("");
+                                  setLocationSuggestionsVisible(true);
+                                }}
+                              >
+                                Add location
+                              </button>
+                            </div>
                           )}
                         </div>
                       </label>
@@ -5075,7 +5166,17 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                                 </span>
                               ))
                           ) : (
-                            <div className="text-xs text-zinc-500">No exclusions added yet.</div>
+                            <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-3 text-xs text-zinc-600">
+                              <div className="font-semibold text-zinc-900">No exclusions added yet</div>
+                              <div className="mt-1">Add names, domains, phones, or addresses here if future pulls should skip them automatically.</div>
+                              <button
+                                type="button"
+                                className="mt-3 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                onClick={() => setExclusionsModalKind("domain")}
+                              >
+                                Add exclusion
+                              </button>
+                            </div>
                           )}
                         </div>
                     </div>

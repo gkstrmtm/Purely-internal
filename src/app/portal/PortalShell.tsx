@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -34,6 +34,7 @@ import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catal
 import { groupPortalServices, portalServiceCategoryForSlug, type PortalServiceCategory } from "@/app/portal/services/categories";
 import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
 import { usePortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import { computePortalHelpHref } from "@/app/portal/PortalHelpLink";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
 import { usePortalActiveTimeTracker } from "@/lib/portalActiveTime.client";
@@ -64,6 +65,30 @@ type PortalMe =
       permissions: Record<string, { view: boolean; edit: boolean }>;
     }
   | { ok: false; error?: string };
+
+type AccessiblePortalAccount = {
+  ownerId: string;
+  memberId: string;
+  role: "OWNER" | "ADMIN" | "MEMBER";
+  ownerEmail: string;
+  ownerName: string | null;
+  businessName: string | null;
+  isCurrent: boolean;
+};
+
+type NeedHelpPromptContextKey = "pura" | "communication" | "services" | "settings";
+
+type NeedHelpPromptContent = {
+  contextKey: NeedHelpPromptContextKey;
+  eyebrow: string;
+  title: string;
+  body: string;
+  tips: string[];
+  primaryLabel: string;
+  primaryHref: string;
+  secondaryLabel: string;
+  secondaryHref: string;
+};
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -151,6 +176,7 @@ const portalShellChromeButtonSoftClass =
 
 const DESKTOP_SIDEBAR_EXPANDED_WIDTH = "17.5rem";
 const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "4.75rem";
+const NEW_ACCOUNT_HELP_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 const PREVIEW_SHELL_ME: Me = {
   user: {
@@ -177,6 +203,486 @@ const PREVIEW_ANALYSIS = {
   generatedAtIso: "2026-04-13T17:00:00.000Z",
 };
 
+function buildNeedHelpPromptContent(opts: {
+  contextKey: NeedHelpPromptContextKey;
+  basePath: string;
+  helpHref: string;
+  pathname: string | null;
+  activeServiceSlug: string | null;
+  activeServiceTitle: string | null;
+}): NeedHelpPromptContent {
+  const askPuraHref = `${opts.basePath}/app/ai-chat?onboarding=1`;
+  const activeService = opts.activeServiceSlug ? PORTAL_SERVICE_BY_SLUG.get(opts.activeServiceSlug) || null : null;
+  const pathname = opts.pathname ?? "";
+
+  if (activeService) {
+    switch (activeService.slug) {
+      case "inbox":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help getting Inbox / Outbox ready?",
+          body: "Start with the first inbox your team checks every day, make sure new replies land in one thread, then bring the rest of your channels over once the flow feels clean.",
+          tips: [
+            "Connect one channel first and send yourself a real test message.",
+            "Confirm the full thread history looks right before teammates rely on it.",
+            "Use the walkthrough to verify reply routing, ownership, and daily workflow.",
+          ],
+          primaryLabel: "Open inbox walkthrough",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to guide setup",
+          secondaryHref: askPuraHref,
+        };
+      case "ai-receptionist":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help turning AI Receptionist on?",
+          body: "The safest first win is getting one call flow working end to end. Use the tutorial for the setup screens, then have Pura help you test the greeting, routing, and handoff.",
+          tips: [
+            "Start with one phone line or call path instead of your whole stack.",
+            "Run a real after-hours or missed-call test before sending live traffic.",
+            "Double-check where captured lead details and alerts should go.",
+          ],
+          primaryLabel: "Open AI Receptionist guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura for a test plan",
+          secondaryHref: askPuraHref,
+        };
+      case "booking":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help launching Booking Automation?",
+          body: "Get one booking link and one availability rule working first. Once the first appointment flows through cleanly, the rest of the booking setup is much easier to trust.",
+          tips: [
+            "Publish one booking flow before adding extra calendars or routing rules.",
+            "Book a test appointment so you can verify confirmations and reminders.",
+            "Use the walkthrough to check availability, forms, and follow-up timing.",
+          ],
+          primaryLabel: "Open booking walkthrough",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura what to test",
+          secondaryHref: askPuraHref,
+        };
+      case "ai-outbound-calls":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with AI outbound?",
+          body: "Start with a small lead segment and one clear script goal. That makes it easier to review outcomes, adjust messaging, and expand only after the first calls look right.",
+          tips: [
+            "Use a narrow audience for the first outbound run.",
+            "Review the opening script and desired call outcome before going live.",
+            "Check where call results should land so next steps trigger correctly.",
+          ],
+          primaryLabel: "Open outbound guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to stage it",
+          secondaryHref: askPuraHref,
+        };
+      case "lead-scraping":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with Lead Scraping?",
+          body: "The fastest way to trust lead scraping is to define one niche, one location, and one clean exclusion list first. After that, you can let Pura help expand volume safely.",
+          tips: [
+            "Start with a tight search so it is easy to judge lead quality.",
+            "Set exclusions and de-dupe rules before scheduling bigger pulls.",
+            "Review a small batch first, then scale once the output looks clean.",
+          ],
+          primaryLabel: "Open lead scraping guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to refine targeting",
+          secondaryHref: askPuraHref,
+        };
+      case "newsletter":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with Newsletter?",
+          body: "The easiest first win is one audience and one send. Once the first newsletter looks right and reaches the right people, it is much easier to build a steady rhythm with confidence.",
+          tips: [
+            "Start with one segment instead of your entire list.",
+            "Send yourself a preview before you schedule or publish anything.",
+            "Use the walkthrough to verify audience filters, content, and performance checks.",
+          ],
+          primaryLabel: "Open newsletter guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to plan the send",
+          secondaryHref: askPuraHref,
+        };
+      case "automations":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help building your first automation?",
+          body: "Start with one repeatable workflow your team already does manually. Once that first trigger, action, and handoff are clear, the rest of your automations get much easier to build well.",
+          tips: [
+            "Pick one workflow with a clear trigger and obvious success state.",
+            "Test every branch with internal data before letting customers hit it.",
+            "Use the walkthrough to confirm timing, conditions, and fallback steps.",
+          ],
+          primaryLabel: "Open automation guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to map it",
+          secondaryHref: askPuraHref,
+        };
+      case "follow-up":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with Follow-up Automation?",
+          body: "Start with one stage of your pipeline and one clear follow-up goal. That makes it easy to verify timing, message quality, and handoff before you let the sequence cover more leads.",
+          tips: [
+            "Pick one trigger you already trust, like a new lead or missed appointment.",
+            "Read the first few touches in order so the sequence feels natural.",
+            "Use the guide to check delays, stop conditions, and human takeover points.",
+          ],
+          primaryLabel: "Open follow-up guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to sketch the flow",
+          secondaryHref: askPuraHref,
+        };
+      case "blogs":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help getting Automated Blogs going?",
+          body: "A simple first win is publishing one clean post and reviewing how it looks on your domain. Once that path is smooth, scheduling and scale feel a lot less risky.",
+          tips: [
+            "Generate or review one draft before turning on a bigger publishing cadence.",
+            "Check formatting, SEO details, and domain setup with a real preview.",
+            "Use the walkthrough to confirm the edit, export, and publish flow.",
+          ],
+          primaryLabel: "Open blogs walkthrough",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura for blog setup",
+          secondaryHref: askPuraHref,
+        };
+      case "media-library":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help organizing Media Library?",
+          body: "The quickest way to make Media Library useful is to organize one set of assets your team reuses constantly. Once those files are easy to find, the rest of the library gets easier to structure.",
+          tips: [
+            "Start with one folder or campaign collection instead of your full archive.",
+            "Upload a few real assets and confirm where your team expects to find them.",
+            "Use the tutorial to verify reuse flow across messages, funnels, and campaigns.",
+          ],
+          primaryLabel: "Open media guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to suggest structure",
+          secondaryHref: askPuraHref,
+        };
+      case "tasks":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help setting up Tasks?",
+          body: "Tasks work best when you start with one repeatable workflow your team already knows. Once ownership and due dates feel clear, it is much easier to layer in more task types or automations.",
+          tips: [
+            "Begin with one common task pattern your team already repeats.",
+            "Make ownership and completion rules obvious before adding volume.",
+            "Use the walkthrough to confirm assignment, status tracking, and handoff flow.",
+          ],
+          primaryLabel: "Open tasks guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to streamline it",
+          secondaryHref: askPuraHref,
+        };
+      case "missed-call-textback":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with missed call text back?",
+          body: "The safest first step is one phone number and one short response path. Once you see a missed call trigger the right text and handoff, you can roll it out more broadly.",
+          tips: [
+            "Start with one number instead of every incoming line.",
+            "Call it yourself to confirm the text sends at the right moment.",
+            "Use the walkthrough to verify wording, routing, and follow-up ownership.",
+          ],
+          primaryLabel: "Open text back guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to test it",
+          secondaryHref: askPuraHref,
+        };
+      case "reviews":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help launching Reviews?",
+          body: "Reviews work best when the first request goes out at the right moment. Use the guide to set the send trigger, then test the customer experience before automating more volume.",
+          tips: [
+            "Choose one send trigger that matches a real completed service or purchase.",
+            "Send yourself a sample request so you can verify the wording and destination.",
+            "Use the walkthrough to check timing, message copy, and review links.",
+          ],
+          primaryLabel: "Open reviews walkthrough",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to tune timing",
+          secondaryHref: askPuraHref,
+        };
+      case "reporting":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help reading Reporting?",
+          body: "Reporting is easiest to trust when you validate one data source and one outcome first. Once the first numbers line up with what your team expects, the rest of the dashboard becomes more useful.",
+          tips: [
+            "Start by checking one service or KPI you already know well.",
+            "Compare the dashboard against a recent real-world example before acting on it.",
+            "Use the walkthrough to confirm what each section means and where the data comes from.",
+          ],
+          primaryLabel: "Open reporting guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to explain it",
+          secondaryHref: askPuraHref,
+        };
+      case "dispute-letters":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with Dispute Letters?",
+          body: "The cleanest way to start is one contact and one carefully reviewed letter. That makes it easier to validate the content, edit flow, and send process before handling more disputes.",
+          tips: [
+            "Generate one letter first and review it closely before sending.",
+            "Verify the contact details and dispute context before finalizing anything.",
+            "Use the walkthrough to confirm generation, editing, and delivery steps.",
+          ],
+          primaryLabel: "Open dispute guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to review the flow",
+          secondaryHref: askPuraHref,
+        };
+      case "credit-reports":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with Credit Reports?",
+          body: "Start with one imported report and verify how the items are categorized before you build more process around it. That helps you trust the workflow before using it across more clients.",
+          tips: [
+            "Import one report first so you can inspect the parsed output carefully.",
+            "Review how pending, negative, and positive items are tagged.",
+            "Use the walkthrough to confirm import, audit, and dispute tracking flow.",
+          ],
+          primaryLabel: "Open credit report guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura what to check",
+          secondaryHref: askPuraHref,
+        };
+      case "nurture-campaigns":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with Nurture Campaigns?",
+          body: "The cleanest way to start is one audience and one goal. That makes it much easier to review sequence timing, message quality, and conversion before adding more branches.",
+          tips: [
+            "Pick one segment and one simple campaign goal for your first sequence.",
+            "Read the full timing out loud so delays and handoffs feel natural.",
+            "Use the walkthrough to confirm entry rules, steps, and reporting.",
+          ],
+          primaryLabel: "Open nurture walkthrough",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to outline it",
+          secondaryHref: askPuraHref,
+        };
+      case "funnel-builder":
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with Funnel Builder?",
+          body: "The safest first funnel is one page, one offer, and one form. Once that path converts cleanly, you can add more steps, pages, and campaign traffic with confidence.",
+          tips: [
+            "Start with one conversion goal instead of a full multi-step funnel.",
+            "Preview the form and thank-you flow on desktop and mobile.",
+            "Use the walkthrough to verify domains, forms, and lead capture routing.",
+          ],
+          primaryLabel: "Open funnel walkthrough",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to plan the funnel",
+          secondaryHref: askPuraHref,
+        };
+      default:
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: `Need help with ${activeService.title}?`,
+          body: `${activeService.description} Open the walkthrough for the exact setup screens, or let Pura help you choose the next safe step to test first.`,
+          tips: [
+            "Start with one focused outcome instead of trying to configure everything at once.",
+            "Run one safe internal test before you rely on it for live work.",
+            "Use the tutorial if you want the fastest screen-by-screen path.",
+          ],
+          primaryLabel: "Open service tutorial",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura for help",
+          secondaryHref: askPuraHref,
+        };
+    }
+  }
+
+  switch (opts.contextKey) {
+    case "pura":
+      return {
+        contextKey: opts.contextKey,
+        eyebrow: "Need help?",
+        title: "Let Pura walk the setup with you",
+        body: "If you are still getting the portal dialed in, Pura can help you move through the next setup steps without bouncing between pages.",
+        tips: [
+          "Use one thread to keep onboarding tasks moving together.",
+          "Ask for the next best setup step if you are not sure where to start.",
+          "Open the matching tutorial if you want the exact screen-by-screen version.",
+        ],
+        primaryLabel: "Start guided help",
+        primaryHref: askPuraHref,
+        secondaryLabel: "Open tutorials",
+        secondaryHref: opts.helpHref,
+      };
+    case "communication":
+      return {
+        contextKey: opts.contextKey,
+        eyebrow: "Need help?",
+        title: `Need help getting ${opts.activeServiceTitle || "communication"} live?`,
+        body: "Use the walkthrough for the exact setup screens, then let Pura help you finish the first safe test before you turn anything fully live.",
+        tips: [
+          "Set up one channel or number first instead of changing everything at once.",
+          "Run one internal test before relying on it for real traffic.",
+          "Use the related tutorial to double-check routing, replies, and live status.",
+        ],
+        primaryLabel: "Open walkthrough",
+        primaryHref: opts.helpHref,
+        secondaryLabel: "Ask Pura to guide it",
+        secondaryHref: askPuraHref,
+      };
+    case "settings":
+      if (pathname.startsWith(`${opts.basePath}/app/billing`) || pathname.startsWith(`${opts.basePath}/app/discount`)) {
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with billing or credits?",
+          body: "Billing is the safest place to verify what is active, what is included, and what still needs to be turned on before your team depends on a service.",
+          tips: [
+            "Review one plan or credit change at a time so it is easy to confirm the result.",
+            "Use the billing walkthrough before buying or changing multiple services at once.",
+            "Ask Pura if you want help matching credits or services to the setup you are building.",
+          ],
+          primaryLabel: "Open billing guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to explain it",
+          secondaryHref: askPuraHref,
+        };
+      }
+
+      if (pathname.startsWith(`${opts.basePath}/app/profile`)) {
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help updating your profile?",
+          body: "Profile settings affect your login details, notification targets, and some of the account-level tools other services depend on. A quick walkthrough is the safest way to avoid breaking something quietly.",
+          tips: [
+            "Update one contact or notification detail at a time.",
+            "Double-check your email, phone, and alert destinations before leaving the page.",
+            "Use the profile guide if you are changing anything tied to login or notifications.",
+          ],
+          primaryLabel: "Open profile guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura what matters most",
+          secondaryHref: askPuraHref,
+        };
+      }
+
+      if (pathname.startsWith(`${opts.basePath}/app/settings/integrations`)) {
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help connecting integrations?",
+          body: "Integrations power the parts of the portal that send messages, track activity, and move data between systems. It is worth validating one connection fully before adding the next one.",
+          tips: [
+            "Connect one provider first and run a real test after saving credentials.",
+            "Keep the tutorial open while checking webhooks, keys, or phone settings.",
+            "If a service is still failing after connect, ask Pura which dependency to verify next.",
+          ],
+          primaryLabel: "Open integrations guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura to troubleshoot",
+          secondaryHref: askPuraHref,
+        };
+      }
+
+      if (pathname.startsWith(`${opts.basePath}/app/settings/business`)) {
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with business settings?",
+          body: "Business details shape how your portal looks and how some automations identify your company. It is best to update the core identity pieces first, then verify they show up where you expect.",
+          tips: [
+            "Start with the business name, contact details, and any must-have basics.",
+            "Check one live page or workflow after saving important changes.",
+            "Use the guide if you want the cleanest order for company-level updates.",
+          ],
+          primaryLabel: "Open settings guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura what to verify",
+          secondaryHref: askPuraHref,
+        };
+      }
+
+      if (pathname.startsWith(`${opts.basePath}/app/settings/appearance`)) {
+        return {
+          contextKey: opts.contextKey,
+          eyebrow: "Need help?",
+          title: "Need help with appearance settings?",
+          body: "Appearance changes are easiest to trust when you preview one branding change at a time. That keeps it obvious what shifted across the portal and any customer-facing pages.",
+          tips: [
+            "Change one visual element at a time so previews are easier to compare.",
+            "Check both desktop and mobile after brand updates.",
+            "Use the tutorial if you want the fastest review order before publishing changes.",
+          ],
+          primaryLabel: "Open settings guide",
+          primaryHref: opts.helpHref,
+          secondaryLabel: "Ask Pura for a review checklist",
+          secondaryHref: askPuraHref,
+        };
+      }
+
+      return {
+        contextKey: opts.contextKey,
+        eyebrow: "Need help?",
+        title: "Need help setting this up?",
+        body: "These settings drive how the rest of the portal behaves. If you want a quick walkthrough, open the matching guide or let Pura point you to the next safe change.",
+        tips: [
+          "Update one important setting at a time so it is easy to verify what changed.",
+          "Billing, profile, and integrations each have their own walkthroughs.",
+          "If something looks off, the tutorial page is the fastest place to confirm the expected setup.",
+        ],
+        primaryLabel: "Open settings guide",
+        primaryHref: opts.helpHref,
+        secondaryLabel: "Ask Pura what to do next",
+        secondaryHref: askPuraHref,
+      };
+    case "services":
+    default:
+      return {
+        contextKey: opts.contextKey,
+        eyebrow: "Need help?",
+        title: opts.activeServiceTitle ? `Need help with ${opts.activeServiceTitle}?` : "Need help choosing the next step?",
+        body: "Every service already has a matching tutorial. If you want faster guidance, Pura can help you figure out the right setup order and what to test first.",
+        tips: [
+          "Start with one service you want fully working this week.",
+          "Use the walkthrough to understand setup, then test before going live.",
+          "If you are unsure which service matters most, let Pura prioritize it for you.",
+        ],
+        primaryLabel: opts.activeServiceSlug ? "Open service tutorial" : "Browse tutorials",
+        primaryHref: opts.helpHref,
+        secondaryLabel: "Ask Pura for a walkthrough",
+        secondaryHref: askPuraHref,
+      };
+  }
+}
+
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const uiPreview = usePortalUiPreview();
   usePortalActiveTimeTracker({ enabled: !uiPreview });
@@ -186,6 +692,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const toast = useOptionalToast();
+  const router = useRouter();
   const embeddedFromQuery = searchParams?.get("embed") === "1" || searchParams?.get("pa_embed") === "1";
   const [embeddedSticky, setEmbeddedSticky] = useState(embeddedFromQuery);
 
@@ -376,8 +883,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const [me, setMe] = useState<Me | null>(null);
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
+  const [accessibleAccounts, setAccessibleAccounts] = useState<AccessiblePortalAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
+  const [switchingOwnerId, setSwitchingOwnerId] = useState<string | null>(null);
   const [serviceStatuses, setServiceStatuses] = useState<Record<string, { state: string; label: string }> | null>(null);
-  const [, setShowGettingStartedHint] = useState(false);
+  const [showGettingStartedHint, setShowGettingStartedHint] = useState(false);
   const [sidebarCampaign, setSidebarCampaign] = useState<null | {
     id: string;
     creative?: {
@@ -732,12 +1243,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [uiPreview]);
 
   useEffect(() => {
-    setShowGettingStartedHint(false);
-  }, []);
-
-  useEffect(() => {
     if (uiPreview) {
       setPortalMe(null);
+      setAccessibleAccounts([]);
+      setAccountsLoading(false);
+      setAccountsLoadError(null);
       return;
     }
 
@@ -756,6 +1266,54 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       mounted = false;
     };
   }, [uiPreview]);
+
+  const loadAccessibleAccounts = useCallback(
+    async (options?: { signal?: AbortSignal }) => {
+      setAccountsLoading(true);
+      setAccountsLoadError(null);
+
+      try {
+        const res = await fetch("/api/portal/accounts", {
+          cache: "no-store",
+          headers: { "x-portal-variant": variant },
+          signal: options?.signal,
+        });
+
+        if (!res.ok) {
+          throw new Error("Available accounts did not load. Retry here or open settings.");
+        }
+
+        const json = (await res.json().catch(() => null)) as { ok?: boolean; accounts?: AccessiblePortalAccount[] } | null;
+        if (options?.signal?.aborted) return;
+
+        setAccessibleAccounts(Array.isArray(json?.accounts) ? json.accounts : []);
+      } catch (error) {
+        if (options?.signal?.aborted) return;
+        setAccessibleAccounts([]);
+        setAccountsLoadError(error instanceof Error && error.name === "AbortError" ? null : "Available accounts did not load. Retry here or open settings.");
+      } finally {
+        if (!options?.signal?.aborted) {
+          setAccountsLoading(false);
+        }
+      }
+    },
+    [variant],
+  );
+
+  useEffect(() => {
+    if (uiPreview) {
+      setAccessibleAccounts([]);
+      setAccountsLoading(false);
+      setAccountsLoadError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadAccessibleAccounts({ signal: controller.signal });
+    return () => {
+      controller.abort();
+    };
+  }, [loadAccessibleAccounts, uiPreview]);
 
   useEffect(() => {
     window.localStorage.setItem("portalSidebarCollapsed", collapsed ? "1" : "0");
@@ -827,7 +1385,46 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const signedInLabel = (me?.user.email ?? "").trim();
+  const currentAccessibleAccount = useMemo(() => {
+    if (!accessibleAccounts.length) return null;
+    if (portalMe && portalMe.ok === true) {
+      return accessibleAccounts.find((account) => account.ownerId === portalMe.ownerId) || accessibleAccounts.find((account) => account.isCurrent) || null;
+    }
+    return accessibleAccounts.find((account) => account.isCurrent) || accessibleAccounts[0] || null;
+  }, [accessibleAccounts, portalMe]);
+  const currentAccountLabel =
+    currentAccessibleAccount?.businessName || me?.user.businessName || currentAccessibleAccount?.ownerName || signedInLabel || "Portal account";
+  const currentAccountSubLabel = currentAccessibleAccount
+    ? `${currentAccessibleAccount.role === "OWNER" ? "Owner" : currentAccessibleAccount.role === "ADMIN" ? "Admin" : "Member"} access`
+    : signedInLabel;
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
+
+  const switchPortalAccount = useCallback(
+    async (nextOwnerId: string) => {
+      const ownerId = String(nextOwnerId || "").trim();
+      if (!ownerId || switchingOwnerId) return;
+      if (portalMe && portalMe.ok === true && ownerId === portalMe.ownerId) return;
+
+      setSwitchingOwnerId(ownerId);
+      try {
+        const res = await fetch("/api/portal/auth/switch-account", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-portal-variant": variant },
+          body: JSON.stringify({ ownerId }),
+        });
+        const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+        if (!res.ok || !json?.ok) {
+          throw new Error(String(json?.error || "Failed to switch account"));
+        }
+
+        router.refresh();
+      } catch (error) {
+        toast?.error(error instanceof Error ? error.message : "Failed to switch account");
+        setSwitchingOwnerId(null);
+      }
+    },
+    [portalMe, router, switchingOwnerId, toast, variant],
+  );
 
   const canViewServiceKey = useCallback(
     (key: PortalServiceKey) => {
@@ -981,7 +1578,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const msg = String(body?.error || "Unable to claim reward");
+          const msg = String(body?.error || "That reward did not claim. Retry here or close this reward.");
           toast.error(msg);
           if (res.status === 429 && typeof body?.nextAtIso === "string" && body.nextAtIso) {
             setRewardStatus({ eligible: false, nextEligibleAtIso: body.nextAtIso });
@@ -1004,7 +1601,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           return { ok: true as const };
         }
 
-        toast.error("Unable to claim reward");
+  toast.error("That reward did not claim. Retry here or close this reward.");
         return { ok: false as const };
       } finally {
       }
@@ -1182,6 +1779,69 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     const slug = rest.split("/").filter(Boolean)[0] || "";
     return slug || null;
   }, [aliasedServiceSlug, basePath, pathname]);
+  const helpHref = useMemo(() => computePortalHelpHref(pathname), [pathname]);
+  const needHelpContextKey = useMemo<NeedHelpPromptContextKey | null>(() => {
+    if (embedded || isOnboardingRoute || typeof pathname !== "string") return null;
+    if (pathname.startsWith(`${basePath}/tutorials`)) return null;
+    if (isAiChat) return "pura";
+    if (
+      pathname === `${basePath}/app/settings` ||
+      pathname.startsWith(`${basePath}/app/settings/`) ||
+      pathname === `${basePath}/app/profile` ||
+      pathname.startsWith(`${basePath}/app/profile/`) ||
+      pathname === `${basePath}/app/discount` ||
+      pathname.startsWith(`${basePath}/app/discount/`) ||
+      pathname === `${basePath}/app/billing` ||
+      pathname.startsWith(`${basePath}/app/billing/`)
+    ) {
+      return "settings";
+    }
+    if (activeServiceSlug) {
+      return portalServiceCategoryForSlug(activeServiceSlug) === "communication" ? "communication" : "services";
+    }
+    if (pathname === `${basePath}/app/services`) {
+      return "services";
+    }
+    return null;
+  }, [activeServiceSlug, basePath, embedded, isAiChat, isOnboardingRoute, pathname]);
+  const needHelpContent = useMemo(() => {
+    if (!needHelpContextKey) return null;
+    return buildNeedHelpPromptContent({
+      contextKey: needHelpContextKey,
+      basePath,
+      helpHref,
+      pathname,
+      activeServiceSlug,
+      activeServiceTitle: activeServiceSlug ? PORTAL_SERVICE_TITLE_BY_SLUG.get(activeServiceSlug) || "Service" : null,
+    });
+  }, [activeServiceSlug, basePath, helpHref, needHelpContextKey, pathname]);
+  const gettingStartedDismissKey = useMemo(() => {
+    if (!needHelpContextKey || !portalMe || portalMe.ok !== true) return null;
+    return `pa.portal.needHelp.dismissed.${portalMe.ownerId}.${needHelpContextKey}`;
+  }, [needHelpContextKey, portalMe]);
+
+  useEffect(() => {
+    if (uiPreview || embedded || !needHelpContextKey || !portalMe || portalMe.ok !== true) {
+      setShowGettingStartedHint(false);
+      return;
+    }
+
+    try {
+      const firstSeenKey = `pa.portal.needHelp.firstSeen.${portalMe.ownerId}`;
+      const rawFirstSeen = window.localStorage.getItem(firstSeenKey);
+      const parsedFirstSeen = rawFirstSeen ? Number(rawFirstSeen) : NaN;
+      const firstSeenMs = Number.isFinite(parsedFirstSeen) && parsedFirstSeen > 0 ? parsedFirstSeen : Date.now();
+      if (!Number.isFinite(parsedFirstSeen) || parsedFirstSeen <= 0) {
+        window.localStorage.setItem(firstSeenKey, String(firstSeenMs));
+      }
+
+      const withinNewAccountWindow = Date.now() - firstSeenMs <= NEW_ACCOUNT_HELP_WINDOW_MS;
+      const dismissed = gettingStartedDismissKey ? window.localStorage.getItem(gettingStartedDismissKey) === "1" : false;
+      setShowGettingStartedHint(withinNewAccountWindow && !dismissed);
+    } catch {
+      setShowGettingStartedHint(false);
+    }
+  }, [embedded, gettingStartedDismissKey, needHelpContextKey, portalMe, uiPreview]);
 
   function isServiceRouteActive(slug: string) {
     return activeServiceSlug === slug;
@@ -1219,7 +1879,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       }).catch(() => null as any);
       if (!res?.ok) {
         const body = (await res?.json().catch(() => ({}))) as { error?: string };
-        toast?.push({ kind: "error", message: body?.error || "Unable to save shortcuts" });
+        toast?.push({ kind: "error", message: body?.error || "Shortcuts did not save. Try pinning them again." });
         return null;
       }
       const json = (await res.json().catch(() => null)) as { ok?: boolean; slugs?: string[] } | null;
@@ -1497,12 +2157,89 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }
 
   function dismissGettingStartedHint() {
+    if (gettingStartedDismissKey) {
+      try {
+        window.localStorage.setItem(gettingStartedDismissKey, "1");
+      } catch {
+        // Ignore storage failures; the hint may reappear in that case.
+      }
+    }
     try {
       window.localStorage.setItem("portalGettingStartedSeen", "1");
     } catch {
       // Ignore storage failures; the hint may reappear in that case.
     }
     setShowGettingStartedHint(false);
+  }
+
+  function renderNeedHelpPrompt(opts?: { mobile?: boolean }) {
+    if (!showGettingStartedHint || !needHelpContent) return null;
+    const mobile = Boolean(opts?.mobile);
+
+    return (
+      <div
+        className={classNames(
+          mobile
+            ? "mb-4 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm"
+            : "fixed bottom-4 right-4 z-9995 hidden w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl ring-1 ring-[rgba(29,78,216,0.14)] sm:block",
+        )}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{needHelpContent.eyebrow}</div>
+            <div className="mt-1 text-lg font-semibold text-brand-ink">{needHelpContent.title}</div>
+            <p className="mt-2 text-sm text-zinc-700">{needHelpContent.body}</p>
+          </div>
+          <button
+            type="button"
+            onClick={dismissGettingStartedHint}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+            aria-label="Dismiss help prompt"
+          >
+            ×
+          </button>
+        </div>
+
+        <ul className="mt-3 space-y-2 text-sm text-zinc-600">
+          {needHelpContent.tips.map((tip) => (
+            <li key={tip} className="flex items-start gap-2">
+              <span aria-hidden className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-(--color-brand-blue)" />
+              <span>{tip}</span>
+            </li>
+          ))}
+        </ul>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <PortalNavLink
+            href={needHelpContent.primaryHref}
+            className={classNames(
+              "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white",
+              portalPrimaryActionClass,
+            )}
+            onClick={dismissGettingStartedHint}
+          >
+            {needHelpContent.primaryLabel}
+          </PortalNavLink>
+          <PortalNavLink
+            href={needHelpContent.secondaryHref}
+            className={classNames(
+              "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800",
+              portalSecondaryActionClass,
+            )}
+            onClick={dismissGettingStartedHint}
+          >
+            {needHelpContent.secondaryLabel}
+          </PortalNavLink>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-2xl px-3 py-2 text-sm font-medium text-zinc-500 hover:text-zinc-800"
+            onClick={dismissGettingStartedHint}
+          >
+            Hide tips
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const visibleSidebarServices = PORTAL_SERVICES.filter((s) => !s.hidden)
@@ -1723,6 +2460,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           {/* Main content */}
           <main className="pa-portal-scroll min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-md px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:pt-3">
+              {renderNeedHelpPrompt({ mobile: true })}
               {children}
             </div>
           </main>
@@ -1836,46 +2574,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               <IconHelpCircle size={22} />
             </PortalNavLink>
           </GlassSurface>
-        </div>
-        ) : null}
-
-        {false ? (
-        <div
-          className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
-          style={{
-            paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)",
-            paddingBottom: "calc(env(safe-area-inset-bottom) + 1.25rem)",
-          }}
-        >
-          <div className="pointer-events-auto relative w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl sm:p-6">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">New here?</div>
-            <h2 className="mt-2 text-lg font-semibold text-brand-ink">Watch the getting started tour</h2>
-            <p className="mt-2 text-sm text-zinc-700">
-              See how the portal fits together, what to turn on first, and how to configure the core pieces in a couple of minutes.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <PortalNavLink
-                href={`${basePath}/tutorials/getting-started`}
-                className={classNames(
-                  "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white",
-                  portalPrimaryActionClass,
-                )}
-                onClick={dismissGettingStartedHint}
-              >
-                Open getting started
-              </PortalNavLink>
-              <button
-                type="button"
-                className={classNames(
-                  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800",
-                  portalSecondaryActionClass,
-                )}
-                onClick={dismissGettingStartedHint}
-              >
-                Maybe later
-              </button>
-            </div>
-          </div>
         </div>
         ) : null}
 
@@ -2123,7 +2821,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               })}
                             </div>
                           ) : (
-                            <div className="px-1 py-2 text-sm text-zinc-500">No shortcuts yet.</div>
+                            <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
+                              <div className="font-semibold text-zinc-900">No shortcuts pinned yet</div>
+                              <div className="mt-1 leading-6">Pick services above to build your quick-access list, or open Services to choose what should live in the sidebar.</div>
+                              <PortalNavLink
+                                href={`${basePath}/app/services`}
+                                className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                              >
+                                Open services
+                              </PortalNavLink>
+                            </div>
                           )}
                         </div>
                       )}
@@ -2624,7 +3331,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           })}
                         </div>
                       ) : (
-                        <div className="px-3 py-2 text-sm text-zinc-500">No shortcuts yet.</div>
+                        <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">No shortcuts pinned yet</div>
+                          <div className="mt-1 leading-6">Pin services above to build your quick-access list, or open Services to choose what should stay one click away.</div>
+                          <PortalNavLink
+                            href={`${basePath}/app/services`}
+                            className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                          >
+                            Open services
+                          </PortalNavLink>
+                        </div>
                       )}
                     </div>
                   )}
@@ -3039,7 +3755,62 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               <div className="text-xs text-zinc-500">Signed in as</div>
             ) : null}
             {!collapsed ? (
-              <div className="mt-1 truncate text-sm font-semibold text-brand-ink">{signedInLabel}</div>
+              <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="truncate text-sm font-semibold text-brand-ink">{currentAccountLabel}</div>
+                <div className="mt-0.5 truncate text-xs text-zinc-500">{signedInLabel}</div>
+                <div className="mt-1 truncate text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{currentAccountSubLabel}</div>
+                {accessibleAccounts.length > 1 ? (
+                  <div className="mt-3">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Account</label>
+                    <select
+                      value={currentAccessibleAccount?.ownerId || ""}
+                      disabled={Boolean(switchingOwnerId) || accountsLoading}
+                      onChange={(e) => {
+                        const nextOwnerId = e.target.value;
+                        if (!nextOwnerId || nextOwnerId === currentAccessibleAccount?.ownerId) return;
+                        void switchPortalAccount(nextOwnerId);
+                      }}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {accessibleAccounts.map((account) => {
+                        const label = account.businessName || account.ownerName || account.ownerEmail || account.ownerId;
+                        const roleLabel = account.role === "OWNER" ? "Owner" : account.role === "ADMIN" ? "Admin" : "Member";
+                        return (
+                          <option key={account.ownerId} value={account.ownerId}>
+                            {label} · {roleLabel}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {switchingOwnerId ? <div className="mt-2 text-xs text-zinc-500">Switching account...</div> : null}
+                  </div>
+                ) : null}
+                {accountsLoading ? <div className="mt-3 text-xs text-zinc-500">Loading available accounts...</div> : null}
+                {accountsLoadError ? (
+                  <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <div className="font-semibold">Account switcher unavailable</div>
+                    <div className="mt-1 leading-5">{accountsLoadError}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void loadAccessibleAccounts()}
+                        className="inline-flex items-center justify-center rounded-full border border-amber-300 bg-white px-3 py-1 font-semibold text-amber-900 transition hover:border-amber-400 hover:bg-amber-100"
+                      >
+                        Retry
+                      </button>
+                      <Link
+                        href={`${basePath}/app/settings`}
+                        className="inline-flex items-center justify-center rounded-full border border-transparent px-3 py-1 font-semibold text-amber-900 transition hover:bg-amber-100"
+                      >
+                        Open settings
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
+                {!accountsLoadError && !accountsLoading && accessibleAccounts.length <= 1 ? (
+                  <div className="mt-3 text-xs text-zinc-500">Only this account is available right now.</div>
+                ) : null}
+              </div>
             ) : null}
             <div className={classNames("mt-3", collapsed && "mt-0 flex justify-center")}>
               <SignOutButton variant="sidebar" collapsed={collapsed} />
@@ -3132,6 +3903,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
             ) : null}
+
+            <div className="sm:hidden">{renderNeedHelpPrompt({ mobile: true })}</div>
+
+            {renderNeedHelpPrompt()}
 
             {children}
             {!isAiChat ? (

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -324,6 +324,30 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     if (mailboxError) toast.error(mailboxError);
   }, [mailboxError, toast]);
 
+  const loadMailbox = useCallback(async () => {
+    setMailboxLoading(true);
+    setMailboxError(null);
+    const res = await fetch("/api/portal/mailbox", { cache: "no-store" }).catch(() => null as any);
+
+    if (!res?.ok) {
+      const json = (await res?.json().catch(() => ({}))) as { error?: string };
+      setMailbox(null);
+      setMailboxError(json.error ?? "Business email did not load. Retry here, open inbox, or ask Pura to help.");
+      setMailboxLoading(false);
+      return;
+    }
+
+    const json = ((await res.json().catch(() => null)) as MailboxRes | null) ?? null;
+    if (json?.ok) {
+      setMailbox(json.mailbox ?? null);
+      setMailboxLocalPart(json.mailbox?.localPart ?? "");
+    } else {
+      setMailbox(null);
+      setMailboxError((json as any)?.error ?? "Business email did not load. Retry here, open inbox, or ask Pura to help.");
+    }
+    setMailboxLoading(false);
+  }, []);
+
   useEffect(() => {
     if (apiKeysError) toast.error(apiKeysError);
   }, [apiKeysError, toast]);
@@ -505,23 +529,28 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     );
   }, [pwCurrent, pwNext, pwConfirm]);
 
+  const loadProfile = useCallback(async () => {
+    setError(null);
+    const res = await fetch("/api/portal/profile", { cache: "no-store" });
+    if (res.ok) {
+      const json = (await res.json()) as Me;
+      setMe(json);
+      setName(json.user?.name ?? "");
+      setEmail(json.user?.email ?? "");
+      setPhone(formatPhoneForDisplay(json.user?.phone ?? ""));
+      setCity(json.user?.city ?? "");
+      setState(json.user?.state ?? "");
+      return;
+    }
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    setError(json.error ?? "Profile details did not load. Retry here or ask Pura to help.");
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/profile", { cache: "no-store" });
+      await loadProfile();
       if (!mounted) return;
-      if (res.ok) {
-        const json = (await res.json()) as Me;
-        setMe(json);
-        setName(json.user?.name ?? "");
-        setEmail(json.user?.email ?? "");
-        setPhone(formatPhoneForDisplay(json.user?.phone ?? ""));
-        setCity(json.user?.city ?? "");
-        setState(json.user?.state ?? "");
-      } else {
-        const json = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(json.error ?? "Unable to load profile");
-      }
       setLoading(false);
     })();
 
@@ -539,7 +568,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [loadProfile]);
 
   useEffect(() => {
     let mounted = true;
@@ -599,37 +628,14 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       }
     })();
 
-    (async () => {
-      setMailboxLoading(true);
-      setMailboxError(null);
-      const res = await fetch("/api/portal/mailbox", { cache: "no-store" }).catch(() => null as any);
-      if (!mounted) return;
-
-      if (!res?.ok) {
-        const json = (await res?.json().catch(() => ({}))) as { error?: string };
-        setMailbox(null);
-        setMailboxError(json.error ?? "Unable to load business email");
-        setMailboxLoading(false);
-        return;
-      }
-
-      const json = ((await res.json().catch(() => null)) as MailboxRes | null) ?? null;
-      if (json?.ok) {
-        setMailbox(json.mailbox ?? null);
-        setMailboxLocalPart(json.mailbox?.localPart ?? "");
-      } else {
-        setMailbox(null);
-        setMailboxError((json as any)?.error ?? "Unable to load business email");
-      }
-      setMailboxLoading(false);
-    })();
+    void loadMailbox();
 
     void loadApiKeys();
 
     return () => {
       mounted = false;
     };
-  }, [portalMe, canViewWebhooks, canViewTwilio]);
+  }, [portalMe, canViewWebhooks, canViewTwilio, loadMailbox]);
 
   async function reloadDomains() {
     setFunnelDomainsLoaded(false);
@@ -650,7 +656,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       await navigator.clipboard.writeText(text);
       toast.success("Copied");
     } catch {
-      toast.error("Unable to copy");
+      toast.error("That value did not copy. Retry here.");
     }
   }
 
@@ -666,7 +672,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null) : null) ?? null;
     setDomainBusy(false);
     if (!res?.ok || !json?.ok) {
-      toast.error(json?.error || "Unable to add domain");
+      toast.error(json?.error || "That domain did not add. Retry here in domains.");
       return;
     }
     setDomainInput("");
@@ -685,7 +691,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; verified?: boolean; error?: string } | null) : null) ?? null;
     setDomainVerifyBusy((current) => ({ ...current, [domain.id]: false }));
     if (!res?.ok || !json?.ok) {
-      toast.error(json?.error || "Unable to verify domain");
+      toast.error(json?.error || "That domain did not verify. Retry here in domains.");
       return;
     }
     if (json.verified) toast.success(`${domain.domain} is ready.`);
@@ -708,13 +714,13 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     if (!res?.ok) {
       const json = ((await res?.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
       setApiKeysState(null);
-      setApiKeysError(json && "error" in json ? json.error ?? "Unable to load API keys" : "Unable to load API keys");
+      setApiKeysError(json && "error" in json ? json.error ?? "API keys did not load. Retry here, create a new key, or ask Pura to help." : "API keys did not load. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     const json = ((await res.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
     if (!json?.ok) {
       setApiKeysState(null);
-      setApiKeysError((json as any)?.error ?? "Unable to load API keys");
+      setApiKeysError((json as any)?.error ?? "API keys did not load. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     setApiKeysState(json);
@@ -765,7 +771,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setStripeSaving(false);
 
     if (!res?.ok || !json?.ok) {
-      setStripeError(json?.error ?? "Unable to connect");
+      setStripeError(json?.error ?? "Sales reporting did not connect. Retry here, open the sales dashboard, or ask Pura to help.");
       return;
     }
 
@@ -806,7 +812,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setStripeSaving(false);
 
     if (!res?.ok || !json?.ok) {
-      setStripeError(json?.error ?? "Unable to disconnect");
+      setStripeError(json?.error ?? "Sales reporting did not disconnect. Retry here, open the sales dashboard, or ask Pura to help.");
       return;
     }
 
@@ -858,7 +864,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setSavingApiKey(false);
     if (!res?.ok || !json?.ok) {
-      setApiKeysError(json?.error ?? (editingApiKeyId ? "Unable to update API key" : "Unable to create API key"));
+      setApiKeysError(json?.error ?? (editingApiKeyId ? "That API key did not update. Retry here, create a new key, or ask Pura to help." : "That API key did not create. Retry here, create a new key, or ask Pura to help."));
       return;
     }
 
@@ -880,7 +886,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setDeletingApiKeyId(null);
     if (!res?.ok || !json?.ok) {
-      setApiKeysError(json?.error ?? "Unable to delete API key");
+      setApiKeysError(json?.error ?? "That API key did not delete. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     setRevealedApiKeyValues((current) => {
@@ -909,7 +915,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setRevealingApiKeyId(null);
     if (!res?.ok || !json?.ok || typeof json?.value !== "string") {
-      setApiKeysError(json?.error ?? "Unable to reveal API key");
+      setApiKeysError(json?.error ?? "That API key did not reveal. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     setRevealedApiKeyValues((current) => ({ ...current, [keyId]: json.value }));
@@ -1041,7 +1047,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setMailboxSaving(false);
 
     if (!res.ok || !json?.ok) {
-      setMailboxError(json?.error ?? "Unable to update business email");
+      setMailboxError(json?.error ?? "Business email did not update. Retry here, open inbox, or ask Pura to help.");
       return;
     }
 
@@ -1201,7 +1207,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setSavingContact(false);
 
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to save contact info");
+      setError(json.error ?? "Contact info did not save. Retry here or ask Pura to help.");
       return;
     }
 
@@ -1250,7 +1256,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setSavingPassword(false);
 
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to update password");
+      setError(json.error ?? "Your password did not update. Retry here.");
       return;
     }
 
@@ -1294,6 +1300,29 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
         </div>
       ) : (
         <div className="mt-6 space-y-4">
+          {error ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <div className="font-semibold">Profile needs attention</div>
+              <div className="mt-1">{error}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void loadProfile();
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Retry
+                </button>
+                <Link
+                  href={`${portalBase}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
+          ) : null}
           {showSuggestedSetup ? <SuggestedSetupSection canEdit={canEditBusinessInfo} /> : null}
           {showContactSection ? (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -1663,7 +1692,25 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           })}
                         </div>
                       ) : (
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">No custom domains have been added yet.</div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">No custom domains have been added yet</div>
+                          <div className="mt-1">Add a domain here when you want booking pages, funnels, or hosted experiences to use your own brand.</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setDomainComposerOpen(true)}
+                              className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                            >
+                              Add domain
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                            >
+                              Ask Pura for help
+                            </Link>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </PortalSettingsSection>
@@ -1857,12 +1904,53 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       ) : null}
 
                       {stripeError ? (
-                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{stripeError}</div>
+                        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                          <div className="font-semibold text-red-900">Sales reporting needs attention</div>
+                          <div className="mt-1">{stripeError}</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void refreshSalesStatus();
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                            >
+                              Retry
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/services/reporting/sales`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Open sales dashboard
+                            </Link>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Ask Pura
+                            </Link>
+                          </div>
+                        </div>
                       ) : null}
 
                       {salesStatusLoaded && salesStatus?.ok === true && !salesStatus.encryptionConfigured ? (
                         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                          Sales reporting setup is temporarily unavailable. Please contact support.
+                          <div className="font-semibold text-amber-950">Sales reporting is waiting on encryption setup</div>
+                          <div className="mt-1">You can still confirm the provider connection now, then use Pura or the sales dashboard once the account is fully ready.</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <Link
+                              href={`${portalBase}/app/services/reporting/sales`}
+                              className="inline-flex items-center justify-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-100/60"
+                            >
+                              Open sales dashboard
+                            </Link>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-100/60"
+                            >
+                              Ask Pura for help
+                            </Link>
+                          </div>
                         </div>
                       ) : null}
 
@@ -2201,7 +2289,37 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                   >
                     <div className="space-y-4">
                       {apiKeysError ? (
-                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{apiKeysError}</div>
+                        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                          <div className="font-semibold text-red-900">API keys need attention</div>
+                          <div className="mt-1">{apiKeysError}</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void loadApiKeys();
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                            >
+                              Retry
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                resetApiKeyComposer();
+                                setApiKeyModalOpen(true);
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Create API Key
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Ask Pura
+                            </Link>
+                          </div>
+                        </div>
                       ) : null}
 
                       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -2371,7 +2489,28 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           ))}
                         </div>
                             ) : apiKeysLoaded ? (
-                              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No scoped API keys yet.</div>
+                              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                                <div className="font-semibold text-zinc-900">No scoped API keys yet</div>
+                                <div className="mt-1">Create a scoped key when another app, workflow, or teammate only needs limited portal access.</div>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      resetApiKeyComposer();
+                                      setApiKeyModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                                  >
+                                    Create API Key
+                                  </button>
+                                  <Link
+                                    href={`${portalBase}/app/ai-chat?onboarding=1`}
+                                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                                  >
+                                    Ask Pura for help
+                                  </Link>
+                                </div>
+                              </div>
                             ) : null}
                           </div>
                         ) : null}
@@ -2416,7 +2555,33 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       ) : null}
 
                       {mailboxError ? (
-                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{mailboxError}</div>
+                        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                          <div className="font-semibold text-red-900">Business email needs attention</div>
+                          <div className="mt-1">{mailboxError}</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void loadMailbox();
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                            >
+                              Retry
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/services/inbox`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Open inbox
+                            </Link>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Ask Pura
+                            </Link>
+                          </div>
+                        </div>
                       ) : null}
 
                       {mailboxLoading ? (
@@ -2426,7 +2591,27 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       {mailbox ? (
                         <CopyRow label="Business email" value={mailbox.emailAddress} />
                       ) : mailboxLoading ? null : (
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Business email unavailable.</div>
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">Business email not ready yet</div>
+                          <div className="mt-1">
+                            Your managed mailbox has not loaded for this account yet. Retry here, or ask Pura to walk you through the setup path.
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void loadMailbox()}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                            >
+                              Retry business email
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                            >
+                              Ask Pura for help
+                            </Link>
+                          </div>
+                        </div>
                       )}
 
                       {mailbox?.canChange ? (

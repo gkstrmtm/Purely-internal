@@ -3032,7 +3032,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action: "set_mode", chatMode: nextMode }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to update chat mode");
+        if (!json?.ok) throw new Error(json?.error || "Chat mode did not update. Retry here in the mode menu.");
         delete pendingChatModeByThreadRef.current[activeThreadId];
         applyThreadChatMode(activeThreadId, json.chatMode ?? nextMode);
       } catch (e) {
@@ -3059,7 +3059,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action: "set_response_profile", responseProfile: nextProfile }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to update Pura pace");
+        if (!json?.ok) throw new Error(json?.error || "Pura pace did not update. Retry here in the pace menu.");
         delete pendingResponseProfileByThreadRef.current[activeThreadId];
         applyThreadResponseProfile(activeThreadId, json.responseProfile ?? nextProfile);
       } catch (e) {
@@ -3279,7 +3279,7 @@ export function PortalAiChatClient({
     try {
       const res = await portalFetch("/api/portal/ai-chat/threads", { cache: "no-store" });
       const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Failed to load threads");
+      if (!json?.ok) throw new Error(json?.error || "Chat history did not load. Refresh the page or start a new chat.");
       const next = Array.isArray(json.threads)
         ? (json.threads as Array<Thread & { liveStatus?: unknown; latestRunStatus?: unknown; nextStepContext?: unknown; chatMode?: unknown; responseProfile?: unknown }>).map((thread) => ({
             ...thread,
@@ -3367,7 +3367,7 @@ export function PortalAiChatClient({
           cache: "no-store",
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Failed to load messages");
+        if (!json?.ok) throw new Error(json?.error || "This chat did not load. Return to chat history or start a fresh chat.");
         const cachedMessages = messagesByThreadRef.current[threadId] ?? [];
         setMessagesByThread((prev) => {
           const next = {
@@ -3735,7 +3735,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to update chat");
+        if (!json?.ok) throw new Error(json?.error || "That chat did not update. Retry here in the thread menu.");
         toast.success(thread.isPinned ? "Unpinned" : "Pinned");
         closeThreadMenu();
         void loadThreads();
@@ -3755,7 +3755,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action: "duplicate" }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to duplicate chat");
+        if (!json?.ok) throw new Error(json?.error || "That chat did not duplicate. Retry here in the thread menu.");
         const t = json.newThread as Thread;
         toast.success("Duplicated");
         closeThreadMenu();
@@ -3795,7 +3795,7 @@ export function PortalAiChatClient({
         const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/share`, { cache: "no-store" });
         const json = await res.json().catch(() => null);
         if (!json?.ok) {
-          const statusMsg = res.status === 403 ? "Only the chat owner can manage sharing." : "Unable to load sharing";
+          const statusMsg = res.status === 403 ? "Only the chat owner can manage sharing." : "Sharing settings did not load. Open Share with team again to retry.";
           throw new Error(json?.error || statusMsg);
         }
 
@@ -3829,7 +3829,7 @@ export function PortalAiChatClient({
         body: JSON.stringify({ userIds }),
       });
       const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Unable to save sharing");
+      if (!json?.ok) throw new Error(json?.error || "Sharing changes did not save. Retry here.");
       toast.success("Sharing updated");
       closeShareModal();
     } catch (e) {
@@ -3857,7 +3857,7 @@ export function PortalAiChatClient({
           body: JSON.stringify({ action: "delete" }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to delete chat");
+        if (!json?.ok) throw new Error(json?.error || "That chat did not delete. Retry here in the thread menu.");
 
         closeThreadMenu();
         toast.success("Deleted");
@@ -3894,7 +3894,7 @@ export function PortalAiChatClient({
 
         const res = await portalFetch("/api/portal/ai-chat/attachments", { method: "POST", body: form });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Upload failed");
+        if (!json?.ok) throw new Error(json?.error || "Those files did not upload. Retry here in the attachment menu.");
 
         const next = Array.isArray(json.attachments) ? (json.attachments as Attachment[]) : [];
         setThreadDraftState(threadKey, (prev) => ({
@@ -4155,7 +4155,7 @@ export function PortalAiChatClient({
             }),
           });
           const json = await res.json().catch(() => null);
-          if (!json?.ok) throw new Error(json?.error || "Send failed");
+          if (!json?.ok) throw new Error(json?.error || "That message did not send. Retry here in the composer.");
 
           setThreadUiState(threadIdForSend, (prev) => ({
             ...prev,
@@ -4349,7 +4349,7 @@ export function PortalAiChatClient({
           }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Send failed");
+        if (!json?.ok) throw new Error(json?.error || "That message did not send. Retry here in the composer.");
 
         if (createdThread) {
           // Thread was already inserted + selected right after creation.
@@ -4547,7 +4547,7 @@ export function PortalAiChatClient({
         await send(starterPrompt);
       } catch (error) {
         if (!cancelled) {
-          toast.error(error instanceof Error ? error.message : "Unable to start onboarding with Pura");
+          toast.error(error instanceof Error ? error.message : "Pura onboarding did not start. Retry here in chat or refresh this page.");
         }
       }
     };
@@ -4623,7 +4623,7 @@ export function PortalAiChatClient({
         body: JSON.stringify({ action: "interrupt" }),
       });
       const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Unable to stop run");
+      if (!json?.ok) throw new Error(json?.error || "That run did not stop. Retry here in chat.");
       setThreadLiveStatusById((prev) => ({
         ...prev,
         [activeThreadId]: normalizeLiveStatus(json?.liveStatus) || prev[activeThreadId] || null,
@@ -4933,7 +4933,7 @@ export function PortalAiChatClient({
         await navigator.clipboard.writeText(text);
         toast.success("Copied");
       } catch {
-        toast.error("Unable to copy");
+        toast.error("That message did not copy. Retry here from the message menu.");
       }
     },
     [toast],
@@ -4996,7 +4996,30 @@ export function PortalAiChatClient({
         {threadsLoading ? (
           <div className="p-3 text-sm text-zinc-500">Loading…</div>
         ) : !threads.length ? (
-          <div className="p-3 text-sm text-zinc-500">No chats yet.</div>
+          <div className="p-3">
+            <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+              <div className="font-semibold text-zinc-900">No chats yet</div>
+              <div className="mt-1">Start a fresh Pura thread to plan setup, troubleshoot a service, or ask what to do next in this workspace.</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={createThread}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  New chat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    router.push(`${basePath}/app/ai-chat?onboarding=1`, { scroll: false });
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                >
+                  Guided help
+                </button>
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="space-y-1">
             {threads.map((t) => {
@@ -5093,7 +5116,7 @@ export function PortalAiChatClient({
       </div>
     </div>
     ),
-    [activeThreadId, closeThreadMenu, createThread, navigateToThread, openChatSearch, selectThread, threadLiveStatusById, threadMenu, threadMenuThreadId, threadNextStepContextById, threads, threadsLoading],
+    [activeThreadId, basePath, closeThreadMenu, createThread, navigateToThread, openChatSearch, router, selectThread, threadLiveStatusById, threadMenu, threadMenuThreadId, threadNextStepContextById, threads, threadsLoading],
   );
 
   const mobileSidebar = useMemo(
@@ -5103,7 +5126,30 @@ export function PortalAiChatClient({
           {threadsLoading ? (
             <div className="p-3 text-sm text-zinc-500">Loading…</div>
           ) : !threads.length ? (
-            <div className="p-3 text-sm text-zinc-500">No chats yet.</div>
+            <div className="p-3">
+              <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                <div className="font-semibold text-zinc-900">No chats yet</div>
+                <div className="mt-1">Start a new thread and Pura can help set up services, explain gaps, or plan the next workflow.</div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={createThread}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  >
+                    New chat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      router.push(`${basePath}/app/ai-chat?onboarding=1`, { scroll: false });
+                    }}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                  >
+                    Guided help
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="space-y-1">
               {threads.map((t) => {
@@ -5202,7 +5248,7 @@ export function PortalAiChatClient({
         </div>
       </div>
     ),
-    [activeThreadId, closeThreadMenu, navigateToThread, selectThread, threadLiveStatusById, threadMenu, threadMenuThreadId, threadNextStepContextById, threads, threadsLoading],
+    [activeThreadId, basePath, closeThreadMenu, createThread, navigateToThread, router, selectThread, threadLiveStatusById, threadMenu, threadMenuThreadId, threadNextStepContextById, threads, threadsLoading],
   );
 
   const setSidebarOverride = useSetPortalSidebarOverride();
@@ -5444,7 +5490,7 @@ export function PortalAiChatClient({
           },
         );
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Unable to save schedule");
+        if (!json?.ok) throw new Error(json?.error || "Scheduled task changes did not save. Retry here.");
         setScheduledTextEditingIds((prev) => {
           const next = new Set(prev);
           next.delete(id);
@@ -5453,7 +5499,7 @@ export function PortalAiChatClient({
         toast.success("Saved");
         void loadScheduled();
       } catch (error) {
-        toast.error(error instanceof Error && error.message ? error.message : "Unable to save schedule");
+        toast.error(error instanceof Error && error.message ? error.message : "Scheduled task changes did not save. Retry here.");
       } finally {
         setScheduledSavingIds((prev) => {
           const next = new Set(prev);
@@ -5475,15 +5521,19 @@ export function PortalAiChatClient({
         destructive: true,
       });
       if (!ok) return;
-      const res = await portalFetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
-        {
-          method: "DELETE",
-        },
-      );
-      const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Unable to stop scheduled task");
-      toast.success("Stopped");
-      void loadScheduled();
+      try {
+        const res = await portalFetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
+          {
+            method: "DELETE",
+          },
+        );
+        const json = await res.json().catch(() => null);
+        if (!json?.ok) throw new Error(json?.error || "Scheduled task did not stop. Retry here.");
+        toast.success("Stopped");
+        void loadScheduled();
+      } catch (error) {
+        toast.error(error instanceof Error && error.message ? error.message : "Scheduled task did not stop. Retry here.");
+      }
     },
     [askConfirm, loadScheduled, portalFetch, toast],
   );
@@ -6389,7 +6439,29 @@ export function PortalAiChatClient({
                     ))}
                   </div>
                 ) : (
-                  <div className="px-3 py-5 text-sm text-zinc-500">No chats match that search yet.</div>
+                  <div className="px-3 py-5 text-sm text-zinc-500">
+                    <div className="font-semibold text-zinc-900">No chats match that search yet</div>
+                    <div className="mt-1">Clear the search to jump back into recent threads, or start a fresh chat.</div>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => setChatSearchQuery("")}
+                        className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      >
+                        Clear search
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeChatSearch();
+                          createThread();
+                        }}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        New chat
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </LiquidGlassPopupSurface>
@@ -7211,7 +7283,26 @@ export function PortalAiChatClient({
               activeWorkingMemory ? (
                 <ThreadMemoryDetail memory={activeWorkingMemory} unresolvedRun={activeUnresolvedRun} nextStepContext={activeNextStepContext} />
               ) : (
-                <div className="text-sm text-zinc-600">No thread memory yet. Keep chatting to form a thread memory.</div>
+                <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  <div className="font-semibold text-zinc-900">No thread memory yet</div>
+                  <div className="mt-1">Keep chatting in this thread and Pura will build thread memory as the work becomes more specific.</div>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      onClick={closeActivityModal}
+                    >
+                      Back to chat
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={createThread}
+                    >
+                      New chat
+                    </button>
+                  </div>
+                </div>
               )
             ) : activityView.kind === "run" ? (
               selectedActivityRun ? (
@@ -7314,10 +7405,51 @@ export function PortalAiChatClient({
                   ) : null}
                 </div>
               ) : (
-                <div className="text-sm text-zinc-600">That run is no longer available.</div>
+                <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  <div className="font-semibold text-zinc-900">That run is no longer available</div>
+                  <div className="mt-1">Return to the chat history or start a fresh thread if you want Pura to retry the work from a clean state.</div>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      onClick={() => setActivityView({ kind: "list" })}
+                    >
+                      Back to history
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => {
+                        closeActivityModal();
+                        createThread();
+                      }}
+                    >
+                      New chat
+                    </button>
+                  </div>
+                </div>
               )
             ) : !sortedRunLedgerRows.length ? (
-              <div className="text-sm text-zinc-600">No runs yet for this chat.</div>
+              <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                <div className="font-semibold text-zinc-900">No runs yet for this chat</div>
+                <div className="mt-1">Send the next message in this thread and Pura activity will start showing up here.</div>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                    onClick={closeActivityModal}
+                  >
+                    Back to chat
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    onClick={createThread}
+                  >
+                    New chat
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="space-y-3">
                 {sortedRunLedgerRows.map((run) => {
@@ -7367,7 +7499,29 @@ export function PortalAiChatClient({
         {scheduledLoading ? (
           <div className="text-sm text-zinc-600">Loading…</div>
         ) : !scheduledRows.length ? (
-          <div className="text-sm text-zinc-600">No scheduled tasks.</div>
+          <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+            <div className="font-semibold text-zinc-900">No scheduled tasks</div>
+            <div className="mt-1">Nothing is queued yet for this chat workspace. Start a new thread or go back to chat when you are ready to schedule follow-up work.</div>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                onClick={() => {
+                  setScheduledOpen(false);
+                  createThread();
+                }}
+              >
+                New chat
+              </button>
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={() => setScheduledOpen(false)}
+              >
+                Back to chat
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="space-y-3">
             {scheduledRows.map((r) => {
@@ -7666,7 +7820,29 @@ export function PortalAiChatClient({
                 />
 
                 {!visible.length ? (
-                  <div className="text-sm text-zinc-600">No teammates found.</div>
+                  <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No teammates found</div>
+                    <div className="mt-1">Invite a teammate first, or start a separate chat if this thread should stay private for now.</div>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                        onClick={() => router.push(`${basePath}/app/people/users`, { scroll: false })}
+                      >
+                        Open users & invites
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                        onClick={() => {
+                          closeShareModal();
+                          createThread();
+                        }}
+                      >
+                        New chat
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {visible.map((m) => {

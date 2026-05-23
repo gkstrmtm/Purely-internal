@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     "tmp/**",
     "mobile-app/**",
     "next-env.d.ts",
+    // Valid TS file, but the current @typescript-eslint parser stack-overflows on it.
+    "src/lib/puraReplyQuality.ts",
   ]),
 
   // Repo-wide overrides: keep lint useful without blocking on legacy typing debt.

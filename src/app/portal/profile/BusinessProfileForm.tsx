@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { assessBusinessProfileContextHealth } from "@/lib/businessProfileContextHealth";
@@ -157,6 +159,8 @@ export function BusinessProfileForm({
   onSaved?: () => void;
 }) {
   const toast = useToast();
+  const pathname = usePathname();
+  const portalBase = String(pathname || "").startsWith("/credit") ? "/credit" : "/portal";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +206,7 @@ export function BusinessProfileForm({
   const [hostedLinkHex, setHostedLinkHex] = useState("");
 
   const [logoBusy, setLogoBusy] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
   const [logoPickerOpen, setLogoPickerOpen] = useState(false);
 
   const brandFontPresetKeyRaw = useMemo(
@@ -410,16 +415,18 @@ export function BusinessProfileForm({
     });
   }
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
+  const loadBusinessProfile = useCallback(async (options?: { signal?: AbortSignal }) => {
+    setLoading(true);
+    setError(null);
+
+    try {
       setError(null);
-      const res = await fetch("/api/portal/business-profile", { cache: "no-store" });
+      const res = await fetch("/api/portal/business-profile", { cache: "no-store", signal: options?.signal });
       const json = (await res.json().catch(() => ({}))) as Partial<ApiGet>;
-      if (!mounted) return;
+      if (options?.signal?.aborted) return;
 
       if (!res.ok) {
-        setError((json as { error?: string })?.error ?? "Unable to load business profile");
+        setError((json as { error?: string })?.error ?? "Business profile did not load. Retry here, open profile, or ask Pura to help.");
         setLoading(false);
         return;
       }
@@ -427,11 +434,20 @@ export function BusinessProfileForm({
       applyProfileToForm(json.profile ?? null);
 
       setLoading(false);
-    })();
-    return () => {
-      mounted = false;
-    };
+    } catch {
+      if (options?.signal?.aborted) return;
+      setError("Business profile did not load. Retry here, open profile, or ask Pura to help.");
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadBusinessProfile({ signal: controller.signal });
+    return () => {
+      controller.abort();
+    };
+  }, [loadBusinessProfile]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -485,7 +501,7 @@ export function BusinessProfileForm({
     setClarifying(false);
 
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to run clarification");
+      setError(json.error ?? "Clarification did not run. Retry here or ask Pura to help.");
       return;
     }
 
@@ -618,7 +634,7 @@ export function BusinessProfileForm({
     setSaving(false);
 
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to save");
+      setError(json.error ?? "Business profile did not save. Retry here, open profile, or ask Pura to help.");
       return;
     }
 
@@ -646,6 +662,36 @@ export function BusinessProfileForm({
             {description ?? "This helps us tailor services and onboarding to your business."}
           </div>
         </>
+      ) : null}
+
+      {error ? (
+        <div className={(embedded ? "mt-3" : "mt-5") + " rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"}>
+          <div className="font-semibold text-red-900">Business profile needs attention</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void loadBusinessProfile();
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <Link
+              href={`${portalBase}/app/profile`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+            >
+              Open profile
+            </Link>
+            <Link
+              href={`${portalBase}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
       ) : null}
 
       <div className={(embedded ? "mt-3" : "mt-5") + " rounded-3xl border border-zinc-200 bg-zinc-50/80 p-4 sm:p-5"}>
@@ -702,16 +748,18 @@ export function BusinessProfileForm({
                   if (!file) return;
                   setLogoBusy(true);
                   setError(null);
+                  setLogoError(null);
                   try {
                     const fd = new FormData();
                     fd.set("file", file);
                     const up = await fetch("/api/uploads", { method: "POST", body: fd });
                     const upBody = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
                     if (!up.ok || !upBody.url) {
-                      setError(upBody.error ?? "Upload failed");
+                      setLogoError(upBody.error ?? "That logo did not upload. Retry here in this section.");
                       return;
                     }
                     setLogoUrl(upBody.url);
+                    setLogoError(null);
                   } finally {
                     setLogoBusy(false);
                     if (e.target) e.target.value = "";
@@ -723,12 +771,21 @@ export function BusinessProfileForm({
             <button
               type="button"
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
-              onClick={() => !readOnly && setLogoPickerOpen(true)}
+              onClick={() => {
+                if (readOnly) return;
+                setLogoError(null);
+                setLogoPickerOpen(true);
+              }}
               disabled={Boolean(readOnly)}
             >
               Choose from media library
             </button>
           </div>
+          {logoError ? (
+            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              {logoError}
+            </div>
+          ) : null}
         </div>
 
         <PortalMediaPickerModal
@@ -737,6 +794,7 @@ export function BusinessProfileForm({
           confirmLabel="Use"
           onClose={() => setLogoPickerOpen(false)}
           onPick={(item) => {
+            setLogoError(null);
             setLogoUrl(item.shareUrl);
             setLogoPickerOpen(false);
           }}

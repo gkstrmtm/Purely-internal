@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AppModal } from "@/components/AppModal";
@@ -34,15 +34,16 @@ function PortalBillingUpgradeCompleteInner() {
   const [modalOpen, setModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const confirmUpgrade = useCallback(async () => {
+    if (!sessionId) {
+      router.replace(`${appBase}/billing/upgrade`, { scroll: false });
+      return;
+    }
 
-    (async () => {
-      if (!sessionId) {
-        router.replace(`${appBase}/billing/upgrade`, { scroll: false });
-        return;
-      }
+    setLoading(true);
+    setError(null);
 
+    try {
       const res = await fetch("/api/portal/billing/onboarding-confirm", {
         method: "POST",
         headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalBase === "/credit" ? "credit" : "portal" },
@@ -50,26 +51,28 @@ function PortalBillingUpgradeCompleteInner() {
       });
 
       const json = await res.json().catch(() => null);
-      if (!mounted) return;
 
       if (!res.ok || !json?.ok) {
         if (res.status === 401 || res.status === 403) {
           router.replace(`${portalBase}/login`, { scroll: false });
           return;
         }
-        setError(json?.error || "Unable to activate subscription");
+        setError(json?.error || "Your monthly plan did not activate yet. Retry here, head back to upgrade, or open billing.");
         setLoading(false);
         return;
       }
 
       setLoading(false);
       setModalOpen(true);
-    })();
-
-    return () => {
-      mounted = false;
-    };
+    } catch {
+      setError("Your monthly plan did not finish activating. Retry here, head back to upgrade, or open billing.");
+      setLoading(false);
+    }
   }, [appBase, portalBase, router, sessionId]);
+
+  useEffect(() => {
+    void confirmUpgrade();
+  }, [confirmUpgrade]);
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">
@@ -78,8 +81,36 @@ function PortalBillingUpgradeCompleteInner() {
           <div className="text-xl font-bold">Finishing upgrade…</div>
           <div className="mt-2 text-sm text-zinc-600">We&apos;re activating your monthly plan now.</div>
           <div className="mt-6 text-sm text-zinc-600">
-            {loading ? "Please wait." : error ? "Something went wrong. You can close this tab or try again." : "Almost done…"}
+            {loading ? "Please wait." : error ? "Upgrade confirmation paused. Retry here or head back to billing." : "Almost done…"}
           </div>
+          {error ? (
+            <>
+              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => void confirmUpgrade()}
+                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Retry upgrade
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.replace(`${appBase}/billing/upgrade`, { scroll: false })}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Back to upgrade
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.replace(`${appBase}/billing`, { scroll: false })}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open billing
+                </button>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
 

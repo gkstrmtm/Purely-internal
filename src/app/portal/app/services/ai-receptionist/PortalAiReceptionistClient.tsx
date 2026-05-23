@@ -415,6 +415,10 @@ export function PortalAiReceptionistClient() {
   const portalVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
+  const aiReceptionistEnableHref = useMemo(
+    () => (portalBase === "/credit" ? `${portalBase}/app/billing/upgrade` : `${portalBase}/app/billing#pa-billing-add-services`),
+    [portalBase],
+  );
 
   const isMobileApp = useMemo(() => {
     try {
@@ -442,6 +446,7 @@ export function PortalAiReceptionistClient() {
   const [polishBusy, setPolishBusy] = useState<null | "voiceGreeting" | "voiceSystemPrompt" | "smsSystemPrompt">(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const entitlementBlocked = useMemo(() => Boolean(error && /enable ai receptionist|isn.?t enabled for this account/i.test(error)), [error]);
 
   const friendlyApiError = useCallback((opts: {
     status?: number;
@@ -451,18 +456,18 @@ export function PortalAiReceptionistClient() {
     const raw = (opts.rawError || "").trim();
 
     if (opts.status === 401) {
-      return "Your session expired. Please refresh and sign in again.";
+      return "Your session expired. Sign in again, then reopen AI Receptionist.";
     }
 
     if (opts.status === 403) {
-      return "AI Receptionist isn’t enabled for this account yet. Open Billing to enable it, then come back here.";
+      return "AI Receptionist isn’t enabled for this account yet. Enable it, then come back here.";
     }
 
     if (raw && raw !== "Forbidden" && raw !== "Unauthorized") return raw;
 
-    if (opts.action === "save") return "We couldn’t save your changes. Please try again.";
-    if (opts.action === "regenerate") return "We couldn’t regenerate the webhook token. Please try again.";
-    return "We couldn’t load AI Receptionist settings. Please refresh and try again.";
+    if (opts.action === "save") return "These AI Receptionist settings did not save. Retry here or keep editing them.";
+    if (opts.action === "regenerate") return "That webhook token did not regenerate. Retry here or keep editing the settings.";
+    return "AI Receptionist did not load. Retry here, open services, or ask Pura to help.";
   }, []);
 
   const readJsonError = useCallback(async (res: Response) => {
@@ -655,14 +660,14 @@ export function PortalAiReceptionistClient() {
       }).catch(() => null as any);
       if (!res?.ok) {
         const rawError = res ? await readJsonError(res) : null;
-        throw new Error(rawError || "Failed to generate");
+        throw new Error(rawError || "These AI Receptionist settings did not generate. Try again here or keep editing the settings.");
       }
       const json = (await res.json().catch(() => null)) as any;
-      if (!json?.ok || !json?.settings) throw new Error(json?.error || "Failed to generate");
+      if (!json?.ok || !json?.settings) throw new Error(json?.error || "These AI Receptionist settings did not generate. Try again here or keep editing the settings.");
       setSettings({ ...settings, ...json.settings });
       toast.success(json?.warning ? "Generated (fallback)" : "Generated");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to generate");
+      setError(e instanceof Error ? e.message : "These AI Receptionist settings did not generate. Try again here or keep editing the settings.");
     } finally {
       setGenerateBusy(false);
     }
@@ -681,16 +686,16 @@ export function PortalAiReceptionistClient() {
 
       if (!res?.ok) {
         const rawError = res ? await readJsonError(res) : null;
-        throw new Error(rawError || "Failed to generate");
+        throw new Error(rawError || "That SMS prompt did not generate. Try again here or keep editing the settings.");
       }
 
       const json = (await res.json().catch(() => null)) as any;
-      if (!json?.ok || typeof json.smsSystemPrompt !== "string") throw new Error(json?.error || "Failed to generate");
+      if (!json?.ok || typeof json.smsSystemPrompt !== "string") throw new Error(json?.error || "That SMS prompt did not generate. Try again here or keep editing the settings.");
 
       setSettings({ ...settings, smsSystemPrompt: json.smsSystemPrompt });
       toast.success("Generated SMS prompt");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to generate");
+      setError(e instanceof Error ? e.message : "That SMS prompt did not generate. Try again here or keep editing the settings.");
     } finally {
       setSmsPromptBusy(false);
     }
@@ -725,11 +730,11 @@ export function PortalAiReceptionistClient() {
 
       if (!res?.ok) {
         const rawError = res ? await readJsonError(res) : null;
-        throw new Error(rawError || "Failed to polish");
+        throw new Error(rawError || "That text did not polish. Try again here or keep editing the settings.");
       }
 
       const json = (await res.json().catch(() => null)) as any;
-      if (!json?.ok || typeof json.polished !== "string") throw new Error(json?.error || "Failed to polish");
+      if (!json?.ok || typeof json.polished !== "string") throw new Error(json?.error || "That text did not polish. Try again here or keep editing the settings.");
       const polished = String(json.polished || "").trim();
       if (!polished) throw new Error("Empty AI response");
 
@@ -742,7 +747,7 @@ export function PortalAiReceptionistClient() {
 
       toast.success("Polished");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to polish");
+      setError(e instanceof Error ? e.message : "That text did not polish. Try again here or keep editing the settings.");
     } finally {
       setPolishBusy(null);
     }
@@ -791,13 +796,13 @@ export function PortalAiReceptionistClient() {
 
       const json = (await res?.json?.().catch(() => null)) as any;
       if (!res?.ok || !json || json.ok !== true) {
-        throw new Error(String(json?.error || "File upload failed"));
+        throw new Error(String(json?.error || "That file did not upload. Try again here or review the knowledge base settings."));
       }
 
       toast.success("File added to knowledge base");
       await load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "File upload failed");
+      toast.error(e instanceof Error ? e.message : "That file did not upload. Try again here or review the knowledge base settings.");
     } finally {
       setVoiceKnowledgeBaseUploadBusy(false);
     }
@@ -846,13 +851,13 @@ export function PortalAiReceptionistClient() {
 
       const json = (await res?.json?.().catch(() => null)) as any;
       if (!res?.ok || !json || json.ok !== true) {
-        throw new Error(String(json?.error || "File upload failed"));
+        throw new Error(String(json?.error || "That file did not upload. Try again here or review the knowledge base settings."));
       }
 
       toast.success("File added to knowledge base");
       await load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "File upload failed");
+      toast.error(e instanceof Error ? e.message : "That file did not upload. Try again here or review the knowledge base settings.");
     } finally {
       setSmsKnowledgeBaseUploadBusy(false);
     }
@@ -1024,7 +1029,7 @@ export function PortalAiReceptionistClient() {
 
         const json = (await res?.json?.().catch(() => null)) as any;
         if (!res || !res.ok || !json || json.ok !== true) {
-          throw new Error(json?.error || "Unable to refresh call artifacts");
+          throw new Error(json?.error || "Those call artifacts did not refresh. Try again here or review this call again in a moment.");
         }
 
         toast.success("Refreshing… transcript may take a minute");
@@ -1032,7 +1037,7 @@ export function PortalAiReceptionistClient() {
           await load();
         }
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Unable to refresh call artifacts");
+        toast.error(e instanceof Error ? e.message : "Those call artifacts did not refresh. Try again here or review this call again in a moment.");
       } finally {
         setCallSyncBusy(false);
       }
@@ -1058,7 +1063,7 @@ export function PortalAiReceptionistClient() {
 
         const json = (await res?.json?.().catch(() => null)) as any;
         if (!res || !res.ok || !json || json.ok !== true) {
-          throw new Error(json?.error || "Unable to delete call");
+          throw new Error(json?.error || "That call did not delete. Try again here or close this prompt and try again.");
         }
 
         toast.success("Deleted call");
@@ -1066,7 +1071,7 @@ export function PortalAiReceptionistClient() {
           await load();
         }
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Unable to delete call");
+        toast.error(e instanceof Error ? e.message : "That call did not delete. Try again here or close this prompt and try again.");
       } finally {
         setCallSyncBusy(false);
       }
@@ -1265,7 +1270,34 @@ export function PortalAiReceptionistClient() {
                     ? `/api/portal/ai-receptionist/recordings/demo/${encodeURIComponent(call.demoRecordingId)}`
                     : "";
             if (!src) {
-              return <div className="mt-2 text-sm text-zinc-600">No recording available for this call.</div>;
+              return (
+                <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  <div className="font-semibold text-zinc-900">No recording available</div>
+                  <div className="mt-1">This call does not have a recording attached yet. If it just finished, refresh activity or review the phone setup before testing again.</div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void loadEventsOnly()}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      Refresh calls
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTabWithUrl("settings")}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      Open settings
+                    </button>
+                    <Link
+                      href={`${portalBase}/app/ai-chat?onboarding=1`}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      Ask Pura
+                    </Link>
+                  </div>
+                </div>
+              );
             }
             return <MiniAudioPlayer src={src} durationHintSec={call.recordingDurationSec ?? null} />;
           })()}
@@ -1278,7 +1310,26 @@ export function PortalAiReceptionistClient() {
               <div className="whitespace-pre-wrap text-sm text-zinc-800">{call.transcript}</div>
             </div>
           ) : (
-            <div className="mt-2 text-sm text-zinc-600">No transcript yet. It can take a minute to show up after the call ends.</div>
+            <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+              <div className="font-semibold text-zinc-900">No transcript yet</div>
+              <div className="mt-1">It can take a minute to appear after the call ends. If this was a fresh call, refresh the call list or review the voice settings if it never shows up.</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadEventsOnly()}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Refresh calls
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTabWithUrl("settings")}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open settings
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </>
@@ -1522,6 +1573,54 @@ export function PortalAiReceptionistClient() {
         ) : null}
 
         {!showInitialShell && note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
+
+        {!showInitialShell && error ? (
+          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+            <div className="font-semibold">AI Receptionist needs attention</div>
+            <div className="mt-1 text-red-800">{error}</div>
+            <div className="mt-1 text-red-800/80">Retry here, then review AI Receptionist access if your phone workflow still looks incomplete.</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Retry
+              </button>
+              {entitlementBlocked ? (
+                <>
+                  <Link
+                    href={aiReceptionistEnableHref}
+                    className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                  >
+                    Enable AI Receptionist
+                  </Link>
+                  <Link
+                    href={`${portalBase}/app/ai-chat?onboarding=1`}
+                    className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                  >
+                    Ask Pura
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href={`${portalBase}/app/services`}
+                    className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                  >
+                    Open services
+                  </Link>
+                  <Link
+                    href={`${portalBase}/app/ai-chat?onboarding=1`}
+                    className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                  >
+                    Ask Pura
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {!showInitialShell && !twilioConfigured ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -2106,7 +2205,33 @@ export function PortalAiReceptionistClient() {
                   {(() => {
                     const kb = settings?.voiceKnowledgeBase;
                     const count = kb && Array.isArray(kb.locators) ? kb.locators.length : 0;
-                    if (!kb) return "No knowledge base configured yet.";
+                    if (!kb) {
+                      return (
+                        <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">No knowledge base configured yet</div>
+                          <div className="mt-1">Add notes above, upload a document, or sync once the first business context is ready so the voice agent has something real to use.</div>
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                            <button
+                              type="button"
+                              disabled={saving || savingEnabled || !settings || voiceKnowledgeBaseSyncBusy}
+                              onClick={() => void syncVoiceKnowledgeBase()}
+                              className={classNames(
+                                "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold transition-colors duration-150",
+                                saving || savingEnabled || !settings || voiceKnowledgeBaseSyncBusy ? "bg-zinc-200 text-zinc-600" : "bg-zinc-900 text-white hover:bg-zinc-800",
+                              )}
+                            >
+                              {voiceKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Ask Pura for help
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
                       <div>
                         <div>Attached docs: {count || 0}</div>
@@ -2448,7 +2573,33 @@ export function PortalAiReceptionistClient() {
                       {(() => {
                         const kb = settings?.smsKnowledgeBase;
                         const count = kb && Array.isArray(kb.locators) ? kb.locators.length : 0;
-                        if (!kb) return "No knowledge base configured yet.";
+                        if (!kb) {
+                          return (
+                            <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                              <div className="font-semibold text-zinc-900">No knowledge base configured yet</div>
+                              <div className="mt-1">Add notes above, upload a file, or sync once the SMS agent has enough business context to answer confidently.</div>
+                              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                                <button
+                                  type="button"
+                                  disabled={saving || savingEnabled || !settings || smsKnowledgeBaseSyncBusy}
+                                  onClick={() => void syncSmsKnowledgeBase()}
+                                  className={classNames(
+                                    "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold transition-colors duration-150",
+                                    saving || savingEnabled || !settings || smsKnowledgeBaseSyncBusy ? "bg-zinc-200 text-zinc-600" : "bg-zinc-900 text-white hover:bg-zinc-800",
+                                  )}
+                                >
+                                  {smsKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
+                                </button>
+                                <Link
+                                  href={`${portalBase}/app/ai-chat?onboarding=1`}
+                                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  Ask Pura for help
+                                </Link>
+                              </div>
+                            </div>
+                          );
+                        }
                         return (
                           <div>
                             <div>Attached docs: {count || 0}</div>
@@ -2513,7 +2664,10 @@ export function PortalAiReceptionistClient() {
                             );
                           })
                         ) : (
-                          <div className="text-xs text-zinc-500">No tag rules here means replies go to everyone.</div>
+                          <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+                            <div className="font-semibold text-zinc-900">No reply tags selected</div>
+                            <div className="mt-1">Replies currently go to everyone. Add include tags if SMS responses should stay limited to a narrower audience.</div>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -2703,7 +2857,7 @@ export function PortalAiReceptionistClient() {
 
                       const json = (await res?.json?.().catch(() => null)) as any;
                       if (!res || !res.ok || !json || json.ok !== true) {
-                        throw new Error(json?.error || "Unable to preview reply");
+                        throw new Error(json?.error || "That reply preview did not load. Try again here or keep editing the test message.");
                       }
 
                       setSmsTestWouldReply(Boolean(json.wouldReply));
@@ -2713,7 +2867,7 @@ export function PortalAiReceptionistClient() {
                       if (abortController.signal.aborted) {
                         return;
                       }
-                      toast.error(e instanceof Error ? e.message : "Unable to preview reply");
+                      toast.error(e instanceof Error ? e.message : "That reply preview did not load. Try again here or keep editing the test message.");
                     } finally {
                       if (smsTestAbortRef.current === abortController) {
                         smsTestAbortRef.current = null;
@@ -2846,7 +3000,30 @@ export function PortalAiReceptionistClient() {
 
           {!selectedCall ? (
             <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              No calls yet.
+              <div className="font-semibold text-zinc-900">No calls yet</div>
+              <div className="mt-1">Once the receptionist is connected and a caller reaches the number, call logs and transcripts will show here.</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTabWithUrl("testing")}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Open testing
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTabWithUrl("settings")}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open settings
+                </button>
+                <Link
+                  href={`${portalBase}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Ask Pura
+                </Link>
+              </div>
             </div>
           ) : (
             <div className={isMobileApp ? "mt-4" : "mt-0"}>
@@ -2884,7 +3061,7 @@ export function PortalAiReceptionistClient() {
 
             const json = (await res?.json().catch(() => null)) as any;
             if (!res?.ok || !json?.ok || !json?.tag?.id) {
-              throw new Error(String(json?.error || "Failed to create tag."));
+              throw new Error(String(json?.error || "That tag did not save. Try again here or keep using the current tag filters."));
             }
             return json.tag as CreateContactTagResult;
           }}

@@ -226,11 +226,11 @@ function getCreateSpeechRecognitionCtor(source: Window & typeof globalThis): Cre
 
 function friendlyCreateSpeechError(event: CreateSpeechRecognitionErrorEventLike) {
   const code = String(event.error || "").trim().toLowerCase();
-  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied.";
-  if (code === "no-speech") return "No speech was detected. Try again and speak a little closer to the mic.";
-  if (code === "audio-capture") return "This browser could not access a working microphone.";
-  if (code === "network") return "Speech recognition hit a network issue. Try again.";
-  return "Speech recognition stopped unexpectedly.";
+  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied. Allow access and retry here, or keep typing.";
+  if (code === "no-speech") return "No speech was detected. Retry here and speak a little closer to the mic, or keep typing.";
+  if (code === "audio-capture") return "This browser could not access a working microphone. Retry here or keep typing.";
+  if (code === "network") return "Speech recognition hit a network issue. Retry here or keep typing.";
+  return "Speech recognition stopped unexpectedly. Retry here or keep typing.";
 }
 
 function parseFunnelCreateDraft(raw: unknown): FunnelCreateDraft | null {
@@ -341,18 +341,27 @@ function normalizeFunnelBuilderError(action: string, error: unknown, status?: nu
   if (normalized.includes("invalid domain")) return "Enter a valid domain before saving.";
   if (normalized.includes("verification failed")) return "We could not verify that domain yet. Check the DNS records and try again.";
   if (normalized.includes("stripe is not connected")) return "Connect Stripe before using product-linked funnel actions.";
-  if (normalized.includes("failed to load")) return `We couldn't ${action} right now. Refresh and try again.`;
+  if (action.includes("load builder settings")) {
+    return "Builder settings did not load. Retry this tab, open integrations, or ask Pura for help.";
+  }
+  if (action.includes("save builder settings")) {
+    return "Builder settings did not save. Retry here or open integrations if the source account still needs attention.";
+  }
+  if (action.includes("save funnel draft")) {
+    return "Your funnel draft did not save. Keep editing here, then save it again from the builder.";
+  }
+  if (normalized.includes("failed to load")) return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish loading. Retry here or reopen the builder.`;
   if (normalized.includes("failed to save") || normalized.includes("failed to update") || normalized.includes("failed to delete")) {
-    return `We couldn't ${action} right now. Please try again.`;
+    return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
   }
   if (normalized.includes("create failed") || normalized.includes("failed to create")) {
-    return `We couldn't ${action} right now. Please try again.`;
+    return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
   }
   if (normalized.includes("enter a valid slug")) return "Use letters, numbers, and dashes for the path.";
   if (normalized.includes("enter the service, offer, or funnel concept first")) {
     return "Describe the offer or service first so the builder can create the funnel.";
   }
-  if (!message) return `We couldn't ${action} right now. Please try again.`;
+  if (!message) return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
   return message;
 }
 
@@ -803,7 +812,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       createIntakeRecognitionRef.current = null;
       setCreateIntakeDictatingFieldKey(null);
       createIntakeDictationFieldKeyRef.current = null;
-      setCreateIntakeDictationError("Speech-to-text could not start in this browser session.");
+      setCreateIntakeDictationError("Speech-to-text did not start in this browser session. Retry here or keep typing.");
     }
   }, [createIntakeDictatingFieldKey, stopCreateIntakeDictation, updateCreateIntakeFieldValue]);
 
@@ -935,7 +944,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     try {
       const res = await fetch("/api/portal/funnel-builder/settings", { cache: "no-store" });
       const json = await readFunnelBuilderJson<any>(res, "load builder settings");
-      if (!json.settings) throw new Error("We couldn't load builder settings right now. Refresh and try again.");
+      if (!json.settings) {
+        throw new Error("Builder settings did not load. Retry this tab, open integrations, or ask Pura for help.");
+      }
 
       const nextSettings: FunnelBuilderSettings = {
         metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
@@ -971,7 +982,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         body: JSON.stringify({ metaPixelId: metaPixelIdInput }),
       });
       const json = await readFunnelBuilderJson<any>(res, "save builder settings");
-      if (!json.settings) throw new Error("We couldn't save builder settings right now. Please try again.");
+      if (!json.settings) {
+        throw new Error("Builder settings did not save. Retry here or open integrations if the source account still needs attention.");
+      }
 
       const nextSettings: FunnelBuilderSettings = {
         metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
@@ -998,7 +1011,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         body: JSON.stringify({ createFunnelDraft: draft }),
       });
       const json = await readFunnelBuilderJson<any>(res, "save funnel draft");
-      if (!json.settings) throw new Error("We couldn't save the funnel draft right now.");
+      if (!json.settings) {
+        throw new Error("Your funnel draft did not save. Keep editing here, then save it again from the builder.");
+      }
 
       const nextSettings: FunnelBuilderSettings = {
         metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
@@ -1985,7 +2000,55 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             />
           </label>
 
-          {formSettingsError ? <div className="text-sm font-semibold text-red-700">{formSettingsError}</div> : null}
+          {formSettingsError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div className="font-semibold text-red-900">Form settings need attention</div>
+              <div className="mt-1">{formSettingsError}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current = formSettingsDialog;
+                    if (!current) return;
+                    const normalized = normalizeSlug(current.slug);
+                    if (!normalized) {
+                      setFormSettingsError("Slug is required.");
+                      return;
+                    }
+                    const base = (forms || []).find((item) => item.id === current.id);
+                    if (!base) {
+                      setFormSettingsDialog(null);
+                      return;
+                    }
+                    void (async () => {
+                      const ok = await patchForm(base, { slug: normalized, status: current.status });
+                      if (ok) {
+                        setFormSettingsDialog(null);
+                        setFormSettingsError(null);
+                        toast.success("Form updated.");
+                      }
+                    })();
+                  }}
+                  className="rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Try save again
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormSettingsError(null)}
+                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Keep editing
+                </button>
+                <Link
+                  href={`${basePath}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
+          ) : null}
         </div>
       </AppModal>
 
@@ -2073,19 +2136,30 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       >
                         Open live
                       </Link>
+                    ) : f.status !== "ACTIVE" ? (
+                      <button
+                        type="button"
+                        disabled={!!funnelStatusBusy[f.id]}
+                        onClick={() => void patchFunnelStatus(f, "ACTIVE")}
+                        className={classNames(
+                          "pa-funnel-builder-live-disabled inline-flex items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100",
+                          funnelStatusBusy[f.id] ? "opacity-60" : "",
+                        )}
+                      >
+                        {funnelStatusBusy[f.id] ? "Updating..." : "Set live"}
+                      </button>
                     ) : (
-                      <span
-                        className="pa-funnel-builder-live-disabled inline-flex items-center rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-500"
+                      <Link
+                        href="#funnel-builder-domains"
+                        className="pa-funnel-builder-live-disabled inline-flex items-center rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
                         title={
-                          f.status !== "ACTIVE"
-                            ? "Set this funnel to Live to enable the public link."
-                            : assignedDomainClean
-                              ? "This domain is pending DNS verification. Verify DNS to enable the live link."
-                              : "Live link is currently unavailable."
+                          assignedDomainClean
+                            ? "This domain is pending DNS verification. Open domains to finish DNS and verification."
+                            : "Assign or verify a domain to enable the live link."
                         }
                       >
-                        Live unavailable
-                      </span>
+                        Open domains
+                      </Link>
                     )}
                   </div>
 
@@ -2219,20 +2293,35 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                   <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
                                   <span className={builderActionMenuTitleClass}>Open live</span>
                                 </Link>
+                              ) : f.status !== "ACTIVE" ? (
+                                <button
+                                  type="button"
+                                  disabled={!!funnelStatusBusy[f.id]}
+                                  onClick={() => {
+                                    void (async () => {
+                                      const ok = await patchFunnelStatus(f, "ACTIVE");
+                                      if (ok) setOpenFunnelMenuId(null);
+                                    })();
+                                  }}
+                                  className={classNames(builderActionMenuItemClass, builderActionMenuSuccessClass, funnelStatusBusy[f.id] ? "opacity-60" : "")}
+                                >
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                  <span className={builderActionMenuTitleClass}>{funnelStatusBusy[f.id] ? "Setting live..." : "Set live"}</span>
+                                </button>
                               ) : (
-                                <div
-                                  className={classNames(builderActionMenuItemClass, builderActionMenuMutedClass)}
+                                <Link
+                                  href="#funnel-builder-domains"
+                                  className={builderActionMenuItemClass}
+                                  onClick={() => setOpenFunnelMenuId(null)}
                                   title={
-                                    f.status !== "ACTIVE"
-                                      ? "Set this funnel to Live to enable the live link."
-                                      : assignedDomainClean
-                                        ? "This domain is pending DNS verification. Verify DNS to enable the Live link."
-                                        : "Live link is currently unavailable."
+                                    assignedDomainClean
+                                      ? "This domain is pending DNS verification. Open domains to finish DNS and verification."
+                                      : "Assign or verify a domain to enable the live link."
                                   }
                                 >
-                                    <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
-                                    <span className={builderActionMenuTitleClass}>Open live</span>
-                                </div>
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                  <span className={builderActionMenuTitleClass}>Open domains</span>
+                                </Link>
                               )}
 
                                 <div className={builderActionMenuSeparatorClass} />
@@ -2298,7 +2387,25 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           {funnels === null ? (
             <div className="mt-6 text-sm text-zinc-600">Loading funnels…</div>
           ) : funnels.length === 0 ? (
-            <div className="mt-6 text-sm text-zinc-600">No funnels yet. Create the first funnel to start from a guided structure instead of a blank page.</div>
+            <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-600">
+              <div className="font-semibold text-zinc-900">No funnels yet</div>
+              <div className="mt-1">Create the first funnel to start from a guided structure instead of a blank page.</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openCreate("funnel")}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-150 hover:opacity-95"
+                >
+                  Create funnel
+                </button>
+                <Link
+                  href={`${basePath}/tutorials/funnel-builder`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                >
+                  Open walkthrough
+                </Link>
+              </div>
+            </div>
           ) : null}
         </section>
       ) : null}
@@ -2410,13 +2517,24 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 <span className={builderActionMenuTitleClass}>Open live</span>
                               </Link>
                             ) : (
-                              <div
-                                className={classNames(builderActionMenuItemClass, builderActionMenuMutedClass)}
-                                title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Set this form to Live to enable the public hosted link."}
+                              <button
+                                type="button"
+                                disabled={!!formSaveBusy[f.id]}
+                                onClick={() => {
+                                  setFormSettingsError(null);
+                                  setFormSettingsDialog({ id: f.id, name: f.name, slug: f.slug, status: f.status });
+                                  setOpenFormMenuId(null);
+                                }}
+                                className={classNames(
+                                  builderActionMenuItemClass,
+                                  f.status === "ARCHIVED" ? "" : builderActionMenuSuccessClass,
+                                  formSaveBusy[f.id] ? "opacity-60" : "",
+                                )}
+                                title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Open route and status to make this form live."}
                               >
                                 <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
-                                <span className={builderActionMenuTitleClass}>Open live</span>
-                              </div>
+                                <span className={builderActionMenuTitleClass}>{f.status === "ARCHIVED" ? "Open route & status" : "Set live"}</span>
+                              </button>
                             )}
 
                             <div className={builderActionMenuSeparatorClass} />
@@ -2469,7 +2587,25 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           {forms === null ? (
             <div className="mt-6 text-sm text-zinc-600">Loading forms…</div>
           ) : forms.length === 0 ? (
-            <div className="mt-6 text-sm text-zinc-600">No forms yet. Click the plus card to create one.</div>
+            <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-600">
+              <div className="font-semibold text-zinc-900">No forms yet</div>
+              <div className="mt-1">Create a form to capture leads, surveys, or intake details on a hosted route.</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openCreate("form")}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-150 hover:opacity-95"
+                >
+                  Create form
+                </button>
+                <Link
+                  href={`${basePath}/tutorials/funnel-builder`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                >
+                  Open walkthrough
+                </Link>
+              </div>
+            </div>
           ) : null}
         </section>
       ) : null}
@@ -2546,14 +2682,31 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 Leave this blank to disable Meta pixel emission across hosted funnel pages. Only numeric pixel IDs are accepted.
               </div>
 
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs text-zinc-500">
-                  {builderSettingsBusy
-                    ? "Loading current tracking settings…"
-                    : normalizedMetaPixelIdInput
-                      ? `Current default pixel: ${normalizedMetaPixelIdInput}`
-                      : "No default Meta pixel is configured."}
-                </div>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {builderSettingsBusy ? (
+                  <div className="text-xs text-zinc-500">Loading current tracking settings…</div>
+                ) : normalizedMetaPixelIdInput ? (
+                  <div className="text-xs text-zinc-500">Current default pixel: {normalizedMetaPixelIdInput}</div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No default Meta pixel is configured yet</div>
+                    <div className="mt-1">Add a numeric pixel ID here, open integrations if the source account still needs to be connected, or ask Pura to walk you through the setup.</div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`${basePath}/app/settings/integrations`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                      >
+                        Open integrations
+                      </Link>
+                      <Link
+                        href={`${basePath}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                      >
+                        Ask Pura for help
+                      </Link>
+                    </div>
+                  </div>
+                )}
                 <button
                   type="button"
                   disabled={builderSettingsBusy || builderSettingsSaveBusy || !metaPixelDirty}
@@ -2571,7 +2724,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             </div>
           </div>
 
-          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div id="funnel-builder-domains" className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6 scroll-mt-24">
             <div className="text-base font-semibold text-brand-ink">Custom domains</div>
             <p className="mt-1 text-sm text-zinc-600">
               Save the domain you want to use for funnels/forms. DNS verification + automatic provisioning is the next step.
@@ -2601,7 +2754,24 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               {domains === null ? (
                 <div className="text-sm text-zinc-600">Loading domains…</div>
               ) : domains.length === 0 ? (
-                <div className="text-sm text-zinc-600">No domains saved yet.</div>
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No domains saved yet</div>
+                    <div className="mt-1">Save a custom domain here when you want funnels and forms to publish on your own brand instead of the default hosted route.</div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`${basePath}/tutorials/funnel-builder`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                      >
+                        Domain walkthrough
+                      </Link>
+                      <Link
+                        href={`${basePath}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                      >
+                        Ask Pura for help
+                      </Link>
+                    </div>
+                  </div>
               ) : (
                 <div className="space-y-2">
                   {domains.map((d) => (
@@ -3202,7 +3372,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               onClick={() => startCreateIntakeDictation("companyContext", createFunnelCompanyContext)}
                               disabled={!createIntakeDictationSupported && createIntakeDictatingFieldKey !== "companyContext"}
                               className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
-                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "companyContext" ? "Stop dictation" : "Use the mic for business context") : "Speech-to-text is not available in this browser"}
+                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "companyContext" ? "Stop dictation" : "Use the mic for business context") : "Speech-to-text is not available in this browser. Try Chrome or Safari."}
                             >
                               {createIntakeDictatingFieldKey === "companyContext" ? "Stop mic" : "Use mic"}
                             </button>
@@ -3273,7 +3443,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               onClick={() => startCreateIntakeDictation("qualificationFields", createFunnelQualificationFields)}
                               disabled={!createIntakeDictationSupported && createIntakeDictatingFieldKey !== "qualificationFields"}
                               className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
-                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "qualificationFields" ? "Stop dictation" : "Use the mic for qualification notes") : "Speech-to-text is not available in this browser"}
+                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "qualificationFields" ? "Stop dictation" : "Use the mic for qualification notes") : "Speech-to-text is not available in this browser. Try Chrome or Safari."}
                             >
                               {createIntakeDictatingFieldKey === "qualificationFields" ? "Stop mic" : "Use mic"}
                             </button>

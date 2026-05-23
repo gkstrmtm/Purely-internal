@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { usePortalPeopleSidebar } from "@/app/portal/app/people/PortalPeopleSidebarNav";
@@ -38,8 +40,10 @@ async function readJsonBody(res: Response): Promise<any | null> {
 }
 
 export function PortalPeopleContactDuplicatesClient() {
+  const pathname = usePathname();
   const toast = useToast();
   usePortalPeopleSidebar();
+  const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -56,11 +60,11 @@ export function PortalPeopleContactDuplicatesClient() {
     try {
       const res = await fetch("/api/portal/people/contacts/duplicates?limit=200", { cache: "no-store" });
       const body = await readJsonBody(res);
-      if (!res.ok || !body?.ok) throw new Error(body?.error || "Failed to load duplicates");
+      if (!res.ok || !body?.ok) throw new Error(body?.error || "Duplicate groups did not load. Retry here, open People, or ask Pura to help.");
       setGroups(Array.isArray(body.groups) ? body.groups : []);
       setLastLoadedAt(Date.now());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e ?? "Unknown error"));
+      setError(e instanceof Error ? e.message : "Duplicate groups did not load. Retry here, open People, or ask Pura to help.");
     } finally {
       setLoading(false);
     }
@@ -175,9 +179,56 @@ export function PortalPeopleContactDuplicatesClient() {
         </div>
 
         {loading ? <div className="mt-4 text-sm text-zinc-600">Loading…</div> : null}
-        {error ? <div className="mt-4 text-sm text-red-600">{error}</div> : null}
+        {error ? (
+          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <div className="font-semibold text-red-900">Duplicate cleanup needs attention</div>
+            <div className="mt-1">{error}</div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void load();
+                }}
+                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Retry
+              </button>
+              <Link
+                href={`${appBase}/people?view=contacts`}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Open People
+              </Link>
+              <Link
+                href={`${appBase}/ai-chat?onboarding=1`}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Ask Pura
+              </Link>
+            </div>
+          </div>
+        ) : null}
 
-        {!loading && !groups.length ? <div className="mt-4 text-sm text-zinc-600">No duplicates found.</div> : null}
+        {!loading && !groups.length ? (
+          <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+            <div className="font-semibold text-zinc-900">No duplicates found</div>
+            <div className="mt-1">Your contact list is already clean. Head back to People to keep adding or importing contacts without merge cleanup.</div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Link
+                href={`${appBase}/people?view=contacts`}
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              >
+                Open People
+              </Link>
+              <Link
+                href={`${appBase}/ai-chat?onboarding=1`}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Ask Pura for help
+              </Link>
+            </div>
+          </div>
+        ) : null}
 
         {groups.length ? (
           <div className="mt-4 space-y-4">
@@ -239,7 +290,10 @@ export function PortalPeopleContactDuplicatesClient() {
                     <div className="rounded-2xl border border-zinc-200 p-3">
                       <div className="text-xs font-semibold text-zinc-700">Primary email</div>
                       {!g.needsEmailChoice ? (
-                        <div className="mt-2 text-sm text-zinc-600">No conflicts detected.</div>
+                        <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">No conflicts detected</div>
+                          <div className="mt-1">These duplicates already agree on the email address, so you can merge the group without choosing a winner here.</div>
+                        </div>
                       ) : (
                         <div className="mt-2 space-y-2">
                           {emailChoices.map((email) => (
@@ -254,7 +308,10 @@ export function PortalPeopleContactDuplicatesClient() {
                             </label>
                           ))}
                           {!emailChoices.length ? (
-                            <div className="text-sm text-zinc-600">No valid emails found in this group.</div>
+                            <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+                              <div className="font-semibold text-zinc-900">No valid emails found in this group</div>
+                              <div className="mt-1">Merge the contacts if the phone number is enough to identify the person, or go back to People to fix the source records first.</div>
+                            </div>
                           ) : null}
                         </div>
                       )}

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { createPortal } from "react-dom";
 import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -83,9 +84,10 @@ function inferFolderAccent(color?: string | null, tag?: string | null, name?: st
   return "default";
 }
 
-function itemPreviewKind(item: Item): "image" | "video" | "file" {
+function itemPreviewKind(item: Item): "image" | "video" | "audio" | "file" {
   if (item.mimeType.startsWith("image/")) return "image";
   if (item.mimeType.startsWith("video/")) return "video";
+  if (item.mimeType.startsWith("audio/")) return "audio";
   return "file";
 }
 
@@ -143,6 +145,7 @@ export function PortalMediaLibraryClient() {
     if (typeof window === "undefined") return "portal" as const;
     return portalVariantFromPathname(window.location.pathname);
   }, []);
+  const appBase = portalVariant === "credit" ? "/credit/app" : "/portal/app";
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
@@ -240,7 +243,7 @@ export function PortalMediaLibraryClient() {
       const json = (await res.json().catch(() => null)) as ListRes | null;
 
       if (!res.ok || !json || json.ok !== true) {
-        setError(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load media library");
+        setError(typeof (json as any)?.error === "string" ? (json as any).error : "Media library did not load. Retry here or ask Pura to help.");
         return;
       }
 
@@ -322,7 +325,7 @@ export function PortalMediaLibraryClient() {
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json?.ok) {
       setCreatingFolder(false);
-      setError(typeof json?.error === "string" ? json.error : "Could not create folder");
+      setError(typeof json?.error === "string" ? json.error : "That folder did not save. Try again here.");
       return;
     }
 
@@ -355,7 +358,7 @@ export function PortalMediaLibraryClient() {
               headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
             });
           } catch (err) {
-            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+            const msg = (err as any)?.message ? String((err as any).message) : "Those files did not upload. Retry here or review this folder again.";
             throw new Error(msg);
           }
 
@@ -372,7 +375,7 @@ export function PortalMediaLibraryClient() {
           });
           const finalizeJson = (await finalizeRes.json().catch(() => null)) as any;
           if (!finalizeRes.ok || !finalizeJson || finalizeJson.ok !== true) {
-            throw new Error(typeof finalizeJson?.error === "string" ? finalizeJson.error : "Upload failed");
+            throw new Error(typeof finalizeJson?.error === "string" ? finalizeJson.error : "Those files did not upload. Retry here or review this folder again.");
           }
         }
 
@@ -394,7 +397,7 @@ export function PortalMediaLibraryClient() {
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) {
         setUploading(false);
-        setError(typeof json?.error === "string" ? json.error : "Upload failed");
+        setError(typeof json?.error === "string" ? json.error : "Those files did not upload. Retry here or review this folder again.");
         return;
       }
 
@@ -402,7 +405,7 @@ export function PortalMediaLibraryClient() {
       await load(folderId);
     } catch {
       setUploading(false);
-      setError("Upload failed. Please try again.");
+      setError("Those files did not upload. Retry here or review this folder again.");
     }
   }
 
@@ -458,7 +461,7 @@ export function PortalMediaLibraryClient() {
     });
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || (json && json.ok === false)) {
-      setError(typeof json?.error === "string" ? json.error : "Could not update folder color");
+      setError(typeof json?.error === "string" ? json.error : "That folder color did not update. Retry here or reopen the folder menu.");
       return;
     }
     await load(folderId);
@@ -505,7 +508,7 @@ export function PortalMediaLibraryClient() {
     const res = await fetch(`/api/portal/media/items/${id}`, { method: "DELETE", headers: variantHeaders });
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json?.ok) {
-      setError(typeof json?.error === "string" ? json.error : "Delete failed");
+      setError(typeof json?.error === "string" ? json.error : "That item did not delete. Retry here or reopen the item menu.");
       return;
     }
 
@@ -524,7 +527,7 @@ export function PortalMediaLibraryClient() {
     const json = (await res.json().catch(() => null)) as AllFoldersRes | null;
     if (!res.ok || !json || json.ok !== true) {
       setFoldersLoading(false);
-      setError(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load folders");
+      setError(typeof (json as any)?.error === "string" ? (json as any).error : "Folders did not load. Retry here or close this dialog and try again.");
       return;
     }
     setAllFolders((json.folders || []).map((f) => ({ id: f.id, parentId: f.parentId, name: f.name })));
@@ -548,7 +551,7 @@ export function PortalMediaLibraryClient() {
     });
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || (json && json.ok === false)) {
-      throw new Error(typeof json?.error === "string" ? json.error : "Rename failed");
+      throw new Error(typeof json?.error === "string" ? json.error : "That item did not rename. Retry here or close this dialog and try again.");
     }
   }
 
@@ -587,7 +590,7 @@ export function PortalMediaLibraryClient() {
       await load(folderId);
     } catch (err) {
       setMoveWorking(false);
-      setError((err as Error)?.message || "Rename failed");
+      setError((err as Error)?.message || "That item did not rename. Retry here or close this dialog and try again.");
     }
   }
 
@@ -610,7 +613,7 @@ export function PortalMediaLibraryClient() {
       await load(folderId);
     } catch (err) {
       setMoveWorking(false);
-      setError((err as Error)?.message || "Rename failed");
+      setError((err as Error)?.message || "That item did not rename. Retry here or close this dialog and try again.");
     }
   }
 
@@ -664,7 +667,7 @@ export function PortalMediaLibraryClient() {
           });
           const json = (await res.json().catch(() => null)) as any;
           if (!res.ok || (json && json.ok === false)) {
-            throw new Error(typeof json?.error === "string" ? json.error : "Move failed");
+            throw new Error(typeof json?.error === "string" ? json.error : "That item did not move. Retry here or choose a different folder.");
           }
         }),
       );
@@ -675,7 +678,7 @@ export function PortalMediaLibraryClient() {
       await load(folderId);
     } catch (err) {
       setMoveWorking(false);
-      setError((err as Error)?.message || "Move failed");
+      setError((err as Error)?.message || "That item did not move. Retry here or choose a different folder.");
     }
   }
 
@@ -694,7 +697,7 @@ export function PortalMediaLibraryClient() {
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json?.ok) {
       setMoveWorking(false);
-      setError(typeof json?.error === "string" ? json.error : "Could not create folder");
+      setError(typeof json?.error === "string" ? json.error : "That folder did not save. Retry here or choose a different destination.");
       return;
     }
 
@@ -878,6 +881,39 @@ export function PortalMediaLibraryClient() {
         </div>
       ) : null}
 
+      {error ? (
+        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Media library needs attention</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void load(folderId);
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            {folderId ? (
+              <button
+                type="button"
+                onClick={() => setFolderId(null)}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Open all media
+              </button>
+            ) : null}
+            <Link
+              href={`${appBase}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <div className="-mx-4 mt-4 sm:-mx-6 lg:-mx-8">
         <div className="overflow-hidden border-y border-zinc-200 bg-white">
           <div className="border-b border-zinc-100 p-4">
@@ -943,8 +979,28 @@ export function PortalMediaLibraryClient() {
             {loading ? (
               <div className="text-sm text-zinc-600">Loading…</div>
             ) : filteredFolders.length === 0 && filteredItems.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
-                No media yet. Create a folder or upload a file.
+              <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
+                <div className="font-semibold text-zinc-900">No media yet</div>
+                <div className="mt-2 max-w-2xl leading-6">Upload your first file or create a folder so campaigns, blogs, and messages have assets ready to pull from one place.</div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => uploadRef.current?.click()}
+                    disabled={uploading}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    <IconUpload size={16} className="text-white" />
+                    {uploading ? "Uploading…" : "Upload file"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewFolderOpen(true)}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    <FolderGlyph className="text-zinc-600" />
+                    Create folder
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
@@ -1461,9 +1517,40 @@ export function PortalMediaLibraryClient() {
                       preload="metadata"
                     />
                   </div>
+                ) : itemPreviewKind(previewItem) === "audio" && (previewItem.previewUrl || previewItem.openUrl) ? (
+                  <div className="mt-4 rounded-[28px] border border-white/35 bg-white/70 p-6">
+                    <div className="text-sm font-semibold text-zinc-900">Audio preview</div>
+                    <div className="mt-1 text-sm text-zinc-600">Listen here, or open the original file in a new tab if you need the raw asset.</div>
+                    <audio
+                      src={previewItem.previewUrl || previewItem.openUrl}
+                      className="mt-4 w-full"
+                      controls
+                      preload="metadata"
+                    />
+                  </div>
                 ) : (
-                  <div className="mt-4 rounded-[28px] border border-dashed border-white/35 bg-white/55 p-6 text-sm text-zinc-700">
-                    Preview not available for this file type.
+                  <div className="mt-4 rounded-[28px] border border-dashed border-white/35 bg-white/55 p-6">
+                    <div className="text-sm font-semibold text-zinc-900">No inline preview for this file type</div>
+                    <div className="mt-1 text-sm text-zinc-600">
+                      You can still open the original file in a new tab or download it directly from here.
+                    </div>
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                      <a
+                        href={previewItem.openUrl || previewItem.downloadUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center rounded-2xl bg-white/80 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+                      >
+                        Open original
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => triggerDownload(previewItem.downloadUrl, previewItem.fileName)}
+                        className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                      >
+                        Download file
+                      </button>
+                    </div>
                   </div>
                 )}
 

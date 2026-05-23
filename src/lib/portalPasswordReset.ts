@@ -10,6 +10,8 @@ import type { PortalVariant } from "@/lib/portalVariant";
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
+export type PortalPasswordResetChannel = "email" | "sms";
+
 function mustSecret() {
   const secret = (process.env.NEXTAUTH_SECRET || "").trim();
   if (!secret) throw new Error("Server misconfigured");
@@ -54,23 +56,45 @@ export async function getPortalUserPhoneE164(userId: string): Promise<string | n
   return parsed.ok ? parsed.e164 : null;
 }
 
+async function findPortalResetUser(emailRaw: string, variant?: PortalVariant) {
+  const email = safeOneLine(emailRaw).toLowerCase();
+  if (!email || !email.includes("@")) return null;
+
+  const expectedVariant = variant || "portal";
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !user.active) return null;
+
+  const uv = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
+  if (uv !== (expectedVariant === "credit" ? "CREDIT" : "PORTAL")) return null;
+  if (user.role !== "CLIENT" && user.role !== "ADMIN") return null;
+
+  return user;
+}
+
+export async function getPortalPasswordResetChannels(opts: {
+  email: string;
+  variant?: PortalVariant;
+}): Promise<{ ok: true; channels: PortalPasswordResetChannel[] } | { ok: false; reason: string }> {
+  const user = await findPortalResetUser(opts.email, opts.variant);
+  if (!user) return { ok: false, reason: "No account found for that email." };
+
+  const channels: PortalPasswordResetChannel[] = ["email"];
+  const phone = await getPortalUserPhoneE164(user.id).catch(() => null);
+  if (phone) channels.push("sms");
+  return { ok: true, channels };
+}
+
 export async function createAndSendPortalPasswordResetCode(opts: {
   email: string;
   variant?: PortalVariant;
+  channel?: PortalPasswordResetChannel;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const email = safeOneLine(opts.email).toLowerCase();
-  if (!email || !email.includes("@")) return { ok: true };
+  if (!email || !email.includes("@")) return { ok: false, reason: "Invalid request" };
 
-  const expectedVariant = opts.variant || "portal";
-
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.active) return { ok: true };
-
-  const uv = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
-  if (uv !== (expectedVariant === "credit" ? "CREDIT" : "PORTAL")) return { ok: true };
-
-  // Only portal-capable accounts
-  if (user.role !== "CLIENT" && user.role !== "ADMIN") return { ok: true };
+  const requestedChannel = opts.channel || "email";
+  const user = await findPortalResetUser(email, opts.variant);
+  if (!user) return { ok: false, reason: "No account found for that email." };
 
   await ensurePortalPasswordResetSchema();
 
@@ -123,47 +147,36 @@ export async function createAndSendPortalPasswordResetCode(opts: {
     "",
     "If you didn’t request this, you can ignore this message.",
   ].join("\n");
-
-  // Best-effort email
-  await trySendTransactionalEmail({
-    to: user.email,
-    subject,
-    text: body,
-    fromName: "Purely Automation",
-  }).catch(() => null);
-
-  // Best-effort SMS (only if phone configured)
   const phone = await getPortalUserPhoneE164(user.id).catch(() => null);
-  if (phone) {
+
+  if (requestedChannel === "sms") {
+    if (!phone) return { ok: false, reason: "This account does not have SMS reset enabled." };
     const smsBody = `Purely Automation code: ${code} (expires in 15 min)`;
     await sendTwilioEnvSms({ to: phone, body: smsBody, fromNumberEnvKeys: ["TWILIO_FROM_NUMBER"] }).catch(() => null);
+  } else {
+    await trySendTransactionalEmail({
+      to: user.email,
+      subject,
+      text: body,
+      fromName: "Purely Automation",
+    }).catch(() => null);
   }
 
   return { ok: true };
 }
 
-export async function resetPortalPasswordWithCode(opts: {
+async function validatePortalPasswordResetCode(opts: {
   email: string;
   code: string;
-  newPassword: string;
   variant?: PortalVariant;
-}): Promise<{ ok: true } | { ok: false; reason: string }> {
+}): Promise<{ ok: true; userId: string; rowId: string } | { ok: false; reason: string }> {
   const email = safeOneLine(opts.email).toLowerCase();
   const code = safeOneLine(opts.code);
-  const newPassword = String(opts.newPassword || "");
-
-  const expectedVariant = opts.variant || "portal";
-
   if (!email || !email.includes("@")) return { ok: false, reason: "Invalid request" };
   if (!code || code.length < 4 || code.length > 12) return { ok: false, reason: "Invalid code" };
-  if (newPassword.length < 8) return { ok: false, reason: "Password must be at least 8 characters" };
 
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.active) return { ok: false, reason: "Invalid code" };
-
-  const uv = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
-  if (uv !== (expectedVariant === "credit" ? "CREDIT" : "PORTAL")) return { ok: false, reason: "Invalid code" };
-  if (user.role !== "CLIENT" && user.role !== "ADMIN") return { ok: false, reason: "Invalid code" };
+  const user = await findPortalResetUser(email, opts.variant);
+  if (!user) return { ok: false, reason: "Invalid code" };
 
   await ensurePortalPasswordResetSchema();
 
@@ -206,11 +219,37 @@ LIMIT 1
     return { ok: false, reason: "Invalid code" };
   }
 
+  return { ok: true, userId: user.id, rowId: String(row.id) };
+}
+
+export async function verifyPortalPasswordResetCode(opts: {
+  email: string;
+  code: string;
+  variant?: PortalVariant;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const result = await validatePortalPasswordResetCode(opts);
+  return result.ok ? { ok: true } : result;
+}
+
+export async function resetPortalPasswordWithCode(opts: {
+  email: string;
+  code: string;
+  newPassword: string;
+  variant?: PortalVariant;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const email = safeOneLine(opts.email).toLowerCase();
+  const code = safeOneLine(opts.code);
+  const newPassword = String(opts.newPassword || "");
+  if (newPassword.length < 8) return { ok: false, reason: "Password must be at least 8 characters" };
+
+  const validation = await validatePortalPasswordResetCode({ email, code, variant: opts.variant });
+  if (!validation.ok) return validation;
+
   const passwordHash = await hashPassword(newPassword);
 
   await prisma.$transaction([
-    prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
-    prisma.$executeRawUnsafe(`UPDATE "PortalPasswordResetCode" SET "usedAt" = CURRENT_TIMESTAMP WHERE "id" = $1`, String(row.id)) as any,
+    prisma.user.update({ where: { id: validation.userId }, data: { passwordHash } }),
+    prisma.$executeRawUnsafe(`UPDATE "PortalPasswordResetCode" SET "usedAt" = CURRENT_TIMESTAMP WHERE "id" = $1`, validation.rowId) as any,
   ]);
 
   return { ok: true };

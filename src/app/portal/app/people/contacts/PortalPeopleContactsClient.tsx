@@ -466,6 +466,7 @@ export function PortalPeopleContactsClient() {
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [detail, setDetail] = useState<ContactDetailPayload["contact"] | null>(null);
   const [detailTags, setDetailTags] = useState<ContactTag[]>([]);
   const [tagBusyId, setTagBusyId] = useState<string | null>(null);
@@ -895,6 +896,7 @@ export function PortalPeopleContactsClient() {
     setSelectedContactId(contactId);
     setDetailOpen(true);
     setDetailLoading(true);
+    setDetailError(null);
     setDetail(null);
     setCreateTagOpen(false);
     setCreateTagName("");
@@ -907,7 +909,7 @@ export function PortalPeopleContactsClient() {
       const res = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, { cache: "no-store" });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) {
-        throw new Error(String(json?.error || "Failed to load contact"));
+        throw new Error(String(json?.error || "Contact details did not load. Retry here, go back to contacts, or ask Pura to help."));
       }
       const payload = json as ContactDetailPayload;
       setDetail(payload.contact);
@@ -924,7 +926,9 @@ export function PortalPeopleContactsClient() {
         customVariables: customVariablesFromRows(nextRows),
       });
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to load contact"));
+      const message = String(e?.message || "Contact details did not load. Retry here, go back to contacts, or ask Pura to help.");
+      setDetailError(message);
+      toast.error(message);
     } finally {
       setDetailLoading(false);
     }
@@ -973,7 +977,7 @@ export function PortalPeopleContactsClient() {
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !Array.isArray(json?.tags)) {
-        throw new Error(String(json?.error || "Failed to add tag"));
+        throw new Error(String(json?.error || "That tag did not attach. Try again here or use the tag picker again."));
       }
       setDetailTags(
         json.tags
@@ -986,7 +990,7 @@ export function PortalPeopleContactsClient() {
       );
       await load();
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to add tag"));
+      toast.error(String(e?.message || "That tag did not attach. Try again here or use the tag picker again."));
     } finally {
       setTagBusyId(null);
     }
@@ -1003,7 +1007,7 @@ export function PortalPeopleContactsClient() {
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !Array.isArray(json?.tags)) {
-        throw new Error(String(json?.error || "Failed to remove tag"));
+        throw new Error(String(json?.error || "That tag did not come off. Try again here or reopen the contact details."));
       }
       setDetailTags(
         json.tags
@@ -1016,7 +1020,7 @@ export function PortalPeopleContactsClient() {
       );
       await load();
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to remove tag"));
+      toast.error(String(e?.message || "That tag did not come off. Try again here or reopen the contact details."));
     } finally {
       setTagBusyId(null);
     }
@@ -1039,7 +1043,7 @@ export function PortalPeopleContactsClient() {
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.tag?.id) {
-        throw new Error(String(json?.error || "Failed to create tag"));
+        throw new Error(String(json?.error || "That tag did not save. Try again here or keep using the existing tags list."));
       }
       const created: ContactTag = {
         id: String(json.tag.id),
@@ -1059,7 +1063,7 @@ export function PortalPeopleContactsClient() {
         await addTagToSelected(created.id);
       }
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to create tag"));
+      toast.error(String(e?.message || "That tag did not save. Try again here or keep using the existing tags list."));
     } finally {
       setCreateTagBusy(false);
     }
@@ -1082,7 +1086,7 @@ export function PortalPeopleContactsClient() {
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.tag?.id) {
-        throw new Error(String(json?.error || "Failed to create tag"));
+        throw new Error(String(json?.error || "That tag did not save. Try again here or keep using the existing tags list."));
       }
       const created: ContactTag = {
         id: String(json.tag.id),
@@ -1101,7 +1105,7 @@ export function PortalPeopleContactsClient() {
       setBulkCreateTagOpen(false);
       toast.success("Tag created");
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to create tag"));
+      toast.error(String(e?.message || "That tag did not save. Try again here or keep using the existing tags list."));
     } finally {
       setBulkCreateTagBusy(false);
     }
@@ -1134,7 +1138,7 @@ export function PortalPeopleContactsClient() {
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.tag?.id) {
-        throw new Error(String(json?.error || "Failed to create tag"));
+        throw new Error(String(json?.error || "That tag did not save. Try again here or keep using the existing tags list."));
       }
       const created: ContactTag = {
         id: String(json.tag.id),
@@ -1153,7 +1157,7 @@ export function PortalPeopleContactsClient() {
       setManualCreateTagColor("#2563EB");
       setManualCreateTagOpen(false);
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to create tag"));
+      toast.error(String(e?.message || "That tag did not save. Try again here or keep using the existing tags list."));
     } finally {
       setManualCreateTagBusy(false);
     }
@@ -1183,7 +1187,9 @@ export function PortalPeopleContactsClient() {
         body: JSON.stringify({ name, email, phone, customVariables }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save"));
+      if (!res.ok || !json?.ok) {
+        throw new Error(String(json?.error || "This contact did not save. Retry here or review the contact details again."));
+      }
 
       toast.success("Contact updated.");
       lastSavedContactEditSigRef.current = nextSig;
@@ -1209,7 +1215,7 @@ export function PortalPeopleContactsClient() {
         }
       }
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to save"));
+      toast.error(String(e?.message || "This contact did not save. Retry here or review the contact details again."));
     } finally {
       setSavingContact(false);
     }
@@ -1261,13 +1267,15 @@ export function PortalPeopleContactsClient() {
         body: JSON.stringify(payload),
       });
       const json = (await res.json().catch(() => ({}))) as any;
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save lead"));
+      if (!res.ok || !json?.ok) {
+        throw new Error(String(json?.error || "This lead did not save. Retry here or review the lead details again."));
+      }
       toast.success("Lead updated.");
       lastSavedLeadSigRef.current = nextSig;
       await load();
       if (selectedContactId) await openContact(selectedContactId);
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to save lead"));
+      toast.error(String(e?.message || "This lead did not save. Retry here or review the lead details again."));
     } finally {
       setSavingLead(false);
     }
@@ -1283,12 +1291,14 @@ export function PortalPeopleContactsClient() {
         body: JSON.stringify({ contactId: selectedContactId }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to link lead"));
+      if (!res.ok || !json?.ok) {
+        throw new Error(String(json?.error || "That lead did not link. Retry here or review the contact details again."));
+      }
       toast.success("Lead linked.");
       await load();
       await openContact(selectedContactId);
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to link lead"));
+      toast.error(String(e?.message || "That lead did not link. Retry here or review the contact details again."));
     } finally {
       setSavingLead(false);
     }
@@ -1491,7 +1501,7 @@ export function PortalPeopleContactsClient() {
       toast.success(`Added tag to ${okCount} contact(s)`);
       void load({ contactsCursor, leadsCursor });
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to add tag"));
+      toast.error(String(e?.message || "That bulk tag update did not finish. Retry here or review the selected contacts again."));
     } finally {
       setBulkBusy(false);
     }
@@ -1519,7 +1529,7 @@ export function PortalPeopleContactsClient() {
       toast.success(`Removed tag from ${okCount} contact(s)`);
       void load({ contactsCursor, leadsCursor });
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to remove tag"));
+      toast.error(String(e?.message || "That bulk tag removal did not finish. Retry here or review the selected contacts again."));
     } finally {
       setBulkBusy(false);
     }
@@ -1627,15 +1637,37 @@ export function PortalPeopleContactsClient() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-base font-semibold text-zinc-900">Contacts</div>
-              <div className="mt-1 text-sm text-zinc-600">No contacts yet.</div>
+              <div className="mt-1 text-sm text-zinc-600">No contacts yet. Add one manually, import a CSV, or let Pura help you decide the fastest setup path.</div>
             </div>
-            <button
-              type="button"
-              onClick={openImportModal}
-              className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass)}
-            >
-              + New
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAddMode("manual");
+                  openImportModal();
+                }}
+                className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass)}
+              >
+                Add contact
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddMode("csv");
+                  openImportModal();
+                }}
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Import CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push(`${portalBase}/app/ai-chat?onboarding=1`, { scroll: false })}
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Ask Pura
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -2425,14 +2457,32 @@ export function PortalPeopleContactsClient() {
                       <tr className="border-t border-zinc-200">
                         <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={4}>
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>No contacts yet.</div>
-                            <button
-                              type="button"
-                              onClick={openImportModal}
-                              className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass)}
-                            >
-                              + New
-                            </button>
+                            <div>
+                              <div className="font-semibold text-zinc-900">No contacts yet</div>
+                              <div className="mt-1 text-xs text-zinc-500">Add one manually or import a CSV so this table has real people to work with.</div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddMode("manual");
+                                  openImportModal();
+                                }}
+                                className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass)}
+                              >
+                                Add contact
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddMode("csv");
+                                  openImportModal();
+                                }}
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              >
+                                Import CSV
+                              </button>
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -2834,7 +2884,17 @@ export function PortalPeopleContactsClient() {
                           </button>
                         ))
                       ) : (
-                        <div className="text-sm text-zinc-600">No tags yet.</div>
+                        <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">No tags yet</div>
+                          <div className="mt-1">Create a tag now so this contact can be segmented for follow-up, newsletters, and filtering.</div>
+                          <button
+                            type="button"
+                            className="mt-3 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            onClick={() => setManualCreateTagOpen(true)}
+                          >
+                            Create tag
+                          </button>
+                        </div>
                       )}
                     </div>
 
@@ -2967,7 +3027,10 @@ export function PortalPeopleContactsClient() {
                         </div>
                       ))
                     ) : (
-                      <div className="text-sm text-zinc-600">No custom variables saved yet. Add one below.</div>
+                      <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+                        <div className="font-semibold text-zinc-900">No custom variables saved yet</div>
+                        <div className="mt-1">Add one below to store reusable values like city, referral source, or internal owner notes.</div>
+                      </div>
                     )}
                     <button
                       type="button"
@@ -3089,7 +3152,7 @@ export function PortalPeopleContactsClient() {
                       } catch (err: any) {
                         setImportHeaders([]);
                         setImportRows([]);
-                        setImportError(String(err?.message || "Failed to read CSV"));
+                        setImportError(String(err?.message || "That CSV did not read. Retry here in this dialog."));
                       }
                     })();
                   }}
@@ -3248,7 +3311,7 @@ export function PortalPeopleContactsClient() {
                         body: fd,
                       });
                       const json = (await res.json().catch(() => ({}))) as any;
-                      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Import failed"));
+                      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "That CSV did not import. Retry here in this dialog."));
 
                       const importedCount = Number(json.imported || 0) || 0;
                       const skippedDupes = Number(json.skippedDuplicates || 0) || 0;
@@ -3276,7 +3339,7 @@ export function PortalPeopleContactsClient() {
                       setLeadsCursorStack([null]);
                       void load({ contactsCursor: null, leadsCursor: null });
                     } catch (err: any) {
-                      setImportError(String(err?.message || "Import failed"));
+                      setImportError(String(err?.message || "That CSV did not import. Retry here in this dialog."));
                     } finally {
                       setImportBusy(false);
                     }
@@ -3363,7 +3426,7 @@ export function PortalPeopleContactsClient() {
                         body: fd,
                       });
                       const json = (await res.json().catch(() => ({}))) as any;
-                      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Import failed"));
+                      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Those duplicates did not add. Retry here in this dialog."));
 
                       toast.success(`Added ${Number(json.imported || 0)} duplicate contact(s)`);
                       setImportDupesOpen(false);
@@ -3374,7 +3437,7 @@ export function PortalPeopleContactsClient() {
                       setLeadsCursorStack([null]);
                       void load({ contactsCursor: null, leadsCursor: null });
                     } catch (err: any) {
-                      toast.error(String(err?.message || "Failed to add duplicates"));
+                      toast.error(String(err?.message || "Those duplicates did not add. Retry here in this dialog."));
                     } finally {
                       setImportDupesBusy(false);
                     }
@@ -3438,6 +3501,47 @@ export function PortalPeopleContactsClient() {
             {detailLoading ? (
               <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
                 Loading…
+              </div>
+            ) : null}
+
+            {detailError ? (
+              <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                <div className="font-semibold text-red-900">Contact needs attention</div>
+                <div className="mt-1">{detailError}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedContactId) {
+                        void openContact(selectedContactId);
+                      }
+                    }}
+                    className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                  >
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDetailOpen(false);
+                      setSelectedContactId(null);
+                      setDetail(null);
+                      setDetailTags([]);
+                      setDetailError(null);
+                      clearContactIdFromUrl();
+                    }}
+                    className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                  >
+                    Back to contacts
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`${portalBase}/app/ai-chat?onboarding=1`, { scroll: false })}
+                    className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                  >
+                    Ask Pura
+                  </button>
+                </div>
               </div>
             ) : null}
 
@@ -3868,7 +3972,13 @@ export function PortalPeopleContactsClient() {
                       </button>
                     ))
                   ) : (
-                    <div className="text-sm text-zinc-600">No tags yet.</div>
+                    <button
+                      type="button"
+                      onClick={() => setCreateTagOpen(true)}
+                      className="inline-flex items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white/70 px-4 py-3 text-sm font-semibold text-zinc-700 hover:bg-white"
+                    >
+                      No tags yet - create the first tag
+                    </button>
                   )}
                 </div>
 

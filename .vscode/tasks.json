@@ -2690,6 +2690,103 @@
 				"node tmp/portal-qa/debug_lead_map_css_rules.mjs > tmp/portal-qa/debug_lead_map_css_rules_output.json"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "QA: capture forgot password states",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture_login_forgot_password_states.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: capture forgot password states v2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture_login_forgot_password_states.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Typecheck: forgot password flow refresh",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/npx",
+			"args": [
+				"tsc",
+				"--noEmit"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Typecheck fresh portal sweep",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/npx",
+			"args": [
+				"tsc",
+				"--noEmit"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: check ai receptionist token position",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/check_ai_receptionist_token_position.mjs",
+				"BtbA3FLWfLHVyl-CSezr5F-6"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Typecheck: ai receptionist token patch",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"tsc",
+				"--noEmit"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "Probe: public api ai receptionist token route",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"-X",
+				"POST",
+				"https://purelyautomation.com/api/public/twilio/ai-receptionist/BtbA3FLWfLHVyl-CSezr5F-6/voice",
+				"--data-urlencode",
+				"CallSid=CA_PUBLIC_API_TOKEN_PROBE",
+				"--data-urlencode",
+				"From=+13105550123",
+				"--data-urlencode",
+				"To=+15624717785"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Probe: public api generic twilio voice route",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"-X",
+				"POST",
+				"https://purelyautomation.com/api/public/twilio/voice",
+				"--data-urlencode",
+				"CallSid=CA_PUBLIC_API_VOICE_PROBE",
+				"--data-urlencode",
+				"From=+13105550123",
+				"--data-urlencode",
+				"To=+15624717785"
+			],
+			"isBackground": false
 		}
 	]
 }

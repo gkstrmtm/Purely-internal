@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 
@@ -674,6 +675,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [composeSubject, setComposeSubject] = useState<string>("");
   const [composeBody, setComposeBody] = useState<string>("");
   const [composeAttachments, setComposeAttachments] = useState<UploadedAttachment[]>([]);
+  const [composeError, setComposeError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -1104,7 +1106,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       const data = (await res?.json?.().catch(() => null)) as any;
       if (!res?.ok || !data?.ok) {
         setSavingContact(false);
-        setError(data?.error || "Failed to save contact.");
+        setError(data?.error || "That contact did not save. Retry here or keep editing this contact.");
         return;
       }
 
@@ -1118,7 +1120,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       setContactModalOpen(false);
     } catch {
       setSavingContact(false);
-      setError("Failed to save contact.");
+      setError("That contact did not save. Retry here or keep editing this contact.");
     }
   }
 
@@ -1179,12 +1181,14 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       const json = (await res.json().catch(() => null)) as ThreadsRes | null;
       if (!res.ok || !json || json.ok !== true) {
         if (res.status === 401 || (json && json.ok === false && json.code === "SESSION_EXPIRED")) {
-          setError("Your session expired. Please sign in again.");
+          setError("Your session expired. Sign in again, then reopen Inbox.");
           return;
         }
         const apiError = json && json.ok === false ? json.error : null;
         setError(
-          apiError || (nextTab === "sms" ? "We couldn’t load your text message threads." : "We couldn’t load your email threads."),
+          apiError || (nextTab === "sms"
+            ? "Your text message threads did not load. Retry here, open integrations, or ask Pura to help."
+            : "Your email threads did not load. Retry here, open integrations, or ask Pura to help."),
         );
         return;
       }
@@ -1257,7 +1261,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       preferredToRef.current = null;
     }
     } catch {
-      setError(nextTab === "sms" ? "We couldn’t load your text message threads." : "We couldn’t load your email threads.");
+      setError(nextTab === "sms"
+        ? "Your text message threads did not load. Retry here, open integrations, or ask Pura to help."
+        : "Your email threads did not load. Retry here, open integrations, or ask Pura to help.");
     } finally {
       if (append) {
         setLoadingMoreThreads(false);
@@ -1295,11 +1301,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     if (!res.ok || !json || json.ok !== true) {
       setLoadingMessages(false);
       if (res.status === 401 || (json && json.ok === false && json.code === "SESSION_EXPIRED")) {
-        setError("Your session expired. Please sign in again.");
+        setError("Your session expired. Sign in again, then reopen Inbox.");
         return;
       }
       const apiError = json && json.ok === false ? json.error : null;
-      setError(apiError || "We couldn’t load this conversation.");
+      setError(apiError || "This conversation did not load. Retry here, reopen another thread, or open integrations.");
       return;
     }
 
@@ -1480,6 +1486,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     if (!files || !files.length) return;
     if (uploading) return;
     setError(null);
+    setComposeError(null);
     setUploading(true);
 
     try {
@@ -1496,7 +1503,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
       if (!res.ok || !json || json.ok !== true) {
         setUploading(false);
-        setError(typeof json?.error === "string" ? json.error : "Upload failed");
+        setComposeError(typeof json?.error === "string" ? json.error : "Those files did not upload. Try again here or reopen the attachment menu.");
         return;
       }
 
@@ -1512,12 +1519,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       setUploading(false);
     } catch {
       setUploading(false);
-      setError("Upload failed. Please try again.");
+      setComposeError("Those files did not upload. Try again here or reopen the attachment menu.");
     }
   }
 
   async function attachFromMediaLibrary(item: PortalMediaPickItem) {
     setError(null);
+    setComposeError(null);
     const res = await fetch("/api/portal/inbox/attachments/from-media", {
       method: "POST",
       headers: { "content-type": "application/json", ...variantHeaders },
@@ -1526,7 +1534,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json?.ok || !json?.attachment) {
-      setError(typeof json?.error === "string" ? json.error : "Could not upload file");
+      setComposeError(typeof json?.error === "string" ? json.error : "That file did not attach. Try again here or reopen the attachment menu.");
       return;
     }
 
@@ -1548,6 +1556,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   async function onSend(opts?: { sendAt?: string }): Promise<{ ok: true; threadId: string | null } | { ok: false }> {
     if (sending) return { ok: false };
     setError(null);
+    setComposeError(null);
 
     const to = composeTo.trim();
     const body = composeBody.trim();
@@ -1556,12 +1565,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
     const recipients = splitComposeRecipients(to);
     if (sendThreadId && recipients.length > 1) {
-      setError("Bulk send can’t be done inside a thread. Clear the active thread and try again.");
+      setComposeError("Bulk send can’t be done inside a thread. Clear the active thread and try again.");
       return { ok: false };
     }
 
     if (!to || (!body && composeAttachments.length === 0)) {
-      setError("To and message or attachment are required");
+      setComposeError("To and message or attachment are required.");
       return { ok: false };
     }
 
@@ -1583,7 +1592,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json?.ok) {
       setSending(false);
-      setError(typeof json?.error === "string" ? json.error : "Send failed");
+      setComposeError(typeof json?.error === "string" ? json.error : "That message did not send. Try again here or keep editing it in the composer.");
       return { ok: false };
     }
 
@@ -1605,6 +1614,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
     setComposeBody("");
     setComposeAttachments([]);
+    setComposeError(null);
     setSending(false);
 
     // Refresh threads + messages.
@@ -1633,6 +1643,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   async function rescheduleScheduledMessage(id: string, scheduledForIso: string): Promise<{ ok: true } | { ok: false }> {
     if (sending) return { ok: false };
     setError(null);
+    setScheduleError(null);
     setSending(true);
     const res = await fetch(`/api/portal/inbox/scheduled/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -1643,7 +1654,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json?.ok) {
       setSending(false);
-      setError(typeof json?.error === "string" ? json.error : "Could not reschedule");
+      setScheduleError(typeof json?.error === "string" ? json.error : "That message did not reschedule. Try again here or choose a different time.");
       return { ok: false };
     }
 
@@ -1755,7 +1766,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     });
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json?.ok || !json?.contactId) {
-      throw new Error(typeof json?.error === "string" ? json.error : "Could not create a contact for this recipient.");
+      throw new Error(typeof json?.error === "string" ? json.error : "That contact did not create. Retry here in the composer.");
     }
 
     const contactId = String(json.contactId).trim();
@@ -1896,6 +1907,34 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           <div ref={sidebarThreadListRef} onScroll={handleThreadListScroll} className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
             {loadingThreads ? (
               <div className="px-3 py-3 text-xs text-zinc-500">Loading conversations…</div>
+            ) : error && !filteredThreads.length ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-3 text-xs text-red-700">
+                <div className="font-semibold text-red-900">Inbox needs attention</div>
+                <div className="mt-1">{error}</div>
+                <div className="mt-3 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void loadThreads(tab, { clearUI: true });
+                    }}
+                    className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-3 py-2 text-[11px] font-semibold text-white hover:bg-red-700"
+                  >
+                    Retry
+                  </button>
+                  <Link
+                    href={`${basePath}/app/settings/integrations`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-3 py-2 text-[11px] font-semibold text-red-800 hover:bg-red-100"
+                  >
+                    Open integrations
+                  </Link>
+                  <Link
+                    href={`${basePath}/app/ai-chat?onboarding=1`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-3 py-2 text-[11px] font-semibold text-red-800 hover:bg-red-100"
+                  >
+                    Ask Pura
+                  </Link>
+                </div>
+              </div>
             ) : filteredThreads.length ? (
               <div className="space-y-2">
                 {filteredThreads.map((t) => {
@@ -1961,16 +2000,35 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 {!loadingMoreThreads && hasMoreThreads ? <div className="px-3 py-2 text-xs text-zinc-400">Scroll to load older conversations.</div> : null}
               </div>
             ) : (
-              <div className="px-3 py-3 text-xs text-zinc-500">
-                No conversations yet.
-                <div className="mt-1 text-[11px] text-zinc-400">Send something, or enable inbound webhooks.</div>
+              <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-xs text-zinc-600">
+                <div className="font-semibold text-zinc-900">No conversations yet</div>
+                <div className="mt-1 text-[11px] text-zinc-500">Start the first thread now, or finish inbox setup so inbound replies can start landing here automatically.</div>
+                <div className="mt-3 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChannel(tab);
+                      if (tab === "email") openEmailComposer();
+                      else openSmsComposer();
+                    }}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-2 text-[11px] font-semibold text-white hover:opacity-95"
+                  >
+                    {tab === "email" ? "Compose first email" : "Start first text thread"}
+                  </button>
+                  <Link
+                    href={`${basePath}/app/settings/integrations`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Open integrations
+                  </Link>
+                </div>
               </div>
             )}
           </div>
         </div>
       </div>
     );
-  }, [activeThreadId, emailBox, filteredThreads, handleThreadListScroll, hasMoreThreads, isDesktop, loadingMoreThreads, loadingThreads, markThreadRead, openEmailComposer, openSmsComposer, setChannel, tab, unreadEmailCount]);
+  }, [activeThreadId, basePath, emailBox, error, filteredThreads, handleThreadListScroll, hasMoreThreads, isDesktop, loadThreads, loadingMoreThreads, loadingThreads, markThreadRead, openEmailComposer, openSmsComposer, setChannel, tab, unreadEmailCount]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -2017,7 +2075,27 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   function renderSmsTimeline() {
     if (!scheduledMessages.length && !smsTimelineItems.length) {
-      return <div className="text-sm text-zinc-600">No messages yet.</div>;
+      return (
+        <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-600">
+          <div className="font-semibold text-zinc-900">No messages yet</div>
+          <div className="mt-1">Start a new SMS thread to test your messaging flow or begin a real conversation.</div>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={openSmsComposer}
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Start text thread
+            </button>
+            <Link
+              href={`${basePath}/app/settings/integrations`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            >
+              Open integrations
+            </Link>
+          </div>
+        </div>
+      );
     }
 
     return (
@@ -2199,7 +2277,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
             const json = (await res.json().catch(() => null)) as any;
             if (!res.ok || !json?.ok) {
-              throw new Error(typeof json?.error === "string" ? json.error : "Failed to create variable.");
+              throw new Error(typeof json?.error === "string" ? json.error : "That variable did not save. Try again here or keep using the current contact fields.");
             }
 
             const normalizedKey = String(json?.key || key).trim();
@@ -2278,7 +2356,34 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             </button>
                           ))
                         ) : (
-                          <div className="px-4 py-3 text-sm text-zinc-600">No matching conversations.</div>
+                          <div className="px-4 py-3 text-sm text-zinc-600">
+                            <div className="font-semibold text-zinc-900">No matching conversations</div>
+                            <div className="mt-1 text-xs text-zinc-500">Clear the search to get back to recent threads, or start a fresh conversation.</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setThreadSearch("");
+                                  setEmailSearchMenu(null);
+                                }}
+                                className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                              >
+                                Clear search
+                              </button>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setEmailSearchMenu(null);
+                                  openEmailComposer();
+                                }}
+                                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              >
+                                New email
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </LiquidGlassPopupSurface>
@@ -2646,9 +2751,28 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               {!loadingMoreThreads && hasMoreThreads ? <div className="px-4 py-3 text-xs text-zinc-400">Scroll to load older conversations.</div> : null}
             </div>
           ) : (
-            <div className="px-3 py-4 text-sm text-zinc-600">
-              No conversations yet.
-              <div className="mt-2 text-xs text-zinc-500">Send something, or enable inbound webhooks.</div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
+              <div className="font-semibold text-zinc-900">No conversations yet</div>
+              <div className="mt-1 text-xs text-zinc-500">Send the first message or finish your inbox integrations so new inbound threads show up here automatically.</div>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChannel(tab);
+                    if (tab === "email") openEmailComposer();
+                    else openSmsComposer();
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  {tab === "email" ? "Compose first email" : "Start first text thread"}
+                </button>
+                <Link
+                  href={`${basePath}/app/settings/integrations`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Open integrations
+                </Link>
+              </div>
             </div>
           )}
           </div>
@@ -2729,6 +2853,34 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <div className="text-sm text-zinc-600">Choose a contact or type an email address to start a new conversation.</div>
                 ) : loadingMessages ? (
                   <div className="text-sm text-zinc-600">Loading…</div>
+                ) : error ? (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                    <div className="font-semibold text-red-900">Conversation needs attention</div>
+                    <div className="mt-1">{error}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void loadMessages(activeThread.id);
+                        }}
+                        className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                      >
+                        Retry
+                      </button>
+                      <Link
+                        href={`${basePath}/app/settings/integrations`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                      >
+                        Open integrations
+                      </Link>
+                      <Link
+                        href={`${basePath}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                      >
+                        Ask Pura
+                      </Link>
+                    </div>
+                  </div>
                 ) : scheduledMessages.length || messages.length ? (
                   <div className="space-y-3">
                     {scheduledMessages.map((m) => (
@@ -2797,7 +2949,33 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-sm text-zinc-600">No emails yet.</div>
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No emails yet</div>
+                    <div className="mt-1">
+                      {activeThread ? "This thread is ready for the first message." : "Open the composer to start a new email conversation from here."}
+                    </div>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (activeThread) {
+                            emailBodyRef.current?.focus();
+                            return;
+                          }
+                          openEmailComposer();
+                        }}
+                        className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                      >
+                        {activeThread ? "Write first email" : "Compose email"}
+                      </button>
+                      <Link
+                        href={`${basePath}/app/settings/integrations`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Open integrations
+                      </Link>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -2832,6 +3010,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           </button>
                         </div>
                       ))}
+                    </div>
+                  ) : null}
+                  {composeError ? (
+                    <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 lg:pr-24">
+                      {composeError}
                     </div>
                   ) : null}
                   <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -3009,7 +3192,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           ) : (
                             (() => {
                               const suggestions = findContactSuggestions(composeTo);
-                              if (!suggestions.length) return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                              if (!suggestions.length) return <div className="px-3 py-3 text-sm text-zinc-600"><div className="font-semibold text-zinc-900">No matching contacts</div><div className="mt-1 text-xs text-zinc-500">Keep typing a phone number manually, or open People to add the contact first.</div><div className="mt-3 flex flex-wrap gap-2"><Link href={`${basePath}/app/people/contacts`} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50">Open People</Link></div></div>;
                               return (
                                 <div className="py-1">
                                   {suggestions.map((c) => (
@@ -3295,7 +3478,24 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               </div>
             ) : (
               <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                No transcript is available for this call yet.
+                <div className="font-semibold text-zinc-900">No transcript is available for this call yet</div>
+                <div className="mt-1">If this call just finished, give it a moment and reopen it. If transcripts keep missing, review the outbound setup or ask Pura to help you trace the issue.</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={() => router.push(`/${portalVariant}/app/services/ai-outbound-calls`, { scroll: false })}
+                  >
+                    Open AI outbound
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    onClick={() => router.push(`/${portalVariant}/app/ai-chat?onboarding=1`, { scroll: false })}
+                  >
+                    Ask Pura for help
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -3436,7 +3636,20 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           (() => {
                             const suggestions = findContactSuggestions(composeTo);
                             if (!suggestions.length) {
-                              return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                              return (
+                                <div className="px-3 py-3 text-sm text-zinc-600">
+                                  <div className="font-semibold text-zinc-900">No matching contacts</div>
+                                  <div className="mt-1 text-xs text-zinc-500">Keep typing a phone number manually, or open People to add the contact first.</div>
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    <Link
+                                      href={`${basePath}/app/people/contacts`}
+                                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                    >
+                                      Open People
+                                    </Link>
+                                  </div>
+                                </div>
+                              );
                             }
 
                             return (
@@ -3503,6 +3716,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         </div>
                       );
                     })}
+                  </div>
+                ) : null}
+                {composeError ? (
+                  <div className="mb-2 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    {composeError}
                   </div>
                 ) : null}
 
@@ -3754,7 +3972,20 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           (() => {
                             const suggestions = findContactSuggestions(composeTo);
                             if (!suggestions.length) {
-                              return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                              return (
+                                <div className="px-3 py-3 text-sm text-zinc-600">
+                                  <div className="font-semibold text-zinc-900">No matching contacts</div>
+                                  <div className="mt-1 text-xs text-zinc-500">Keep typing an email manually, or open People to add the contact first.</div>
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    <Link
+                                      href={`${basePath}/app/people/contacts`}
+                                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                    >
+                                      Open People
+                                    </Link>
+                                  </div>
+                                </div>
+                              );
                             }
 
                             return (
@@ -3935,6 +4166,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         </button>
                       </div>
                     ))}
+                  </div>
+                ) : null}
+                {composeError ? (
+                  <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    {composeError}
                   </div>
                 ) : null}
               </div>

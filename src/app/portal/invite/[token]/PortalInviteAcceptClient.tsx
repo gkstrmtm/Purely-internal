@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
@@ -26,6 +26,7 @@ export function PortalInviteAcceptClient({
 }) {
   const toast = useToast();
   const pathname = usePathname();
+  const router = useRouter();
   const lastAutoToastRef = useRef<string | null>(null);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -115,7 +116,7 @@ export function PortalInviteAcceptClient({
         throw new Error(String(json?.error || "Failed to accept invite"));
       }
 
-      window.location.href = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
+      router.push(String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app", { scroll: false });
     } catch (e: any) {
       setError(String(e?.message || "Failed to accept invite"));
     } finally {

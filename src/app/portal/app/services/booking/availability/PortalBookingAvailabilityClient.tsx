@@ -277,7 +277,7 @@ export const PortalBookingAvailabilityClient = forwardRef<PortalBookingAvailabil
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(body?.error ?? "Failed to save availability");
+      setError(body?.error ?? "Availability did not save. Try again here or keep editing this panel.");
       setSaving(false);
       return false;
     }

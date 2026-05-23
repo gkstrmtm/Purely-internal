@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -69,8 +71,11 @@ async function copyToClipboard(text: string) {
 
 export function PortalPeopleUsersClient() {
   const toast = useToast();
+  const pathname = usePathname() || "";
+  const appBase = pathname.startsWith("/credit") ? "/credit/app" : "/portal/app";
   usePortalPeopleSidebar();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [data, setData] = useState<UsersPayload | null>(null);
 
   const [inviteEmail, setInviteEmail] = useState("");
@@ -198,13 +203,16 @@ export function PortalPeopleUsersClient() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch("/api/portal/people/users", { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to load users");
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Users and invites did not load. Retry here, start a new invite, or ask Pura to help.");
       setData(json as UsersPayload);
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to load"));
+      const message = String(e?.message || "Users and invites did not load. Retry here, start a new invite, or ask Pura to help.");
+      toast.error(message);
+      setLoadError(message);
     } finally {
       setLoading(false);
     }
@@ -368,6 +376,42 @@ export function PortalPeopleUsersClient() {
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Users & invites</h1>
         </div>
       </div>
+
+      {loadError ? (
+        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Users and invites need attention</div>
+          <div className="mt-1">{loadError}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void load();
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            {canInvite ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setInviteModalOpen(true);
+                  setPermissionsOpen(false);
+                }}
+                className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                New invite
+              </button>
+            ) : null}
+            <Link
+              href={`${appBase}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
@@ -680,7 +724,7 @@ export function PortalPeopleUsersClient() {
                                 await copyToClipboard(link);
                                 toast.success("Invite link copied to clipboard.");
                               } catch {
-                                toast.error("Could not copy invite link.");
+                                toast.error("That invite link did not copy. Retry here.");
                               }
                             }}
                             className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
@@ -694,7 +738,21 @@ export function PortalPeopleUsersClient() {
                   ) : (
                     <tr className="border-t border-zinc-200">
                       <td className="px-3 py-4 text-sm text-zinc-600" colSpan={4}>
-                        No invites yet.
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="font-semibold text-zinc-900">No invites yet</div>
+                            <div className="mt-1 text-sm text-zinc-600">Invite a teammate so this workspace can route work without sharing one login.</div>
+                          </div>
+                          {canInvite ? (
+                            <button
+                              type="button"
+                              onClick={() => setInviteModalOpen(true)}
+                              className={"rounded-xl px-3 py-2 text-xs font-semibold " + portalSoftBlueButtonClass}
+                            >
+                              Send invite
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   )}

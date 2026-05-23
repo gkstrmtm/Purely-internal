@@ -1,5 +1,6 @@
 "use client";
-import { usePathname } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CreateContactTagDialog } from "@/components/CreateContactTagDialog";
@@ -1016,8 +1017,10 @@ function instantiateAutomationTemplate(
 export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const mode = props.mode ?? "editor";
   const pathname = usePathname();
+  const router = useRouter();
   const toast = useToast();
   const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const appBase = portalVariant === "credit" ? "/credit/app" : "/portal/app";
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const isMobileApp = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -2021,13 +2024,13 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     try {
       const res = await fetch("/api/portal/automations/settings", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!res?.ok) {
-        setError("Failed to load.");
+        setError("Automations did not load. Retry here, open services, or ask Pura to help.");
         return;
       }
 
       const data = (await res.json().catch(() => null)) as ApiPayload | null;
       if (!data || (data as any).error) {
-        setError((data as any)?.error || "Failed to load.");
+        setError((data as any)?.error || "Automations did not load. Retry here, open services, or ask Pura to help.");
         return;
       }
 
@@ -2306,7 +2309,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
     const data = (await res?.json?.().catch(() => null)) as any;
     if (!res?.ok || !data?.ok || !data?.tag?.id) {
-      throw new Error(String(data?.error || "Failed to create tag."));
+      throw new Error(String(data?.error || "That tag did not save. Try again here or keep using the current tag filters."));
     }
 
     const created: ContactTag = {
@@ -3142,6 +3145,41 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     );
   }
 
+  if (error && automations.length === 0) {
+    return (
+      <div className={mode === "editor" ? "p-6" : "p-6"}>
+        {mode === "editor" ? null : <PortalBackToOnboardingLink />}
+        <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Automations need attention</div>
+          <div className="mt-2">{error}</div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void load();
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <Link
+              href={`${appBase}/services`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Open services
+            </Link>
+            <Link
+              href={`${appBase}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (mode === "list") {
     const normalizedQuery = listQuery.trim().toLowerCase();
     const uniqueTriggers = Array.from(
@@ -3235,7 +3273,43 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       </div>
     ) : (
       <div className="rounded-3xl border border-zinc-200 bg-white px-4 py-10 text-center text-sm text-zinc-600">
-        {hasListFiltersActive ? "No automations match your search or filters." : "No automations available."}
+        <div className="text-base font-semibold text-zinc-900">{hasListFiltersActive ? "No automations match your search" : "No automations available"}</div>
+        <div className="mt-2 mx-auto max-w-xl">
+          {hasListFiltersActive
+            ? "Clear the active filters to get back to your workflows, or start a new automation if you are building something new."
+            : "Create a workflow from scratch, open the template flow, or ask Pura to help map your first automation."}
+        </div>
+        <div className="mt-4 flex flex-col items-center justify-center gap-2 sm:flex-row">
+          {hasListFiltersActive ? (
+            <button
+              type="button"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+              onClick={() => {
+                setListQuery("");
+                setListStatus("all");
+                setListTrigger("all");
+                setListDateRange("all");
+                setListPage(1);
+                setOpenListFilters(null);
+              }}
+            >
+              Clear filters
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            onClick={openCreateAutomationModal}
+          >
+            New automation
+          </button>
+          <Link
+            href={`${appBase}/ai-chat?onboarding=1`}
+            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+          >
+            Ask Pura
+          </Link>
+        </div>
       </div>
     );
 
@@ -3562,7 +3636,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                 }).catch(() => null as any);
                                 const data = (await res?.json?.().catch(() => null)) as any;
                                 if (!res?.ok || !data?.ok) {
-                                  setError(String(data?.error || "Failed to trigger."));
+                                  setError(String(data?.error || "That automation did not trigger. Try again here or reopen it from the list."));
                                 } else {
                                   toast.success("Triggered");
                                 }
@@ -3694,7 +3768,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                           }).catch(() => null as any);
                           const data = (await res?.json?.().catch(() => null)) as any;
                           if (!res?.ok || !data?.ok) {
-                            setError(String(data?.error || "Failed to trigger."));
+                            setError(String(data?.error || "That automation did not trigger. Try again here or reopen it from the list."));
                           } else {
                             toast.success("Triggered");
                           }
@@ -3832,9 +3906,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 "inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80",
               )}
               onClick={() => {
-                window.location.href = String(pathname || "").startsWith("/credit")
-                  ? "/credit/app/services/automations"
-                  : "/portal/app/services/automations";
+                router.push(
+                  String(pathname || "").startsWith("/credit")
+                    ? "/credit/app/services/automations"
+                    : "/portal/app/services/automations",
+                  { scroll: false },
+                );
               }}
               aria-label="Back"
               title="Back"
@@ -4172,7 +4249,24 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     </div>
                   ) : (
                     <div className="rounded-3xl border border-dashed border-white/60 bg-white/30 px-3 py-3 text-sm text-zinc-600">
-                      No saved demo fields found for this form yet.
+                      <div className="font-semibold text-zinc-900">No saved demo fields found for this form yet</div>
+                      <div className="mt-1">Open the form editor to add questions first, then come back here to test the automation with realistic sample responses.</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {testFormId ? (
+                          <Link
+                            href={`${appBase}/services/funnel-builder/forms/${encodeURIComponent(testFormId)}/edit`}
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                          >
+                            Open form editor
+                          </Link>
+                        ) : null}
+                        <Link
+                          href={`${appBase}/ai-chat?onboarding=1`}
+                          className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                        >
+                          Ask Pura for help
+                        </Link>
+                      </div>
                     </div>
                   )}
                 </>
@@ -4438,7 +4532,23 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             <div className="mt-4 space-y-2">
               {automations.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  No automations yet.
+                  <div className="font-semibold text-zinc-900">No automations yet</div>
+                  <div className="mt-1">Create the first automation to connect a trigger, actions, and follow-up logic in one workflow.</div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCreateAutomationOpen(true)}
+                      className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                    >
+                      New automation
+                    </button>
+                    <Link
+                      href={`${appBase}/ai-chat?onboarding=1`}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    >
+                      Ask Pura
+                    </Link>
+                  </div>
                 </div>
               ) : (
                 automations.map((a) => {
@@ -4520,7 +4630,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                             }).catch(() => null as any);
                             const data = (await res?.json?.().catch(() => null)) as any;
                             if (!res?.ok || !data?.ok) {
-                              setError(String(data?.error || "Failed to trigger."));
+                              setError(String(data?.error || "That automation did not trigger. Try again here or reopen it from the list."));
                             } else {
                               toast.success("Triggered");
                             }
@@ -5368,6 +5478,20 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                     {!bookingCalendars.length ? (
                                       <div className="mt-1 text-[11px] text-zinc-600">
                                         No calendars found yet. Create one in Booking → Calendars.
+                                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                                          <Link
+                                            href={`${appBase}/services/booking/settings`}
+                                            className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-900 hover:bg-zinc-50"
+                                          >
+                                            Open Booking settings
+                                          </Link>
+                                          <Link
+                                            href={`${appBase}/tutorials/booking`}
+                                            className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-900 hover:bg-zinc-50"
+                                          >
+                                            Booking walkthrough
+                                          </Link>
+                                        </div>
                                       </div>
                                     ) : null}
                                   </div>

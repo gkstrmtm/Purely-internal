@@ -721,9 +721,9 @@ export default function PortalReviewsClient() {
         fetch("/api/portal/reviews/questions", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)).catch(() => null),
         fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)).catch(() => null),
       ]);
-      if (!s || !s.ok) throw new Error((s as any)?.error || "Failed to load settings");
+      if (!s || !s.ok) throw new Error((s as any)?.error || "Review request settings did not load. Retry here, open requests, or ask Pura to help.");
       const sData = s.data;
-      if (!sData?.ok) throw new Error(sData?.error || "Failed to load settings");
+      if (!sData?.ok) throw new Error(sData?.error || "Review request settings did not load. Retry here, open requests, or ask Pura to help.");
       const nextSettings = sData.settings || DEFAULT_SETTINGS;
       setSettings(nextSettings);
       lastSavedSettingsJsonRef.current = JSON.stringify(nextSettings);
@@ -789,7 +789,7 @@ export default function PortalReviewsClient() {
         setContactTags([]);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : "Reviews setup did not load. Retry here, open requests, open reviews home, or ask Pura to help.");
     } finally {
       if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
       setLoading(false);
@@ -810,13 +810,13 @@ export default function PortalReviewsClient() {
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.site) {
-        toast.error(String(json?.error || "Failed to save"));
+        toast.error(String(json?.error || "Review site settings did not save. Try again here or keep editing the settings."));
         return;
       }
       setSite(json.site as HostedSite);
       toast.success("Saved");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to save");
+      toast.error(e instanceof Error ? e.message : "Review site settings did not save. Try again here or keep editing the settings.");
     } finally {
       setSiteDomainBusy(false);
     }
@@ -847,7 +847,7 @@ export default function PortalReviewsClient() {
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.tag?.id) {
-        toast.error(String(json?.error || "Failed to create tag"));
+        toast.error(String(json?.error || "That tag did not save. Try again here or open People to organize tags there."));
         return;
       }
 
@@ -883,14 +883,14 @@ export default function PortalReviewsClient() {
     setError(null);
     try {
       const parsed = await fetch("/api/portal/reviews/bookings", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r));
-      if (!parsed.ok) throw new Error(parsed.error || "Failed to load bookings");
+      if (!parsed.ok) throw new Error(parsed.error || "Bookings did not load. Retry here, open requests, or review booking settings.");
       const res = parsed.data;
-      if (!res?.ok) throw new Error(res?.error || "Failed to load bookings");
+      if (!res?.ok) throw new Error(res?.error || "Bookings did not load. Retry here, open requests, or review booking settings.");
       const recent = Array.isArray(res.recent) ? res.recent : [];
       setRecentBookings(recent);
       setBookingsLoadedOnce(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : "Bookings did not load. Retry here, open requests, or review booking settings.");
     } finally {
       setBookingsLoading(false);
     }
@@ -905,9 +905,9 @@ export default function PortalReviewsClient() {
       if (typeof q === "string") url.searchParams.set("q", q);
       url.searchParams.set("take", "20");
       const parsed = await fetch(url.toString(), { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r));
-      if (!parsed.ok) throw new Error(parsed.error || "Failed to load contacts");
+      if (!parsed.ok) throw new Error(parsed.error || "Contacts did not load. Retry here, open reviews home, or ask Pura to help.");
       const res = parsed.data;
-      if (!res?.ok) throw new Error(res?.error || "Failed to load contacts");
+      if (!res?.ok) throw new Error(res?.error || "Contacts did not load. Retry here, open reviews home, or ask Pura to help.");
       const next = Array.isArray(res.contacts) ? res.contacts : [];
       setContacts(
         next
@@ -921,7 +921,7 @@ export default function PortalReviewsClient() {
       );
       setContactsLoadedOnce(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : "Contacts did not load. Retry here, open reviews home, or ask Pura to help.");
     } finally {
       setContactsLoading(false);
     }
@@ -939,8 +939,8 @@ export default function PortalReviewsClient() {
         headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ reviewId, reply }),
       }).then((r) => readJsonSafe<any>(r));
-      if (!res.ok) throw new Error(res.error || "Failed to save reply");
-      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to save reply");
+      if (!res.ok) throw new Error(res.error || "That reply did not save. Try again here or keep editing it.");
+      if (!res.data?.ok) throw new Error(res.data?.error || "That reply did not save. Try again here or keep editing it.");
 
       setReceivedReviews((prev) =>
         prev.map((r) =>
@@ -972,8 +972,8 @@ export default function PortalReviewsClient() {
         headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ id, answer }),
       }).then((r) => readJsonSafe<any>(r));
-      if (!res.ok) throw new Error(res.error || "Failed to save answer");
-      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to save answer");
+      if (!res.ok) throw new Error(res.error || "That answer did not save. Try again here or keep editing it.");
+      if (!res.data?.ok) throw new Error(res.data?.error || "That answer did not save. Try again here or keep editing it.");
       const trimmed = answer.trim();
       setQaQuestions((prev) =>
         prev.map((q) =>
@@ -1003,8 +1003,8 @@ export default function PortalReviewsClient() {
         headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ reviewId, archived }),
       }).then((r) => readJsonSafe<any>(r));
-      if (!res.ok) throw new Error(res.error || "Failed to update");
-      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to update");
+      if (!res.ok) throw new Error(res.error || "That review did not update. Try again here or reopen it from the list.");
+      if (!res.data?.ok) throw new Error(res.data?.error || "That review did not update. Try again here or reopen it from the list.");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1018,8 +1018,8 @@ export default function PortalReviewsClient() {
         method: "DELETE",
         headers: variantHeaders,
       }).then((r) => readJsonSafe<any>(r));
-      if (!res.ok) throw new Error(res.error || "Failed to delete review");
-      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to delete review");
+      if (!res.ok) throw new Error(res.error || "That review did not delete. Try again here or reopen it from the list.");
+      if (!res.data?.ok) throw new Error(res.data?.error || "That review did not delete. Try again here or reopen it from the list.");
       setReceivedReviews((prev) => prev.filter((review) => review.id !== reviewId));
       setReplyDrafts((prev) => {
         const next = { ...prev };
@@ -1040,8 +1040,8 @@ export default function PortalReviewsClient() {
         method: "DELETE",
         headers: variantHeaders,
       }).then((r) => readJsonSafe<any>(r));
-      if (!res.ok) throw new Error(res.error || "Failed to delete question");
-      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to delete question");
+      if (!res.ok) throw new Error(res.error || "That question did not delete. Try again here or reopen it from the list.");
+      if (!res.data?.ok) throw new Error(res.data?.error || "That question did not delete. Try again here or reopen it from the list.");
       setQaQuestions((prev) => prev.filter((question) => question.id !== questionId));
       setQaAnswerDrafts((prev) => {
         const next = { ...prev };
@@ -1067,8 +1067,8 @@ export default function PortalReviewsClient() {
         headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ contactId: id }),
       }).then((r) => readJsonSafe<any>(r));
-      if (!res.ok) throw new Error(res.error || "Failed to send");
-      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to send");
+      if (!res.ok) throw new Error(res.error || "That review request did not send. Try again here or reopen it from the list.");
+      if (!res.data?.ok) throw new Error(res.data?.error || "That review request did not send. Try again here or reopen it from the list.");
       setSendResult("Sent");
       await load();
     } catch (err) {
@@ -1123,8 +1123,8 @@ export default function PortalReviewsClient() {
         headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ settings: next }),
       }).then((r) => readJsonSafe<any>(r));
-      if (!res.ok) throw new Error(res.error || "Failed to save");
-      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to save");
+      if (!res.ok) throw new Error(res.error || "Review request settings did not save. Retry here in settings or open requests to review the flow.");
+      if (!res.data?.ok) throw new Error(res.data?.error || "Review request settings did not save. Retry here in settings or open requests to review the flow.");
       const nextSettings = res.data.settings || next;
       setSettings(nextSettings);
       lastSavedSettingsJsonRef.current = JSON.stringify(nextSettings);
@@ -1164,8 +1164,8 @@ export default function PortalReviewsClient() {
         const form = new FormData();
         form.append("file", f);
         const parsed = await fetch("/api/uploads", { method: "POST", body: form }).then((r) => readJsonSafe<any>(r));
-        if (!parsed.ok) throw new Error(parsed.error || "Upload failed");
-        if (!parsed.data?.url) throw new Error(parsed.data?.error || "Upload failed");
+        if (!parsed.ok) throw new Error(parsed.error || "That photo did not upload. Try again here or keep editing the settings.");
+        if (!parsed.data?.url) throw new Error(parsed.data?.error || "That photo did not upload. Try again here or keep editing the settings.");
         nextUrls.push(String(parsed.data.url));
       }
       setSettings({
@@ -1253,8 +1253,8 @@ export default function PortalReviewsClient() {
         headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ bookingId }),
       }).then((r) => readJsonSafe<any>(r));
-      if (!res.ok) throw new Error(res.error || "Failed to send");
-      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to send");
+      if (!res.ok) throw new Error(res.error || "That review request did not send. Try again here or reopen it from the list.");
+      if (!res.data?.ok) throw new Error(res.data?.error || "That review request did not send. Try again here or reopen it from the list.");
       setSendResult("Sent");
       await load();
     } catch (err) {
@@ -1472,6 +1472,43 @@ export default function PortalReviewsClient() {
         onClose={() => setLightboxOpen(false)}
       />
 
+      {error ? (
+        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Reviews workspace needs attention</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void load();
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => setTabWithUrl("settings")}
+              className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Open requests
+            </button>
+            <Link
+              href={`${appBase}/services/reviews`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Open reviews home
+            </Link>
+            <Link
+              href={`${appBase}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       {tab === "settings" || !showingReviewsOverviewCard ? (
         <div className="mt-4 flex justify-end">
           <SuggestedSetupModalLauncher serviceSlugs={["reviews"]} buttonLabel="Suggested setup" />
@@ -1619,7 +1656,25 @@ export default function PortalReviewsClient() {
                           ) : null}
                         </div>
                         {contactTags.length === 0 ? (
-                          <div className="mt-2 text-xs text-zinc-500">No tags found yet. Create one in People → Tags.</div>
+                          <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+                            <div className="font-medium text-zinc-800">No tags found yet.</div>
+                            <div className="mt-1">Create a tag here or open People to organize contacts before turning on review requests.</div>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                onClick={() => setShowCreateTag(true)}
+                              >
+                                Create tag here
+                              </button>
+                              <Link
+                                href={`${appBase}/people?view=tags`}
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                              >
+                                Open People
+                              </Link>
+                            </div>
+                          </div>
                         ) : null}
 
                         {showCreateTag ? (
@@ -1709,7 +1764,24 @@ export default function PortalReviewsClient() {
                     {settings.automation.calendarIds.length ? (
                       <div className="mt-2 grid gap-2 rounded-lg border border-zinc-200 bg-white p-3">
                         {calendars.filter((c) => c.enabled !== false).length === 0 ? (
-                          <div className="text-xs text-neutral-600">No calendars found. Add calendars in Booking Automation.</div>
+                          <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-neutral-600">
+                            <div className="font-semibold text-zinc-900">No calendars found</div>
+                            <div className="mt-1">Create or enable a booking calendar first, then come back here to scope which appointments should trigger review requests.</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <Link
+                                href={`${appBase}/services/booking/settings`}
+                                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              >
+                                Open booking settings
+                              </Link>
+                              <Link
+                                href={`${appBase}/ai-chat?onboarding=1`}
+                                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                              >
+                                Ask Pura for help
+                              </Link>
+                            </div>
+                          </div>
                         ) : (
                           calendars
                             .filter((c) => c.enabled !== false)
@@ -1941,14 +2013,26 @@ export default function PortalReviewsClient() {
                       >
                         View live page
                       </a>
+                    ) : settings.publicPage.enabled ? (
+                      <Link
+                        href={`${appBase}/services/reviews/page-editor`}
+                        className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
+                      >
+                        Open page editor
+                      </Link>
                     ) : (
                       <button
                         type="button"
-                        disabled
-                        className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-400"
-                        title={settings.publicPage.enabled ? "No live URL yet." : "Enable public page to view live URL."}
+                        onClick={() => setSettings((prev) => ({
+                          ...prev,
+                          publicPage: {
+                            ...prev.publicPage,
+                            enabled: true,
+                          },
+                        }))}
+                        className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
                       >
-                        View live page
+                        Enable public page
                       </button>
                     )}
                   </div>
@@ -2457,7 +2541,27 @@ export default function PortalReviewsClient() {
                         ))}
                       </div>
                     ) : (
-                      <div className="mt-3 text-xs text-zinc-600">No custom questions yet.</div>
+                      <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600">
+                        <div className="font-semibold text-zinc-900">No custom questions yet</div>
+                        <div className="mt-1">Add the first question if you want customers to answer anything beyond the default review flow.</div>
+                        <button
+                          type="button"
+                          className="mt-3 inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                          onClick={() => {
+                            const id = `q_${Date.now().toString(36)}`;
+                            const next: ReviewQuestion = { id, label: "Question", required: false, kind: "short" };
+                            setSettings({
+                              ...settings,
+                              publicPage: {
+                                ...settings.publicPage,
+                                form: { ...settings.publicPage.form, questions: [...(settings.publicPage.form.questions || []), next].slice(0, 25) },
+                              },
+                            });
+                          }}
+                        >
+                          Add question
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -2500,6 +2604,12 @@ export default function PortalReviewsClient() {
                       >
                         Open requests setup
                       </button>
+                      <Link
+                        href={`${appBase}/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        Ask Pura for help
+                      </Link>
                       <SuggestedSetupModalLauncher serviceSlugs={["reviews"]} buttonLabel="Suggested setup" />
                     </>
                   }
@@ -2560,13 +2670,23 @@ export default function PortalReviewsClient() {
                       : "There is no review path configured yet, so nothing can be sent from this page until setup is finished."
                   }
                   actions={!showingReviewsOverviewCard ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                      onClick={openRequestsSetup}
-                    >
-                      {hasAnyReviewPath ? "Adjust requests setup" : "Finish setup"}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                        onClick={openRequestsSetup}
+                      >
+                        {hasAnyReviewPath ? "Adjust requests setup" : "Finish setup"}
+                      </button>
+                      {!hasAnyReviewPath ? (
+                        <Link
+                          href={`${appBase}/ai-chat?onboarding=1`}
+                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                        >
+                          Ask Pura for help
+                        </Link>
+                      ) : null}
+                    </div>
                   ) : undefined}
                 />
               ) : null}
@@ -2596,7 +2716,27 @@ export default function PortalReviewsClient() {
                     </a>
                   </div>
                   {e.reason ? <div className="mt-1 text-xs text-amber-700">Reason: {e.reason}</div> : null}
-                  {e.error ? <div className="mt-1 text-xs text-red-700">Error: {e.error}</div> : null}
+                  {e.error ? (
+                    <div className="mt-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                      <div className="font-semibold text-red-900">Delivery needs attention</div>
+                      <div className="mt-1 leading-5">{e.error}</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={openRequestsSetup}
+                          className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                        >
+                          Review setup
+                        </button>
+                        <Link
+                          href={`${appBase}/ai-chat?onboarding=1`}
+                          className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                        >
+                          Ask Pura
+                        </Link>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -2626,6 +2766,18 @@ export default function PortalReviewsClient() {
                             >
                               Open hosted page setup
                             </button>
+                            <Link
+                              href={`${appBase}/services/funnel-builder/settings`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                            >
+                              Manage domains
+                            </Link>
+                            <Link
+                              href={`${appBase}/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                            >
+                              Ask Pura for help
+                            </Link>
                             <Link
                               href={`${appBase}/services/reviews/page-editor`}
                               className="inline-flex items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
@@ -2762,18 +2914,33 @@ export default function PortalReviewsClient() {
 
                       {!r.businessReply && !isEditingReply ? (
                         <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                          <div className="text-xs text-zinc-600">No public response yet.</div>
-                          <button
-                            type="button"
-                            className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
-                            disabled={replySavingId === r.id}
-                            onClick={() => {
-                              setReplyDrafts((prev) => ({ ...prev, [r.id]: prev[r.id] ?? "" }));
-                              setReplyEditingId(r.id);
-                            }}
-                          >
-                            Write reply
-                          </button>
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-900">No public response yet</div>
+                            <div className="mt-1 text-xs text-zinc-600">Write a reply here, or open the live reviews page to see how this review appears publicly.</div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              className="inline-flex h-9 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white disabled:opacity-60"
+                              disabled={replySavingId === r.id}
+                              onClick={() => {
+                                setReplyDrafts((prev) => ({ ...prev, [r.id]: prev[r.id] ?? "" }));
+                                setReplyEditingId(r.id);
+                              }}
+                            >
+                              Write reply
+                            </button>
+                            {liveHostedReviewsUrl ? (
+                              <a
+                                href={liveHostedReviewsUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex h-9 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                              >
+                                Open live page
+                              </a>
+                            ) : null}
+                          </div>
                         </div>
                       ) : null}
 

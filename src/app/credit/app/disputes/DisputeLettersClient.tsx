@@ -580,14 +580,14 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
 
   useEffect(() => {
     void Promise.all([loadContacts(), loadLetters()]).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : "Failed to load dispute letters");
+      setError(cause instanceof Error ? cause.message : "Dispute letters did not load. Retry here or start a new letter.");
     });
   }, [loadContacts, loadLetters]);
 
   useEffect(() => {
     if (!selectedLetterId) return;
     void loadLetter(selectedLetterId).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : "Failed to load letter");
+      setError(cause instanceof Error ? cause.message : "That letter did not load. Retry here or open letters.");
     });
   }, [loadLetter, selectedLetterId]);
 
@@ -749,7 +749,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       setSelectedLetterId(data.letter.id);
       window.location.href = routeSet.editorHref(data.letter.id);
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : "Failed to generate letter");
+      setError(cause instanceof Error ? cause.message : "That letter did not generate. Review it here and try again.");
     } finally {
       setWorking(null);
     }
@@ -778,7 +778,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       }
       return true;
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : "Failed to save letter");
+      setError(cause instanceof Error ? cause.message : "This letter did not save. Keep editing here, then use Save draft again.");
       return false;
     } finally {
       setWorking(null);
@@ -806,7 +806,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       await loadLetter(selectedLetterId);
       await loadLetters();
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : "Failed to mark letter as mailed");
+      setError(cause instanceof Error ? cause.message : "This letter did not mail. Review the mailing details and try again.");
     } finally {
       setWorking(null);
     }
@@ -831,7 +831,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         window.open(data.pdf.downloadUrl, "_blank", "noopener,noreferrer");
       }
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : "Failed to refresh PDF");
+      setError(cause instanceof Error ? cause.message : "This PDF did not refresh. Try again here or save the draft first.");
     } finally {
       setWorking(null);
     }
@@ -1147,7 +1147,41 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => setMailModalOpen(true)} className={PRIMARY_BUTTON_CLASS}>Mail</button>
           </div>
         </div>
-        {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+        {error ? (
+          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <div className="font-semibold text-red-900">Letter needs attention</div>
+            <div className="mt-1">{error}</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={working !== null}
+                onClick={() => {
+                  if (selectedLetterId) {
+                    void loadLetter(selectedLetterId).catch((cause: unknown) => {
+                      setError(cause instanceof Error ? cause.message : "That letter did not load. Retry here or open letters.");
+                    });
+                    return;
+                  }
+                  void Promise.all([loadContacts(), loadLetters()]).catch((cause: unknown) => {
+                    setError(cause instanceof Error ? cause.message : "Dispute letters did not load. Retry here or start a new letter.");
+                  });
+                }}
+                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = routeSet.listHref;
+                }}
+                className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Open letters
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_320px]">
           <section className={classNames(GLASS_PANEL_CLASS, "p-6")}>
             <label className="block">
@@ -1228,7 +1262,33 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         </div>
         <button type="button" onClick={handleOpenComposer} className={PRIMARY_BUTTON_CLASS}>+ New</button>
       </div>
-      {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+      {error ? (
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Dispute letters need attention</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={lettersLoading || contactsLoading}
+              onClick={() => {
+                void Promise.all([loadContacts(), loadLetters()]).catch((cause: unknown) => {
+                  setError(cause instanceof Error ? cause.message : "Dispute letters did not load. Retry here or start a new letter.");
+                });
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenComposer}
+              className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              New letter
+            </button>
+          </div>
+        </div>
+      ) : null}
       <section className={classNames("mt-6 p-6", GLASS_PANEL_CLASS)}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex w-full max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">

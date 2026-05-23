@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
@@ -156,7 +156,7 @@ function downloadTextFile(filename: string, content: string) {
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Unable to read file"));
+    reader.onerror = () => reject(new Error("That file did not read. Retry here."));
     reader.onload = () => resolve(String(reader.result || ""));
     reader.readAsDataURL(file);
   });
@@ -219,6 +219,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const toast = useToast();
   const setSidebarOverride = useSetPortalSidebarOverride();
   const pathname = usePathname();
+  const router = useRouter();
   const uiPreview = usePortalUiPreview();
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
   const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
@@ -320,7 +321,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         });
         const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance; error?: string };
         if (!res.ok || !json.ok || !json.appearance) {
-          toast.error(json.error ?? "Unable to save blog fonts");
+          toast.error(json.error ?? "Blog fonts did not save. Retry here in the post appearance panel.");
           return;
         }
         setAppearance(json.appearance);
@@ -381,7 +382,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         setCreditsRemaining(snapshot.credits);
 
         if (!loaded) {
-          setError("Unable to load post");
+          setError("This post did not load. Retry here or open blogs.");
           if (firstLoad) setPost(null);
           return;
         }
@@ -401,7 +402,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: Post; error?: string };
 
       if (!res.ok || !json.ok || !json.post) {
-        setError(json.error ?? "Unable to load post");
+        setError(json.error ?? "This post did not load. Retry here or open blogs.");
         if (firstLoad) setPost(null);
         return;
       }
@@ -521,7 +522,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       setWorking(null);
 
       if (!saved) {
-        setError("Unable to save changes");
+        setError("This post did not save. Try again here or keep editing it in the editor.");
         return null;
       }
 
@@ -552,7 +553,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     setWorking(null);
 
     if (!res.ok || !json.ok || !json.post) {
-      setError(json.error ?? "Unable to save changes");
+      setError(json.error ?? "This post did not save. Try again here or keep editing it in the editor.");
       return null;
     }
 
@@ -592,7 +593,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       setWorking(null);
 
       if (!updated) {
-        setError("Unable to publish");
+        setError("This post did not publish. Try again here or keep editing it in the editor.");
         return;
       }
 
@@ -609,7 +610,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     setWorking(null);
 
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to publish");
+      setError(json.error ?? "This post did not publish. Try again here or keep editing it in the editor.");
       return;
     }
 
@@ -687,7 +688,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       if ((e as any)?.name === "AbortError") {
         return;
       }
-      setError("Unable to generate post");
+      setError("This post did not generate. Try again here or keep editing it in the editor.");
       return;
     }
 
@@ -723,6 +724,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               window.location.href = String((top as any).url);
               return;
             }
+            if (path.startsWith("/")) {
+              router.push(path, { scroll: false });
+              return;
+            }
             window.location.href = path;
             return;
           }
@@ -734,7 +739,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         return;
       }
 
-      setError(json.error ?? "Unable to generate post");
+      setError(json.error ?? "This post did not generate. Try again here or keep editing it in the editor.");
       return;
     }
 
@@ -787,7 +792,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       setWorking(null);
 
       if (!updated) {
-        setError("Unable to update archive state");
+        setError("This post did not update. Try again here or keep editing it in the editor.");
         return;
       }
 
@@ -812,7 +817,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     setWorking(null);
 
     if (!res.ok || !json.ok || !json.post) {
-      setError(json.error ?? "Unable to update archive state");
+      setError(json.error ?? "This post did not update. Try again here or keep editing it in the editor.");
       return;
     }
 
@@ -863,14 +868,29 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     return (
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
-          <div className="text-sm font-semibold text-zinc-900">Post not found</div>
-          <div className="mt-2 text-sm text-zinc-600">{error ?? "This post may have been deleted."}</div>
-          <div className="mt-6">
+          <div className="text-sm font-semibold text-zinc-900">Post needs attention</div>
+          <div className="mt-2 text-sm text-zinc-600">{error ?? "This post may have been deleted or is no longer available."}</div>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                void refresh();
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Retry
+            </button>
             <Link
               href={`${appBase}/services/blogs`}
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
             >
-              Back to blogs
+              Open blogs
+            </Link>
+            <Link
+              href={`${appBase}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Ask Pura
             </Link>
           </div>
         </div>
@@ -1106,7 +1126,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                     if (uiPreview) {
                       deletePreviewBlogPost(postId);
                       setWorking(null);
-                      window.location.href = `${appBase}/services/blogs`;
+                      router.push(`${appBase}/services/blogs`, { scroll: false });
                       return;
                     }
 
@@ -1115,11 +1135,11 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                     setWorking(null);
 
                     if (!res.ok || !json.ok) {
-                      setError(json.error ?? "Unable to delete post");
+                      setError(json.error ?? "This post did not delete. Try again here or keep editing it in the editor.");
                       return;
                     }
 
-                    window.location.href = `${appBase}/services/blogs`;
+                    router.push(`${appBase}/services/blogs`, { scroll: false });
                   }}
                 >
                   Delete
@@ -1132,7 +1152,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
                   onClick={() => {
                     setConfirmKind(null);
-                    window.location.href = `${appBase}/services/blogs`;
+                    router.push(`${appBase}/services/blogs`, { scroll: false });
                   }}
                 >
                   Leave without saving
@@ -1429,7 +1449,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                           const up = await fetch("/api/uploads", { method: "POST", body: fd });
                           const upBody = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
                           if (!up.ok || !upBody.url) {
-                            setError(upBody.error ?? "Upload failed");
+                            setError(upBody.error ?? "That image did not upload. Try again here or choose another image.");
                             return;
                           }
                           setImageUrl(upBody.url);

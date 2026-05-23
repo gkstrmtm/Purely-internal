@@ -13,7 +13,6 @@ import { listMissedCallTextBackEvents, type MissedCallTextBackEvent } from "@/li
 import { sumHoursSavedSeconds } from "@/lib/hoursSaved";
 import { sendVerifyEmail } from "@/lib/portalEmailVerification.server";
 import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
-import { getPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
 
 function safeDate(value: unknown): Date | null {
   if (typeof value !== "string" || !value.trim()) return null;
@@ -226,14 +225,13 @@ export async function GET(req: Request) {
     }
   })();
 
+  const portalSessionUser = app === "portal" ? await getPortalUser({ variant: portalVariant }).catch(() => null) : null;
+
   const user =
     app === "portal"
-      ? await (async () => {
-          const portalUser = await getPortalUser({ variant: portalVariant });
-          return portalUser
-            ? { email: portalUser.email, name: portalUser.name ?? "", role: portalUser.role }
-            : null;
-        })()
+      ? portalSessionUser
+        ? { email: portalSessionUser.email, name: portalSessionUser.name ?? "", role: portalSessionUser.role }
+        : null
       : await (async () => {
           const session = await getServerSession(authOptions);
           const employeeUser = session?.user ?? null;
@@ -252,9 +250,9 @@ export async function GET(req: Request) {
 
   let entitlementsEmail = user.email;
   let ownerIdForEntitlements: string | null = null;
+  let portalBusinessName = "";
   if (app === "portal") {
-    const portalUser = await getPortalUser({ variant: portalVariant }).catch(() => null);
-    const ownerId = portalUser?.id ? String(portalUser.id) : null;
+    const ownerId = portalSessionUser?.id ? String(portalSessionUser.id) : null;
     ownerIdForEntitlements = ownerId;
     if (ownerId) {
       const [hasEmailVerifiedAt, hasEmailSentAt] = await Promise.all([
@@ -262,7 +260,11 @@ export async function GET(req: Request) {
         dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerificationEmailSentAt" }).catch(() => false),
       ]);
 
-      const ownerSelect: Record<string, boolean> = { email: true, createdAt: true };
+      const ownerSelect: Record<string, any> = {
+        email: true,
+        createdAt: true,
+        businessProfile: { select: { businessName: true } },
+      };
       if (hasEmailVerifiedAt) ownerSelect.emailVerifiedAt = true;
       if (hasEmailSentAt) ownerSelect.emailVerificationEmailSentAt = true;
 
@@ -273,7 +275,11 @@ export async function GET(req: Request) {
         })
         .catch(() => null);
       const ownerEmail = typeof (owner as any)?.email === "string" ? String((owner as any).email).trim() : "";
+      const ownerBusinessName = typeof (owner as any)?.businessProfile?.businessName === "string"
+        ? String((owner as any).businessProfile.businessName).trim()
+        : "";
       if (ownerEmail) entitlementsEmail = ownerEmail;
+      if (ownerBusinessName) portalBusinessName = ownerBusinessName;
 
       // Send verify email about ~10 minutes after signup (first portal load after delay).
       // Guarded so it only sends once.
@@ -307,23 +313,11 @@ export async function GET(req: Request) {
         .then((u) => u?.id ?? null)
         .catch(() => null);
 
-  const [metrics, businessName] = await Promise.all([
-    metricsOwnerId
-      ? withTimeout(computeHoursSaved(metricsOwnerId), 1500, { hoursSavedThisWeek: 0, hoursSavedAllTime: 0 })
-      : Promise.resolve({ hoursSavedThisWeek: 0, hoursSavedAllTime: 0 }),
-    app === "portal" && ownerIdForEntitlements
-      ? withTimeout(
-          getPortalBusinessProfile({ ownerId: ownerIdForEntitlements })
-            .then((result) => {
-              const raw = result.json && typeof result.json === "object" ? (result.json as any)?.profile?.businessName : "";
-              return typeof raw === "string" ? raw.trim() : "";
-            })
-            .catch(() => ""),
-          1200,
-          "",
-        )
-      : Promise.resolve(""),
-  ]);
+  const businessName = app === "portal" ? portalBusinessName : "";
+
+  const metrics = metricsOwnerId
+    ? await withTimeout(computeHoursSaved(metricsOwnerId), 1500, { hoursSavedThisWeek: 0, hoursSavedAllTime: 0 })
+    : { hoursSavedThisWeek: 0, hoursSavedAllTime: 0 };
 
   return NextResponse.json({
     user: {

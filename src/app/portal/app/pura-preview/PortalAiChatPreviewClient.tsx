@@ -429,7 +429,21 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2">
           {!threads.length ? (
-            <div className="p-3 text-sm text-zinc-500">No chats yet.</div>
+            <div className="p-2">
+              <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">No chats yet</div>
+                <div className="mt-2 text-sm leading-6 text-zinc-600">
+                  Start a new preview thread to test how Pura plans work, asks follow-up questions, and responds inside the portal shell.
+                </div>
+                <button
+                  type="button"
+                  onClick={createThread}
+                  className="mt-4 inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white transition-all duration-100 hover:scale-[1.01] hover:opacity-95"
+                >
+                  New chat
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="space-y-1">
               {threads.map((thread) => {

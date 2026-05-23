@@ -117,7 +117,7 @@ function getServiceCardSummary(
     return {
       accessLabel: status.label === "Activate" ? "Ready to activate" : "Locked",
       accessTone: "locked" as const,
-      readinessLabel: status.label === "Activate" ? "Open Billing to start it" : "Add in Billing to unlock",
+      readinessLabel: status.label === "Activate" ? "Enable and set up" : "Review access and setup",
       readinessState: "locked" as const,
       showLock: true,
     };
@@ -127,7 +127,7 @@ function getServiceCardSummary(
     return {
       accessLabel: "Coming soon",
       accessTone: "coming_soon" as const,
-      readinessLabel: "Not available yet",
+      readinessLabel: "Preview the setup guide",
       readinessState: "coming_soon" as const,
       showLock: false,
     };
@@ -137,7 +137,7 @@ function getServiceCardSummary(
     return {
       accessLabel: status.label,
       accessTone: status.state,
-      readinessLabel: "Turn back on in Billing",
+      readinessLabel: "Resume service",
       readinessState: status.state,
       showLock: true,
     };

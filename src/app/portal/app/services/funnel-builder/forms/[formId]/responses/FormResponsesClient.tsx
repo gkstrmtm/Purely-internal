@@ -10,6 +10,8 @@ import {
   shortSubmissionId,
   type CreditFormField,
 } from "@/lib/creditFormSchema";
+import { hostedFormPath } from "@/lib/publicHostedKeys";
+import { toRuntimeHostedUrl } from "@/lib/publicHostedOrigin";
 
 type CreditForm = {
   id: string;
@@ -123,6 +125,16 @@ function prettyJson(value: unknown): string {
   }
 }
 
+function normalizeResponsesError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message.trim() : String(error || "").trim();
+  const lowered = message.toLowerCase();
+
+  if (lowered === "not found") return "This form or submission could not be found. It may have been deleted or you may no longer have access.";
+  if (lowered === "unauthorized" || lowered === "forbidden") return "Your session cannot open this form right now. Retry here or head back into the editor.";
+
+  return message || fallback;
+}
+
 export function FormResponsesClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
   const [form, setForm] = useState<CreditForm | null>(null);
@@ -164,6 +176,14 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
     }
     return fallbackKeys.map((k) => ({ key: k, label: k, field: null as any }));
   }, [fallbackKeys, questionFields]);
+  const runtimeHostedOrigin = useMemo(() => {
+    if (typeof window !== "undefined") return window.location.origin || null;
+    return null;
+  }, []);
+  const submissionSourceHref = useMemo(() => {
+    if (!form?.slug || !form?.id) return null;
+    return toRuntimeHostedUrl(hostedFormPath(form.slug, form.id) || `/forms/${encodeURIComponent(form.slug)}`, runtimeHostedOrigin);
+  }, [form?.id, form?.slug, runtimeHostedOrigin]);
 
   const loadForm = useCallback(async () => {
     const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
@@ -207,13 +227,33 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load submission");
         setSelectedSubmission(json as SubmissionDetailsResponse);
       } catch (e) {
-        setSelectedError((e as any)?.message ? String((e as any).message) : "Failed to load submission");
+        setSelectedError(normalizeResponsesError(e, "Submission details did not load. Retry here, go back to responses, or ask Pura to help."));
       } finally {
         setSelectedBusy(false);
       }
     },
     [formId],
   );
+
+  const reloadPage = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await loadForm();
+      setCursor(null);
+      setCursorStack([]);
+      await loadSubmissions({ cursor: null });
+    } catch (e) {
+      setError(normalizeResponsesError(e, "Form responses did not load. Retry here, open the form editor, or ask Pura to help."));
+    } finally {
+      setBusy(false);
+    }
+  }, [loadForm, loadSubmissions]);
+
+  const retrySelectedSubmission = useCallback(async () => {
+    if (!selectedSubmissionId) return;
+    await openSubmission(selectedSubmissionId);
+  }, [openSubmission, selectedSubmissionId]);
 
   const exportCsv = useCallback(async () => {
     if (exporting) return;
@@ -272,7 +312,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
       const csv = [header.map(csvEscape).join(","), ...rows.map((r) => r.map(csvEscape).join(","))].join("\n");
       downloadCsv(buildCsvFilename(form?.slug || "form"), csv);
     } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Export failed");
+      setError((e as any)?.message ? String((e as any).message) : "CSV export did not finish. Retry export or open the form editor." );
     } finally {
       setExporting(false);
     }
@@ -291,7 +331,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         await loadSubmissions({ cursor: null });
       } catch (e) {
         if (!mounted) return;
-        setError((e as any)?.message ? String((e as any).message) : "Failed to load responses");
+        setError(normalizeResponsesError(e, "Form responses did not load. Retry here, open the form editor, or ask Pura to help."));
       } finally {
         if (mounted) setBusy(false);
       }
@@ -309,7 +349,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
       setCursorStack(next.stack);
       await loadSubmissions({ cursor: next.cursor });
     } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Failed to load page");
+      setError(normalizeResponsesError(e, "This page of responses did not load. Retry here, open the form editor, or ask Pura to help."));
     } finally {
       setBusy(false);
     }
@@ -373,9 +413,69 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         </div>
       </div>
 
-      {error ? <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+      {error ? (
+        <div className="mt-6 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Form responses need attention</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void reloadPage();
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <Link
+              href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/edit`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Open form editor
+            </Link>
+            <Link
+              href={`${basePath}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
-      <div className="mt-6 flex flex-col gap-6 lg:flex-row">
+      {!busy && !form ? (
+        <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-6">
+          <div className="text-base font-semibold text-zinc-900">This form is not available right now</div>
+          <div className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
+            This response workspace did not open. Retry here to pull the form again, head back into the editor, or ask Pura to help you restore the hosted form.
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                void reloadPage();
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Retry loading form
+            </button>
+            <Link
+              href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/edit`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Open form editor
+            </Link>
+            <Link
+              href={`${basePath}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
+      {form ? <div className="mt-6 flex flex-col gap-6 lg:flex-row">
         <div className="min-w-0 flex-1">
           <div className="rounded-3xl border border-zinc-200 bg-white">
         <div className="flex items-center justify-between gap-3 border-b border-zinc-200 p-4">
@@ -384,7 +484,36 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         </div>
 
         {submissions.length === 0 ? (
-          <div className="p-6 text-sm text-zinc-600">{busy ? "Loading submissions…" : "No submissions yet."}</div>
+          <div className="p-6">
+            <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5">
+              <div className="text-sm font-semibold text-zinc-900">{busy ? "Loading submissions…" : "No submissions yet"}</div>
+              <div className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
+                {busy
+                  ? "We are pulling the latest responses now."
+                  : "This form is ready, but nobody has submitted it yet. Open the form to test the flow yourself or jump back into the editor to finish the questions and styling before you share it."}
+              </div>
+              {!busy ? (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Link
+                    href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/edit`}
+                    className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    Open form editor
+                  </Link>
+                  {submissionSourceHref ? (
+                    <a
+                      href={submissionSourceHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      {form?.status === "ACTIVE" ? "Open live form" : "Open preview form"}
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
         ) : (
           <div className="w-full overflow-auto">
             <table className="min-w-full border-separate border-spacing-0">
@@ -605,7 +734,36 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
               </div>
 
               <div className="space-y-5 p-4">
-                {selectedError ? <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{selectedError}</div> : null}
+                {selectedError ? (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    <div className="font-semibold text-red-900">Submission details need attention</div>
+                    <div className="mt-1">{selectedError}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void retrySelectedSubmission();
+                        }}
+                        className="rounded-2xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                      >
+                        Retry
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDrawerOpen(false)}
+                        className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                      >
+                        Back to responses
+                      </button>
+                      <Link
+                        href={`${basePath}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                      >
+                        Ask Pura
+                      </Link>
+                    </div>
+                  </div>
+                ) : null}
                 {selectedBusy ? <div className="text-sm text-zinc-600">Loading…</div> : null}
 
                 {!selectedBusy && selectedSubmission ? (
@@ -726,7 +884,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
             </aside>
           </div>
         ) : null}
-      </div>
+      </div> : null}
     </div>
   );
 }

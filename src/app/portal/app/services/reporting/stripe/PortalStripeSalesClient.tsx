@@ -108,14 +108,14 @@ export function PortalStripeSalesClient() {
       if (!salesRes?.ok) {
         const body = (await salesRes?.json().catch(() => ({}))) as { error?: string };
         if (isFirstLoad) setData(null);
-        setError(body?.error ?? "Unable to load Stripe sales");
+        setError(body?.error ?? "Stripe sales did not load. Retry here or review Stripe setup while reporting catches up.");
         return;
       }
 
       const payload = ((await salesRes.json().catch(() => null)) as StripeSalesPayload | null) ?? null;
       if (!payload || (payload as any).ok !== true) {
         if (isFirstLoad) setData(null);
-        setError((payload as any)?.error ?? "Unable to load Stripe sales");
+        setError((payload as any)?.error ?? "Stripe sales did not load. Retry here or review Stripe setup while reporting catches up.");
         return;
       }
 
@@ -203,6 +203,36 @@ export function PortalStripeSalesClient() {
         </div>
       </div>
 
+      {error ? (
+        <div className="mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-semibold text-red-900">Stripe sales need attention</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void load(range);
+              }}
+              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Retry
+            </button>
+            <Link
+              href={`${appBase}/profile`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Review Stripe setup
+            </Link>
+            <Link
+              href={`${appBase}/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       {loading && !hasLoadedOnceRef.current ? (
         <PortalPageLoadingShell showHeader={false} sections={2} minHeightClassName="min-h-[22rem]" className="mt-6 px-0 sm:px-0" />
       ) : null}
@@ -241,7 +271,24 @@ export function PortalStripeSalesClient() {
               <div className="text-sm font-semibold text-zinc-900">Daily net</div>
               <div className="mt-3 space-y-2">
                 {(data as any).daily.length === 0 ? (
-                  <div className="text-sm text-zinc-600">No charges in this range.</div>
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No charges in this range</div>
+                    <div className="mt-1">Widen the date range or review the Stripe connection if you expected live payment activity here.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href={`${appBase}/profile`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Review Stripe setup
+                      </Link>
+                      <Link
+                        href={`${appBase}/services/reporting`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Open reporting
+                      </Link>
+                    </div>
+                  </div>
                 ) : (
                   (data as any).daily.slice(-14).map((row: any) => (
                     <div key={row.day} className="flex items-center justify-between gap-4">
@@ -257,7 +304,24 @@ export function PortalStripeSalesClient() {
               <div className="text-sm font-semibold text-zinc-900">Recent charges</div>
               <div className="mt-3 space-y-3">
                 {(data as any).recent.length === 0 ? (
-                  <div className="text-sm text-zinc-600">No recent charges.</div>
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">No recent charges</div>
+                    <div className="mt-1">New Stripe payments will appear here after they sync through the connected account.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href={`${appBase}/profile`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Review Stripe setup
+                      </Link>
+                      <Link
+                        href={`${appBase}/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Ask Pura
+                      </Link>
+                    </div>
+                  </div>
                 ) : (
                   (data as any).recent.map((c: any) => (
                     <div key={c.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -300,7 +364,22 @@ export function PortalStripeSalesClient() {
 
       {!canShowData && status?.configured ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-          Stripe is connected, but no data is available yet.
+          <div className="font-semibold text-zinc-900">Stripe is connected, but no data is available yet</div>
+          <div className="mt-1">This usually fills in after live charges sync through the connected account. You can still review the connection or open broader reporting now.</div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Link
+              href={`${appBase}/profile`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Review Stripe setup
+            </Link>
+            <Link
+              href={`${appBase}/services/reporting`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              Open reporting
+            </Link>
+          </div>
         </div>
       ) : null}
     </div>

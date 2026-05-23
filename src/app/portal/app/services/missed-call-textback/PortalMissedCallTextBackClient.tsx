@@ -100,6 +100,10 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const pathname = usePathname() || "";
   const toast = useOptionalToast();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
+  const aiReceptionistEnableHref = useMemo(
+    () => (portalBase === "/credit" ? `${portalBase}/app/billing/upgrade` : `${portalBase}/app/billing#pa-billing-add-services`),
+    [portalBase],
+  );
   const portalVariant = portalBase === "/credit" ? "credit" : "portal";
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [loading, setLoading] = useState(true);
@@ -108,6 +112,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const entitlementBlocked = useMemo(() => Boolean(error && /enable ai receptionist|isn.?t enabled for this account/i.test(error)), [error]);
 
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
@@ -159,20 +164,20 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     const raw = (opts.rawError || "").trim();
 
     if (opts.status === 401) {
-      return "Your session expired. Please refresh and sign in again.";
+      return "Your session expired. Sign in again, then reopen Missed-Call Text Back.";
     }
 
     if (opts.status === 403) {
       return embedded
         ? "Missed-Call Text Back isn’t enabled for this account yet. Enable AI Receptionist in Billing to turn this on."
-        : "Missed-Call Text Back isn’t enabled for this account yet. Open Billing to enable AI Receptionist, then come back here.";
+        : "Missed-Call Text Back isn’t enabled for this account yet. Enable AI Receptionist, then come back here.";
     }
 
     if (raw && raw !== "Forbidden" && raw !== "Unauthorized") return raw;
 
-    if (opts.action === "save") return "We couldn’t save your changes. Please try again.";
-    if (opts.action === "regenerate") return "We couldn’t regenerate the webhook token. Please try again.";
-    return "We couldn’t load Missed-Call Text Back settings. Please refresh and try again.";
+    if (opts.action === "save") return "These Missed-Call Text Back settings did not save. Retry here or keep editing them.";
+    if (opts.action === "regenerate") return "That webhook token did not regenerate. Retry here or keep editing the settings.";
+    return "Missed-Call Text Back did not load. Retry here, open AI Receptionist, or ask Pura to help.";
   }, [embedded]);
 
   const readJsonError = useCallback(async (res: Response) => {
@@ -454,15 +459,15 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
       const formData = new FormData();
       formData.append("file", file);
       const res = await fetch("/api/uploads", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("Upload failed.");
+      if (!res.ok) throw new Error("That attachment did not upload. Try again here or reopen the attachments menu.");
       const json = await res.json().catch(() => ({}));
       const url = typeof json?.url === "string" ? json.url : null;
-      if (!url) throw new Error("Upload did not return a URL.");
+      if (!url) throw new Error("That file did not attach. Try again here or choose a different file.");
       addMediaUrl(toAbsoluteUrl(url));
       setNote("Attached.");
       window.setTimeout(() => setNote(null), 1500);
     } catch (e: any) {
-      setError(e?.message || "Failed to upload.");
+      setError(e?.message || "That attachment did not upload. Try again here or reopen the attachments menu.");
     } finally {
       setUploading(false);
     }
@@ -515,19 +520,53 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
       <div
         className={
           embedded
-            ? "w-full rounded-3xl border border-zinc-200 bg-white p-6"
-            : "mx-auto max-w-6xl rounded-3xl border border-zinc-200 bg-white p-6"
+            ? "w-full rounded-3xl border border-red-200 bg-red-50 p-6"
+            : "mx-auto max-w-6xl rounded-3xl border border-red-200 bg-red-50 p-6"
         }
       >
-        <div className="text-sm font-semibold text-zinc-900">Unable to load Missed-Call Text Back</div>
-        <div className="mt-2 text-sm text-zinc-600">{error ?? "Please try again."}</div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="mt-4 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-        >
-          Retry
-        </button>
+        <div className="text-sm font-semibold text-red-900">Missed-Call Text Back needs attention</div>
+        <div className="mt-2 text-sm text-red-700">{error ?? "Retry here."}</div>
+        <div className="mt-1 text-sm text-red-800/80">Retry here, then review AI Receptionist access if the setup still does not appear.</div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+          >
+            Retry
+          </button>
+          {entitlementBlocked ? (
+            <>
+              <Link
+                href={aiReceptionistEnableHref}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Enable AI Receptionist
+              </Link>
+              <Link
+                href={`${portalBase}/app/ai-chat?onboarding=1`}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Ask Pura
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link
+                href={`${portalBase}/app/services/ai-receptionist`}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Open AI Receptionist
+              </Link>
+              <Link
+                href={`${portalBase}/app/ai-chat?onboarding=1`}
+                className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+              >
+                Ask Pura
+              </Link>
+            </>
+          )}
+        </div>
       </div>
     );
   }
@@ -737,7 +776,24 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
                 ))}
               </div>
             ) : (
-              <div className="mt-2 text-xs text-zinc-500">No attachments.</div>
+              <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+                <div className="font-semibold text-zinc-900">No attachments</div>
+                <div className="mt-1">Add a media URL if missed callers should receive an image, file, or other asset with the text-back message.</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link
+                    href={`${portalBase}/app/services/media-library`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Open media library
+                  </Link>
+                  <Link
+                    href={`${portalBase}/app/ai-chat?onboarding=1`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Ask Pura
+                  </Link>
+                </div>
+              </div>
             )}
           </div>
 
@@ -874,7 +930,31 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
               ) : null}
             </div>
           ) : (
-            <div className="mt-4 text-sm text-zinc-600">No activity yet.</div>
+            <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+              <div className="font-semibold text-zinc-900">No activity yet</div>
+              <div className="mt-1">Once missed calls hit the connected number and the text-back rule is live, replies and delivery outcomes will appear here.</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTab("settings")}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open settings
+                </button>
+                <Link
+                  href={`${portalBase}/app/services/inbox/sms`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Open SMS inbox
+                </Link>
+                <Link
+                  href={`${portalBase}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
           )}
         </div>
       ) : null}
