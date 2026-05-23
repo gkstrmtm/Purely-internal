@@ -418,6 +418,24 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+async function findOwnerByAiReceptionistJsonPathEquals(opts: {
+  path: string[];
+  equals: string;
+}): Promise<string | null> {
+  try {
+    const row = await prisma.portalServiceSetup.findFirst({
+      where: {
+        serviceSlug: SERVICE_SLUG,
+        dataJson: { path: opts.path, equals: opts.equals } as any,
+      },
+      select: { ownerId: true },
+    });
+    return row?.ownerId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function newToken(): string {
   // URL-safe, no padding.
   return crypto.randomBytes(18).toString("base64url");
@@ -604,6 +622,31 @@ export type AiReceptionistServiceData = {
 export type PublicAiReceptionistSettings = Omit<AiReceptionistSettings, "voiceAgentApiKey"> & {
   voiceAgentConfigured: boolean;
 };
+
+function looksLikeAiReceptionistSettingsRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const rec = value as Record<string, unknown>;
+  return [
+    "enabled",
+    "mode",
+    "webhookToken",
+    "businessName",
+    "greeting",
+    "systemPrompt",
+    "forwardToPhoneE164",
+    "voiceAgentId",
+    "elevenLabsAgentId",
+    "voiceAgentApiKey",
+    "elevenLabsApiKey",
+  ].some((key) => key in rec);
+}
+
+function getAiReceptionistSettingsSource(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  if (looksLikeAiReceptionistSettingsRecord(rec.settings)) return rec.settings as Record<string, unknown>;
+  return looksLikeAiReceptionistSettingsRecord(rec) ? rec : null;
+}
 
 export function parseAiReceptionistSettings(
   raw: unknown,
@@ -796,7 +839,7 @@ function parseServiceData(raw: unknown): AiReceptionistServiceData {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
   const rec = raw as Record<string, unknown>;
 
-  const settings = parseAiReceptionistSettings(rec.settings, null);
+  const settings = parseAiReceptionistSettings(getAiReceptionistSettingsSource(rec), null);
 
   const events = Array.isArray(rec.events)
     ? (rec.events as unknown[])
@@ -919,7 +962,7 @@ export async function getAiReceptionistServiceData(ownerId: string): Promise<AiR
     ? (row.dataJson as Record<string, unknown>)
     : null;
 
-  const settings = parseAiReceptionistSettings(rec?.settings, prev);
+  const settings = parseAiReceptionistSettings(getAiReceptionistSettingsSource(rec), prev);
 
   const events = await Promise.all(
     parsed.events.map(async (event) => {
@@ -1057,15 +1100,49 @@ export async function deleteAiReceptionistCallEvent(ownerId: string, callSid: st
 export async function findOwnerByAiReceptionistWebhookToken(
   token: string,
 ): Promise<{ ownerId: string; data: AiReceptionistServiceData } | null> {
-  const rows = await prisma.portalServiceSetup.findMany({
-    where: { serviceSlug: SERVICE_SLUG },
-    select: { ownerId: true, dataJson: true },
-    take: 200,
-  });
+  const normalizedToken = String(token || "").trim();
+  if (!normalizedToken) return null;
 
-  for (const row of rows) {
-    const data = parseServiceData(row.dataJson);
-    if (data.settings.webhookToken === token) return { ownerId: row.ownerId, data };
+  const fastOwnerId = await findOwnerByAiReceptionistJsonPathEquals({
+    path: ["settings", "webhookToken"],
+    equals: normalizedToken,
+  });
+  if (fastOwnerId) {
+    const data = await getAiReceptionistServiceData(fastOwnerId).catch(() => null);
+    if (data?.settings.webhookToken === normalizedToken) {
+      return { ownerId: fastOwnerId, data };
+    }
+  }
+
+  const legacyFastOwnerId = await findOwnerByAiReceptionistJsonPathEquals({
+    path: ["webhookToken"],
+    equals: normalizedToken,
+  });
+  if (legacyFastOwnerId && legacyFastOwnerId !== fastOwnerId) {
+    const data = await getAiReceptionistServiceData(legacyFastOwnerId).catch(() => null);
+    if (data?.settings.webhookToken === normalizedToken) {
+      return { ownerId: legacyFastOwnerId, data };
+    }
+  }
+
+  let cursor: string | null = null;
+  for (let page = 0; page < 50; page += 1) {
+    const rows: Array<{ id: string; ownerId: string; dataJson: unknown }> = (await prisma.portalServiceSetup.findMany({
+      where: { serviceSlug: SERVICE_SLUG },
+      select: { id: true, ownerId: true, dataJson: true },
+      orderBy: { id: "asc" },
+      take: 1000,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    })) as any;
+
+    if (!rows.length) break;
+
+    for (const row of rows) {
+      const data = parseServiceData(row.dataJson);
+      if (data.settings.webhookToken === normalizedToken) return { ownerId: row.ownerId, data };
+    }
+
+    cursor = rows[rows.length - 1]?.id ?? null;
   }
 
   return null;
