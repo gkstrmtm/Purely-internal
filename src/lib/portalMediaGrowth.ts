@@ -18,7 +18,7 @@ export const MEDIA_GROWTH_STATES = [
   "used_in_campaign",
 ] as const;
 
-export const MEDIA_DISTRIBUTION_PROVIDER_KEYS = ["manual", "facebook_page", "instagram_business", "future_tiktok", "future_linkedin"] as const;
+export const MEDIA_DISTRIBUTION_PROVIDER_KEYS = ["manual", "facebook_page", "instagram_business", "future_youtube", "future_tiktok", "future_linkedin"] as const;
 
 export const MEDIA_PROVIDER_CONNECTION_STATES = [
   "coming_soon",
@@ -253,6 +253,8 @@ function inferDistributionProvider(targetPlatform: string | null | undefined): M
     case "instagram_post":
     case "instagram_story":
       return "instagram_business";
+    case "youtube_video":
+      return "future_youtube";
     default:
       return "manual";
   }
@@ -262,6 +264,8 @@ function defaultProviderConnectionState(provider: MediaDistributionProviderKey):
   switch (provider) {
     case "manual":
       return "connected";
+    case "future_youtube":
+      return "coming_soon";
     case "future_tiktok":
     case "future_linkedin":
       return "not_connected";
@@ -282,6 +286,7 @@ function defaultProviderPublishState(args: {
   providerLastError: string | null;
 }): MediaProviderPublishState {
   if (args.providerPostId || args.providerPublishedAtIso) return "published";
+  if (args.distributionProvider === "future_youtube") return "manual_only";
   if (args.workflowState === "queued") return "queued";
   if (args.workflowState === "provider_failed" || args.providerLastError) return "failed";
   if (args.workflowState === "provider_blocked") return "blocked";

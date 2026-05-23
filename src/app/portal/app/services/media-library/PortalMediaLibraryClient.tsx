@@ -7,8 +7,8 @@ import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 
 import { AppModal } from "@/components/AppModal";
-import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import type { PortalMetaProviderReadiness } from "@/lib/portalMetaProviderReadiness";
 import { PORTAL_VARIANT_HEADER, portalVariantFromPathname } from "@/lib/portalVariant";
@@ -53,7 +53,7 @@ type MediaGrowthState =
   | "posted_manually"
   | "used_in_campaign";
 
-type DistributionProviderKey = "manual" | "facebook_page" | "instagram_business" | "future_tiktok" | "future_linkedin";
+type DistributionProviderKey = "manual" | "facebook_page" | "instagram_business" | "future_youtube" | "future_tiktok" | "future_linkedin";
 
 type ProviderConnectionState =
   | "coming_soon"
@@ -68,6 +68,8 @@ type ProviderConnectionState =
   | "metrics_unavailable";
 
 type ProviderPublishState = "manual_only" | "draft" | "ready" | "queued" | "published" | "failed" | "blocked";
+
+type WorkflowFilterKey = "all" | "scheduled" | "ready" | "needs_copy" | "review" | "manual_only" | "posted";
 
 type MediaGrowthProfile = {
   mediaItemId: string;
@@ -145,14 +147,6 @@ type ListRes =
 type MetaReadinessRes =
   | {
       ok: true;
-      readiness: PortalMetaProviderReadiness;
-    }
-  | { ok: false; error?: string };
-
-type MetaDisconnectRes =
-  | {
-      ok: true;
-      note?: string;
       readiness: PortalMetaProviderReadiness;
     }
   | { ok: false; error?: string };
@@ -266,17 +260,17 @@ function emptyGrowthProfile(mediaItemId: string): MediaGrowthProfile {
 function growthStateLabel(state: MediaGrowthState | null | undefined) {
   switch (state) {
     case "needs_caption":
-      return "Needs caption";
+      return "Needs copy";
     case "needs_approval":
-      return "Needs approval";
+      return "Review before posting";
     case "approved":
       return "Approved";
     case "ready_to_use":
-      return "Ready";
+      return "Ready to plan";
     case "planned":
       return "Planned";
     case "provider_blocked":
-      return "Provider blocked";
+      return "Manual posting only";
     case "queued":
       return "Queued";
     case "provider_failed":
@@ -293,13 +287,15 @@ function growthStateLabel(state: MediaGrowthState | null | undefined) {
 function distributionProviderLabel(value: DistributionProviderKey | string | null | undefined) {
   switch (String(value || "")) {
     case "facebook_page":
-      return "Facebook Page";
+      return "Social page";
     case "instagram_business":
-      return "Instagram Business";
+      return "Social account";
+    case "future_youtube":
+      return "YouTube";
     case "future_tiktok":
-      return "TikTok (future)";
+      return "Future provider";
     case "future_linkedin":
-      return "LinkedIn (future)";
+      return "Future provider";
     default:
       return "Manual upload";
   }
@@ -358,6 +354,8 @@ function inferDistributionProvider(targetPlatform: string | null | undefined): D
     case "instagram_post":
     case "instagram_story":
       return "instagram_business";
+    case "youtube_video":
+      return "future_youtube";
     default:
       return "manual";
   }
@@ -367,6 +365,8 @@ function defaultProviderConnectionState(provider: DistributionProviderKey): Prov
   switch (provider) {
     case "manual":
       return "connected";
+    case "future_youtube":
+      return "coming_soon";
     case "future_tiktok":
     case "future_linkedin":
       return "not_connected";
@@ -398,6 +398,8 @@ function resolveProviderContinuity(profile: MediaGrowthProfile, metaReadiness?: 
     : profile.providerPublishState
       || (profile.providerPostId || profile.providerPublishedAtIso
         ? "published"
+        : providerKey === "future_youtube"
+          ? "manual_only"
         : profile.workflowState === "queued"
           ? "queued"
           : profile.workflowState === "provider_failed" || profile.providerLastError
@@ -412,28 +414,30 @@ function resolveProviderContinuity(profile: MediaGrowthProfile, metaReadiness?: 
   const blocked = publishState === "blocked";
   const detail = profile.workflowState === "posted_manually" || providerKey === "manual"
     ? "Manual posting is available now. Open or download the asset, then track the manual post here."
+    : providerKey === "future_youtube"
+      ? "YouTube planning is available here now. Upload and analytics stay manual until direct sync is ready."
     : providerKey === "facebook_page" || providerKey === "instagram_business"
       ? connectionState === "connected"
-        ? "Meta connection is ready. Purely will still require your approval before any direct publish path is used."
-        : connectionState === "needs_permissions"
-          ? "Meta is connected, but the next permission step is still missing. Purely can verify the account now, while direct publishing stays blocked and manual posting remains available."
-        : connectionState === "permission_missing"
-          ? "Meta is connected, but required permissions are still missing. Fix the granted permissions before direct publish can continue."
+        ? "A connected publishing provider is available, but direct publishing stays off. Use manual posting and track the result here."
+        : connectionState === "needs_permissions" || connectionState === "permission_missing"
+          ? "Provider access is incomplete, so direct publishing stays blocked. Use manual posting and keep the schedule here."
           : connectionState === "reconnect_required"
-            ? "Meta needs to be reconnected before direct publish can continue. Until then, use manual posting."
+            ? "Reconnect the provider before direct publishing can continue. Until then, use manual posting."
             : connectionState === "disabled"
-              ? "Meta connection is disabled in this environment. Each business connects its own Meta assets when the owner-scoped shell is enabled."
+              ? "Provider connection is disabled in this environment. Use manual posting and keep planning inside Purely."
               : connectionState === "not_connected"
-                ? "Connect your own Facebook Page and Instagram professional account when Meta early access is enabled. Purely will never post without your approval. Until then, use manual posting."
-                : "Meta direct publishing is coming soon. Each business will connect its own Facebook Page and Instagram professional account when this is enabled. Publishing requires Meta approval and permissions. Until connected, use manual posting."
+                ? "Direct publishing is not connected from this workspace yet. Use manual posting and keep planning inside Purely."
+                : "Direct provider publishing is not available yet. Use manual posting and keep planning inside Purely."
       : "This provider is future-facing. Manual posting is available now while direct provider continuity is not connected yet.";
-  const metricsLabel = (providerKey === "facebook_page" || providerKey === "instagram_business") && connectionState !== "connected"
-    ? "Metrics stay unavailable until a real Meta connection and approved provider publish exist."
+  const metricsLabel = providerKey === "future_youtube"
+    ? "YouTube analytics stay unavailable until Google OAuth, API scopes, quota, and app verification are ready."
+    : (providerKey === "facebook_page" || providerKey === "instagram_business") && connectionState !== "connected"
+      ? "Metrics stay unavailable until a connected provider post exists."
     : profile.metricsSyncedAtIso
-    ? `Metrics synced ${formatCalendarDay(profile.metricsSyncedAtIso)} at ${formatCalendarTime(profile.metricsSyncedAtIso)}`
-    : profile.providerPostId || profile.providerPublishedAtIso
-      ? "Metrics are pending or unavailable from the provider."
-      : "Metrics require a connected provider post.";
+      ? `Metrics synced ${formatCalendarDay(profile.metricsSyncedAtIso)} at ${formatCalendarTime(profile.metricsSyncedAtIso)}`
+      : profile.providerPostId || profile.providerPublishedAtIso
+        ? "Metrics are pending or unavailable from the provider."
+        : "Metrics require a connected provider post.";
 
   return {
     providerKey,
@@ -456,6 +460,8 @@ function targetPlatformLabel(value: string | null | undefined) {
       return "Instagram story";
     case "facebook_post":
       return "Facebook post";
+    case "youtube_video":
+      return "YouTube video";
     case "newsletter":
       return "Newsletter";
     case "email":
@@ -524,6 +530,8 @@ function buildCaptionStarter(item: Item, profile: MediaGrowthProfile, context: M
   const ctaHref = profile.ctaHref || profile.bookingLinkUrl || context?.bookingLink?.url || "";
   const intro = platform === "SMS"
     ? `Quick update about ${offer}:`
+    : platform === "YouTube video"
+      ? `YouTube title + description ideas for ${offer}.`
     : `Draft ${platform.toLowerCase()} copy for ${offer}.`;
   return [
     intro,
@@ -532,12 +540,194 @@ function buildCaptionStarter(item: Item, profile: MediaGrowthProfile, context: M
   ].filter(Boolean).join("\n\n");
 }
 
+type WorkflowResultSlot = {
+  label: string;
+  value: string;
+  detail: string;
+  href?: string | null;
+};
+
+type WorkflowNextStep = {
+  title: string;
+  detail: string;
+};
+
+function formatResultMetric(value: number | null | undefined, label: string) {
+  const count = Number(value ?? 0);
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return `${count.toLocaleString()} ${label}`;
+}
+
+function buildWorkflowNextStep(
+  profile: MediaGrowthProfile,
+  continuity: ReturnType<typeof resolveProviderContinuity>,
+  variant: "portal" | "credit",
+): WorkflowNextStep {
+  const nextStepLabel = variant === "credit" ? "consultation or document follow-up" : "booking or follow-up";
+
+  if (profile.targetPlatform === "youtube_video" && !profile.captionDraft) {
+    return {
+      title: "Draft the title and description",
+      detail: "Use the draft field for the YouTube title, description outline, and the first pinned-link idea before manual upload.",
+    };
+  }
+
+  if (profile.targetPlatform === "youtube_video" && !profile.notes) {
+    return {
+      title: "Add thumbnail and posting notes",
+      detail: "Use the notes field for thumbnail direction, hook ideas, chapter notes, or the manual-upload checklist while YouTube sync stays off.",
+    };
+  }
+
+  if (!profile.captionDraft) {
+    return {
+      title: "Write the draft",
+      detail: "This asset still needs caption or copy before it should move into approval or the schedule.",
+    };
+  }
+
+  if (!profile.ctaHref && (profile.targetPlatform || profile.workflowState === "ready_to_use" || profile.workflowState === "planned")) {
+    return {
+      title: "Add a tracked link",
+      detail: `Attach a ${nextStepLabel} link before posting so the next action is clear and future clicks have a real destination.`,
+    };
+  }
+
+  if (profile.workflowState === "needs_approval") {
+    return {
+      title: "Approve before scheduling",
+      detail: "The draft is ready for review. Approve it before it moves into the calendar or manual posting.",
+    };
+  }
+
+  if ((profile.plannedForIso || profile.workflowState === "planned") && !profile.postedAtIso) {
+    return {
+      title: continuity.blocked ? "Post manually or reschedule" : "Post or reschedule",
+      detail: continuity.blocked
+        ? "The time is set, but direct provider publishing stays blocked. Post it manually and store the public URL here, or move the schedule."
+        : "This asset already has a time. Post it manually when due, or adjust the timing if the campaign changed.",
+    };
+  }
+
+  if (profile.workflowState === "posted_manually" && !profile.postedUrl) {
+    return {
+      title: profile.targetPlatform === "youtube_video" ? "Save the live YouTube URL" : "Save the live post URL",
+      detail: profile.targetPlatform === "youtube_video"
+        ? "Store the public YouTube URL after manual upload so the team can review the live video later."
+        : "Store the public URL after posting so the team can review the live asset later.",
+    };
+  }
+
+  if (profile.workflowState === "posted_manually" && !profile.ctaHref) {
+    return {
+      title: "Use a tracked link next time",
+      detail: "Manual post results do not connect automatically. Add a tracked Purely link on the next iteration so clicks and follow-up have a real path.",
+    };
+  }
+
+  if (profile.workflowState === "posted_manually") {
+    return {
+      title: "Try the next iteration",
+      detail: "Reuse the asset with a different offer, caption, or posting time based on what happened after the manual post.",
+    };
+  }
+
+  if (continuity.blocked) {
+    return {
+      title: "Finish provider setup",
+      detail: "Manual posting is still available, but direct provider continuity remains blocked until the provider connection is ready.",
+    };
+  }
+
+  if (profile.workflowState === "ready_to_use" || profile.workflowState === "approved") {
+    return {
+      title: "Schedule the asset",
+      detail: "The draft, target, and CTA are in place. Pick a posting time and keep the asset moving through the manual-post workflow.",
+    };
+  }
+
+  return {
+    title: "Move the asset forward",
+    detail: "Add the missing workflow details, then schedule it or use it in the next manual-post cycle.",
+  };
+}
+
+function supportsYouTubePlanning(item: Item | null | undefined, profile: MediaGrowthProfile | null | undefined) {
+  return Boolean(
+    (item && itemPreviewKind(item) === "video")
+    || profile?.targetPlatform === "youtube_video"
+    || profile?.distributionProvider === "future_youtube",
+  );
+}
+
+function buildWorkflowResultSlots(
+  profile: MediaGrowthProfile,
+  continuity: ReturnType<typeof resolveProviderContinuity>,
+  variant: "portal" | "credit",
+): WorkflowResultSlot[] {
+  const providerMetrics = [
+    formatResultMetric(profile.metricsImpressions, "impressions"),
+    formatResultMetric(profile.metricsReach, "reach"),
+    formatResultMetric(profile.metricsEngagementCount, "engagements"),
+    formatResultMetric(profile.metricsClickCount, "clicks"),
+  ].filter(Boolean).join(" • ");
+
+  return [
+    {
+      label: "Manual post",
+      value: profile.postedUrl ? "Live URL saved" : profile.postedAtIso ? "Posted manually" : "Not posted yet",
+      detail: profile.postedUrl
+        ? profile.postedUrl
+        : profile.postedAtIso
+          ? "Add the public post URL when you have it."
+          : "Use this slot after a manual post so the live asset is easy to find.",
+      href: profile.postedUrl,
+    },
+    {
+      label: "Tracked link",
+      value: profile.ctaHref ? (profile.ctaLabel || "Tracked link attached") : "No tracked link",
+      detail: profile.ctaHref
+        ? profile.ctaHref
+        : variant === "credit"
+          ? "Use a consultation, report, or document follow-up link before posting."
+          : "Use a booking, funnel, or follow-up link before posting.",
+      href: profile.ctaHref,
+    },
+    {
+      label: "Funnel or form",
+      value: profile.funnelPageTitle || profile.funnelName || "Not linked",
+      detail: profile.funnelId
+        ? "Form submissions stay in the linked funnel flow, but this asset does not get automatic attribution yet."
+        : "Link a funnel or form if you want the next step to stay inside Purely.",
+    },
+    {
+      label: "Booking handoff",
+      value: profile.bookingLinkUrl ? "Linked" : "Unavailable",
+      detail: profile.bookingLinkUrl
+        ? "Booking handoffs live in booking reporting when Purely stores them, but they are not attributed back to this asset automatically yet."
+        : variant === "credit"
+          ? "Attach a consultation or intake link if this asset should drive appointments."
+          : "Attach a booking link if this asset should drive appointments.",
+    },
+    {
+      label: "Provider metrics",
+      value: providerMetrics || (profile.providerPostId || profile.providerPublishedAtIso ? "Provider post stored" : "Unavailable"),
+      detail: providerMetrics
+        ? continuity.metricsLabel
+        : profile.workflowState === "posted_manually"
+          ? "Manual post results are not connected automatically."
+          : continuity.metricsLabel,
+    },
+  ];
+}
+
 export function PortalMediaLibraryClient() {
   const toastNotify = useToast();
   const portalVariant = useMemo(() => {
     if (typeof window === "undefined") return "portal" as const;
     return portalVariantFromPathname(window.location.pathname);
   }, []);
+  const isCreditWorkspace = portalVariant === "credit";
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -556,6 +746,7 @@ export function PortalMediaLibraryClient() {
 
   const [search, setSearch] = useState<string>("");
   const [viewMode, setViewMode] = useState<"library" | "calendar">("library");
+  const [workflowFilter, setWorkflowFilter] = useState<WorkflowFilterKey>("all");
   const [selected, setSelected] = useState<{ kind: "folder"; id: string } | { kind: "item"; id: string } | null>(null);
 
   const [openMenu, setOpenMenu] = useState<
@@ -598,7 +789,6 @@ export function PortalMediaLibraryClient() {
   const [selectedGrowthProfile, setSelectedGrowthProfile] = useState<MediaGrowthProfile | null>(null);
   const [growthContext, setGrowthContext] = useState<MediaGrowthContext | null>(null);
   const [metaReadiness, setMetaReadiness] = useState<PortalMetaProviderReadiness | null>(null);
-  const [metaActionWorking, setMetaActionWorking] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailSaving, setDetailSaving] = useState(false);
 
@@ -619,11 +809,27 @@ export function PortalMediaLibraryClient() {
     return previewGrowthProfile ? resolveProviderContinuity(previewGrowthProfile, metaReadiness) : null;
   }, [metaReadiness, previewGrowthProfile]);
 
+  const previewNextStep = useMemo(() => {
+    return previewGrowthProfile && previewContinuity
+      ? buildWorkflowNextStep(previewGrowthProfile, previewContinuity, portalVariant)
+      : null;
+  }, [portalVariant, previewContinuity, previewGrowthProfile]);
+
+  const previewResultSlots = useMemo(() => {
+    return previewGrowthProfile && previewContinuity
+      ? buildWorkflowResultSlots(previewGrowthProfile, previewContinuity, portalVariant)
+      : [];
+  }, [portalVariant, previewContinuity, previewGrowthProfile]);
+
+  const previewSupportsYouTubePlanning = useMemo(() => {
+    return supportsYouTubePlanning(previewItem, previewGrowthProfile);
+  }, [previewGrowthProfile, previewItem]);
+
   const loadMetaReadiness = useCallback(async () => {
     const res = await fetch("/api/portal/media/providers/meta/readiness", { cache: "no-store" });
     const json = (await res.json().catch(() => null)) as MetaReadinessRes | null;
     if (!res.ok || !json || json.ok !== true) {
-      throw new Error(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load Meta readiness");
+      throw new Error(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load provider readiness");
     }
     setMetaReadiness(json.readiness);
   }, []);
@@ -632,7 +838,7 @@ export function PortalMediaLibraryClient() {
     let cancelled = false;
 
     void loadMetaReadiness().catch((err) => {
-      if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load Meta readiness");
+      if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load provider readiness");
     });
 
     return () => {
@@ -719,6 +925,7 @@ export function PortalMediaLibraryClient() {
       setBreadcrumbs(Array.isArray(json.breadcrumbs) ? json.breadcrumbs : []);
       setFolders(Array.isArray(json.folders) ? json.folders : []);
       setItems(Array.isArray(json.items) ? json.items : []);
+
       didLoad = true;
     } finally {
       if (didLoad) hasLoadedOnceRef.current = true;
@@ -801,6 +1008,12 @@ export function PortalMediaLibraryClient() {
       .sort((left, right) => sortIsoAsc(left.growthProfile?.updatedAtIso || left.createdAt, right.growthProfile?.updatedAtIso || right.createdAt));
   }, [filteredItems]);
 
+  const readyWithoutScheduleItems = useMemo(() => {
+    return [...approvedQueueItems, ...unscheduledReadyItems].sort((left, right) =>
+      sortIsoAsc(left.growthProfile?.updatedAtIso || left.createdAt, right.growthProfile?.updatedAtIso || right.createdAt),
+    );
+  }, [approvedQueueItems, unscheduledReadyItems]);
+
   const postedCalendarItems = useMemo(() => {
     return [...filteredItems]
       .filter((item) => Boolean(item.growthProfile?.postedAtIso) || item.growthProfile?.workflowState === "posted_manually")
@@ -841,57 +1054,116 @@ export function PortalMediaLibraryClient() {
       .sort((left, right) => sortIsoAsc(right.growthProfile?.providerLastAttemptAtIso || right.growthProfile?.updatedAtIso || right.createdAt, left.growthProfile?.providerLastAttemptAtIso || left.growthProfile?.updatedAtIso || left.createdAt));
   }, [filteredItems]);
 
-  const metaActionLabel = metaReadiness?.actionLabel || "Coming soon";
-  const metaConnectHref = metaReadiness?.connectHref || null;
-  const metaDisconnectHref = metaReadiness?.disconnectHref || null;
-  const metaShowDisconnect = Boolean(metaDisconnectHref && (metaReadiness?.status === "connected" || metaReadiness?.status === "needs_permissions" || metaReadiness?.status === "reconnect_required"));
-  const metaActionDisabled = metaShowDisconnect ? metaActionWorking : Boolean(!metaConnectHref || metaActionWorking);
-  const metaEducation = metaReadiness?.education || [
-    "Connect your own Facebook Page and Instagram professional account when this is enabled.",
-    "Purely will never post without your approval.",
-    "Each business connects its own Meta assets.",
-    "Publishing requires Meta approval and permissions.",
-    "Until connected, use manual posting.",
-  ];
-  const metaSetupMessage = metaReadiness?.setupMessage || "Connection lets Purely verify your Meta account first. Posting and metrics will be enabled after permissions and app review are ready.";
-  const metaPermissionGaps = metaReadiness?.permissionGaps || [];
-  const metaTargetAccounts = metaReadiness?.targetAccounts || [
-    { key: "facebook_page", label: "Facebook Page", status: "coming_soon", connected: false, placeholder: true },
-    { key: "instagram_professional", label: "Instagram professional account", status: "coming_soon", connected: false, placeholder: true },
-  ];
+  const manualOnlyItems = useMemo(() => {
+    const alreadyPlaced = new Set([
+      ...plannedCalendarItems,
+      ...readyWithoutScheduleItems,
+      ...needsCaptionItems,
+      ...needsApprovalItems,
+      ...postedCalendarItems,
+    ].map((item) => item.id));
 
-  const handleMetaConnect = useCallback(() => {
-    if (!metaConnectHref || metaActionWorking) return;
-    window.location.assign(metaConnectHref);
-  }, [metaActionWorking, metaConnectHref]);
+    return [...providerBlockedItems]
+      .filter((item) => !alreadyPlaced.has(item.id))
+      .sort((left, right) => sortIsoAsc(left.growthProfile?.plannedForIso || left.growthProfile?.updatedAtIso || left.createdAt, right.growthProfile?.plannedForIso || right.growthProfile?.updatedAtIso || right.createdAt));
+  }, [needsApprovalItems, needsCaptionItems, plannedCalendarItems, postedCalendarItems, providerBlockedItems, readyWithoutScheduleItems]);
 
-  const handleMetaDisconnect = useCallback(async () => {
-    if (!metaDisconnectHref || metaActionWorking) return;
-    setMetaActionWorking(true);
-    try {
-      const res = await fetch(metaDisconnectHref, { method: "DELETE" });
-      const json = (await res.json().catch(() => null)) as MetaDisconnectRes | null;
-      if (!res.ok || !json || json.ok !== true) {
-        throw new Error(typeof (json as any)?.error === "string" ? (json as any).error : "Unable to disconnect Meta");
-      }
-      setMetaReadiness(json.readiness);
-      toastNotify.success(json.note || "Meta disconnected.");
-      await loadMetaReadiness();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to disconnect Meta");
-    } finally {
-      setMetaActionWorking(false);
+  const providerHistoryItems = useMemo(() => {
+    const alreadyPlaced = new Set([
+      ...plannedCalendarItems,
+      ...readyWithoutScheduleItems,
+      ...needsCaptionItems,
+      ...needsApprovalItems,
+      ...manualOnlyItems,
+      ...postedCalendarItems,
+    ].map((item) => item.id));
+    const uniqueItems = new Map<string, Item>();
+
+    for (const item of [...providerFailedItems, ...queuedProviderItems]) {
+      if (alreadyPlaced.has(item.id) || uniqueItems.has(item.id)) continue;
+      uniqueItems.set(item.id, item);
     }
-  }, [loadMetaReadiness, metaActionWorking, metaDisconnectHref, toastNotify]);
 
-  const queueSummary = useMemo(() => ([
-    { label: "Needs caption", count: needsCaptionItems.length, tone: "zinc" },
-    { label: "Needs approval", count: needsApprovalItems.length, tone: "amber" },
-    { label: "Approved", count: approvedQueueItems.length, tone: "emerald" },
-    { label: "Provider blocked", count: providerBlockedItems.length, tone: "rose" },
-    { label: "Queued", count: queuedProviderItems.length, tone: "sky" },
-    { label: "Provider failed", count: providerFailedItems.length, tone: "orange" },
-  ]), [needsCaptionItems.length, needsApprovalItems.length, approvedQueueItems.length, providerBlockedItems.length, queuedProviderItems.length, providerFailedItems.length]);
+    return Array.from(uniqueItems.values());
+  }, [manualOnlyItems, needsApprovalItems, needsCaptionItems, plannedCalendarItems, postedCalendarItems, providerFailedItems, queuedProviderItems, readyWithoutScheduleItems]);
+
+  const workflowSections = useMemo(() => ([
+    {
+      key: "scheduled" as const,
+      label: "Scheduled content",
+      description: "Items with a planned date that still need manual posting or a schedule change.",
+      count: plannedCalendarItems.length,
+    },
+    {
+      key: "ready" as const,
+      label: "Ready to plan",
+      description: "Assets that are ready for a date, time, or immediate manual post.",
+      count: readyWithoutScheduleItems.length,
+    },
+    {
+      key: "review" as const,
+      label: "Review before posting",
+      description: "Assets that should be reviewed before they move onto the plan.",
+      count: needsApprovalItems.length,
+    },
+    {
+      key: "needs_copy" as const,
+      label: "Needs copy",
+      description: "Assets that still need caption or draft copy before they move forward.",
+      count: needsCaptionItems.length,
+    },
+    {
+      key: "manual_only" as const,
+      label: "Manual posting only",
+      description: "These assets can move ahead, but the live post still needs to be handled manually.",
+      count: manualOnlyItems.length,
+    },
+    {
+      key: "posted" as const,
+      label: "Posted manually",
+      description: "Assets already posted outside Purely and saved here for future reference.",
+      count: postedCalendarItems.length,
+    },
+  ]), [manualOnlyItems.length, needsApprovalItems.length, needsCaptionItems.length, plannedCalendarItems.length, postedCalendarItems.length, readyWithoutScheduleItems.length]);
+
+  const workflowFilterOptions = useMemo(() => {
+    const totalCount = workflowSections.reduce((sum, section) => sum + section.count, 0);
+    return [
+      { key: "all" as const, label: "All", count: totalCount },
+      ...workflowSections
+        .filter((section) => section.count > 0)
+        .map((section) => ({ key: section.key, label: section.label, count: section.count })),
+    ];
+  }, [workflowSections]);
+
+  const visibleWorkflowSections = useMemo(() => {
+    return workflowSections.filter((section) => section.count > 0 && (workflowFilter === "all" || workflowFilter === section.key));
+  }, [workflowFilter, workflowSections]);
+
+  const workflowEmptyMessage = useMemo(() => {
+    switch (workflowFilter) {
+      case "scheduled":
+        return "Nothing is scheduled yet.";
+      case "ready":
+        return "Nothing is ready to plan yet.";
+      case "review":
+        return "Nothing is waiting for review right now.";
+      case "needs_copy":
+        return "Nothing needs copy right now.";
+      case "manual_only":
+        return "Nothing is sitting in a manual-only lane right now.";
+      case "posted":
+        return "No assets have been marked posted manually yet.";
+      default:
+        return isCreditWorkspace
+          ? "Upload media, add the draft, attach the consultation link, set a plan, then mark it posted manually when it goes live."
+          : "Upload media, add the draft, attach the booking or funnel link, set a plan, then mark it posted manually when it goes live.";
+    }
+  }, [isCreditWorkspace, workflowFilter]);
+
+  const workflowFilterLabel = useMemo(() => {
+    return workflowFilterOptions.find((option) => option.key === workflowFilter)?.label || "All";
+  }, [workflowFilter, workflowFilterOptions]);
 
   const calendarExportText = useMemo(() => {
     const plannedLines = plannedCalendarItems.map((item) => {
@@ -902,18 +1174,18 @@ export function PortalMediaLibraryClient() {
       const profile = item.growthProfile || emptyGrowthProfile(item.id);
       return `READY | ${targetPlatformLabel(profile.targetPlatform)} | ${item.fileName} | ${profile.campaignLabel || "No campaign label"}`;
     });
-    const blockedLines = providerBlockedItems.map((item) => {
+    const blockedLines = manualOnlyItems.map((item) => {
       const profile = item.growthProfile || emptyGrowthProfile(item.id);
       const continuity = resolveProviderContinuity(profile);
-      return `BLOCKED | ${continuity.providerLabel} | ${item.fileName} | ${continuity.connectionLabel}`;
+      return `MANUAL ONLY | ${continuity.providerLabel} | ${item.fileName} | ${continuity.connectionLabel}`;
     });
     return [
       "Purely content calendar export",
       plannedLines.length ? ["", "Planned content", ...plannedLines].join("\n") : "",
-      readyLines.length ? ["", "Unscheduled ready", ...readyLines].join("\n") : "",
-      blockedLines.length ? ["", "Provider blocked", ...blockedLines].join("\n") : "",
+      readyLines.length ? ["", "Ready to plan", ...readyLines].join("\n") : "",
+      blockedLines.length ? ["", "Manual posting only", ...blockedLines].join("\n") : "",
     ].filter(Boolean).join("\n");
-  }, [plannedCalendarItems, providerBlockedItems, unscheduledReadyItems]);
+  }, [manualOnlyItems, plannedCalendarItems, unscheduledReadyItems]);
 
   async function createFolder() {
     const name = newFolderName.trim();
@@ -1386,139 +1658,174 @@ export function PortalMediaLibraryClient() {
     const profile = item.growthProfile || emptyGrowthProfile(item.id);
     const previewKind = itemPreviewKind(item);
     const continuity = resolveProviderContinuity(profile);
+    const nextStep = buildWorkflowNextStep(profile, continuity, portalVariant);
+    const scheduleLabel = profile.plannedForIso ? `${formatCalendarDay(profile.plannedForIso)} at ${formatCalendarTime(profile.plannedForIso)}` : "No schedule";
+    const campaignLabel = profile.campaignLabel || profile.relatedOffer || "Not labeled";
+    const ctaLabel = profile.ctaLabel || (profile.ctaHref ? "Tracked link attached" : isCreditWorkspace ? "No consultation link yet" : "No booking link yet");
+    const providerLabel = `${continuity.providerLabel} · ${continuity.connectionLabel}`;
+    const cardSummary = profile.captionDraft
+      ? profile.captionDraft.slice(0, 140)
+      : nextStep.detail;
+    const supportHref = profile.postedUrl || profile.ctaHref || null;
+    const supportLabel = profile.postedUrl ? "Open post" : profile.ctaHref ? "Open CTA" : null;
 
     return (
-      <div key={item.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex min-w-0 gap-4">
-            <button
-              type="button"
-              onClick={() => openItemPreview(item.id)}
-              className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100"
-            >
-              {previewKind === "image" && item.previewUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={item.previewUrl} alt={item.fileName} className="h-full w-full object-cover" />
-              ) : previewKind === "video" && (item.previewUrl || item.openUrl) ? (
-                <video src={item.previewUrl || item.openUrl} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-              ) : (
-                <span className="text-xs font-semibold text-zinc-600">{itemTypeLabel(item)}</span>
-              )}
-            </button>
-
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="truncate text-sm font-semibold text-zinc-900">{item.fileName}</div>
-                <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
+      <article key={item.id} className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+        <button
+          type="button"
+          onClick={() => openItemPreview(item.id)}
+          className="group block w-full text-left"
+        >
+          <div className="relative aspect-[4/3] overflow-hidden bg-zinc-100">
+            {previewKind === "image" && item.previewUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={item.previewUrl} alt={item.fileName} className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
+            ) : previewKind === "video" && (item.previewUrl || item.openUrl) ? (
+              <video src={item.previewUrl || item.openUrl} className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" muted playsInline preload="metadata" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-zinc-500">{itemTypeLabel(item)}</div>
+            )}
+            <div className="absolute inset-x-0 top-0 flex flex-wrap items-start justify-between gap-2 p-3">
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full bg-white/92 px-2.5 py-1 text-[11px] font-semibold text-zinc-900 shadow-sm">
                   {growthStateLabel(profile.workflowState)}
                 </span>
                 {profile.targetPlatform ? (
-                  <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
+                  <span className="rounded-full bg-sky-50/95 px-2.5 py-1 text-[11px] font-semibold text-sky-700 shadow-sm">
                     {targetPlatformLabel(profile.targetPlatform)}
                   </span>
                 ) : null}
-                <span
-                  className={classNames(
-                    "rounded-full px-2.5 py-1 text-[11px] font-semibold",
-                    continuity.blocked
-                      ? "bg-rose-50 text-rose-700"
-                      : continuity.publishState === "published"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : continuity.publishState === "queued"
-                          ? "bg-sky-50 text-sky-700"
-                          : "bg-zinc-100 text-zinc-700",
-                  )}
-                >
-                  {continuity.publishLabel}
-                </span>
               </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600">
-                <span>Planned: {profile.plannedForIso ? `${formatCalendarDay(profile.plannedForIso)} at ${formatCalendarTime(profile.plannedForIso)}` : "Not scheduled"}</span>
-                <span>Campaign: {profile.campaignLabel || "Not labeled"}</span>
-                <span>Offer: {profile.relatedOffer || "Not set"}</span>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600">
-                <span>Provider: {continuity.providerLabel}</span>
-                <span>Connection: {continuity.connectionLabel}</span>
-                <span>Metrics: {profile.metricsSyncedAtIso ? "Synced" : "Pending"}</span>
-              </div>
-              <div className="mt-2 text-xs text-zinc-600">
-                {profile.captionDraft ? profile.captionDraft.slice(0, 200) : "No caption draft yet."}
-              </div>
-              <div className={classNames("mt-2 text-xs", continuity.blocked ? "text-rose-700" : "text-zinc-500")}>{continuity.detail}</div>
-              {profile.providerLastError ? <div className="mt-2 text-xs text-rose-700">Provider error: {profile.providerLastError}</div> : null}
-              {profile.postedAtIso ? (
-                <div className="mt-2 text-xs text-emerald-700">
-                  Posted manually on {formatCalendarDay(profile.postedAtIso)} at {formatCalendarTime(profile.postedAtIso)}
-                </div>
-              ) : null}
+              <span
+                className={classNames(
+                  "rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm",
+                  continuity.blocked
+                    ? "bg-rose-50/95 text-rose-700"
+                    : continuity.publishState === "published"
+                      ? "bg-emerald-50/95 text-emerald-700"
+                      : continuity.publishState === "queued"
+                        ? "bg-sky-50/95 text-sky-700"
+                        : "bg-white/92 text-zinc-700",
+                )}
+              >
+                {continuity.publishLabel}
+              </span>
+            </div>
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-zinc-950/75 via-zinc-950/30 to-transparent p-3 text-white">
+              <div className="truncate text-base font-semibold">{item.fileName}</div>
+              <div className="mt-1 text-xs text-white/85">{campaignLabel}</div>
+            </div>
+          </div>
+        </button>
+
+        <div className="p-4">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-2xl bg-zinc-50 px-3 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Schedule</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-900">{scheduleLabel}</div>
+            </div>
+            <div className="rounded-2xl bg-zinc-50 px-3 py-2">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">CTA</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-900">{ctaLabel}</div>
             </div>
           </div>
 
-          <div className="grid auto-rows-fr grid-cols-1 gap-2 sm:grid-cols-2 lg:w-104">
+          <div className="mt-3 rounded-2xl bg-zinc-50 px-3 py-3 text-sm text-zinc-700">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Provider lane</div>
+                <div className="mt-1 font-semibold text-zinc-900">{providerLabel}</div>
+              </div>
+              {profile.postedAtIso ? (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                  Posted {formatCalendarDay(profile.postedAtIso)}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-2 text-xs text-zinc-600">{cardSummary}</div>
+            {profile.providerLastError ? <div className="mt-2 text-xs text-rose-700">{profile.providerLastError}</div> : null}
+          </div>
+
+          <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-3">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Next step</div>
+            <div className="mt-1 text-sm font-semibold text-zinc-900">{nextStep.title}</div>
+            <div className="mt-1 text-xs text-zinc-600">{nextStep.detail}</div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => openItemPreview(item.id)}
-              className={assetActionClass()}
+              className="inline-flex flex-1 items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
             >
-              Edit asset
+              Open workflow
             </button>
-            <button
-              type="button"
-              disabled={!profile.captionDraft}
-              onClick={(e) => void copyTextWithToast(profile.captionDraft, "Caption copied", e.currentTarget)}
-              className={assetActionClass({ disabled: !profile.captionDraft })}
-            >
-              Copy caption
-            </button>
-            <button
-              type="button"
-              disabled={!profile.ctaHref}
-              onClick={(e) => void copyTextWithToast(profile.ctaHref, "CTA link copied", e.currentTarget)}
-              className={assetActionClass({ disabled: !profile.ctaHref })}
-            >
-              Copy CTA
-            </button>
-            <a
-              href={profile.ctaHref || undefined}
-              target="_blank"
-              rel="noreferrer"
-              className={assetActionClass({ disabled: !profile.ctaHref })}
-            >
-              Open CTA
-            </a>
-            {profile.workflowState !== "posted_manually" ? (
-              <button
-                type="button"
-                onClick={() => void markItemPostedManually(item)}
-                className={assetActionClass({ tone: "success" })}
-              >
-                Mark posted
-              </button>
-            ) : profile.postedUrl ? (
+            {supportHref && supportLabel ? (
               <a
-                href={profile.postedUrl}
+                href={supportHref}
                 target="_blank"
                 rel="noreferrer"
-                className={assetActionClass({ tone: "successOutline" })}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
               >
-                Open post URL
+                {supportLabel}
               </a>
-            ) : (
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-center text-sm font-semibold text-zinc-500">
-                Posted manually
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => triggerDownload(item.downloadUrl, item.fileName)}
-              className={assetActionClass()}
-            >
-              Download media
-            </button>
+            ) : null}
           </div>
         </div>
-      </div>
+      </article>
+    );
+  }
+
+  function renderWorkflowSection(section: { key: Exclude<WorkflowFilterKey, "all">; label: string; description: string; count: number }) {
+    if (section.key === "scheduled") {
+      return (
+        <section key={section.key} className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">{section.label}</div>
+              <div className="mt-1 text-xs text-zinc-500">{section.description}</div>
+            </div>
+            <div className="text-xs text-zinc-500">{section.count} item{section.count === 1 ? "" : "s"}</div>
+          </div>
+          <div className="space-y-5">
+            {plannedCalendarGroups.map((group) => (
+              <div key={group.label}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-zinc-900">{group.label}</div>
+                  <div className="text-xs text-zinc-500">{group.entries.length} item{group.entries.length === 1 ? "" : "s"}</div>
+                </div>
+                <div className="mt-2 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">{group.entries.map((item) => renderCalendarItem(item))}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    const itemsForSection =
+      section.key === "ready"
+        ? readyWithoutScheduleItems
+        : section.key === "review"
+          ? needsApprovalItems
+          : section.key === "needs_copy"
+            ? needsCaptionItems
+            : section.key === "manual_only"
+              ? manualOnlyItems
+              : postedCalendarItems;
+
+    const gridClass = section.key === "posted" ? "md:grid-cols-2 2xl:grid-cols-3" : "md:grid-cols-2";
+
+    return (
+      <section key={section.key} className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-zinc-900">{section.label}</div>
+            <div className="mt-1 text-xs text-zinc-500">{section.description}</div>
+          </div>
+          <div className="text-xs text-zinc-500">{section.count} item{section.count === 1 ? "" : "s"}</div>
+        </div>
+        <div className={classNames("grid gap-4", gridClass)}>{itemsForSection.map((item) => renderCalendarItem(item))}</div>
+      </section>
     );
   }
 
@@ -1593,74 +1900,6 @@ export function PortalMediaLibraryClient() {
         </div>
       </div>
 
-      <div className="mt-4 rounded-3xl border border-sky-200 bg-linear-to-br from-sky-50 via-white to-emerald-50 p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-3xl">
-            <div className="inline-flex items-center rounded-full bg-sky-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-700">
-              Meta {providerConnectionLabel(metaReadiness?.status || "coming_soon")}
-            </div>
-            <h2 className="mt-3 text-lg font-semibold text-zinc-950">Owner-scoped Meta connection</h2>
-            <p className="mt-2 text-sm text-zinc-700">
-              {metaSetupMessage}
-            </p>
-            {metaReadiness?.connectedAccountLabel ? (
-              <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-                Connected account: <span className="font-semibold">{metaReadiness.connectedAccountLabel}</span>
-              </div>
-            ) : null}
-            {metaPermissionGaps.length ? (
-              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-                <div className="font-semibold">Remaining Meta permissions</div>
-                <div className="mt-1">Purely can verify the account now, but posting and metrics stay blocked until these permissions are approved.</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {metaPermissionGaps.map((gap) => (
-                    <div key={gap} className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-semibold text-amber-800">
-                      {gap}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <div className="mt-3 flex flex-wrap gap-2">
-              {metaTargetAccounts.map((account) => (
-                <div key={account.key} className="rounded-full border border-sky-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
-                  {account.label} · {providerConnectionLabel(account.status)}
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {metaEducation.map((line) => (
-                <div key={line} className="rounded-2xl border border-white/80 bg-white/80 px-3 py-2 text-sm text-zinc-700">
-                  {line}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="min-w-72 rounded-3xl border border-sky-200 bg-white/90 p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Connection architecture</div>
-            <div className="mt-2 text-sm font-semibold text-zinc-900">Each business connects its own Meta assets.</div>
-            <div className="mt-2 text-sm text-zinc-600">{metaReadiness?.explanation || "Meta direct publishing is coming soon. Until then, use manual posting from Media Library."}</div>
-            <button
-              type="button"
-              onClick={metaShowDisconnect ? handleMetaDisconnect : handleMetaConnect}
-              disabled={metaActionDisabled}
-              className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-              aria-label={metaShowDisconnect ? "Disconnect Meta" : metaActionLabel}
-              title={metaActionDisabled ? "Meta connection is not enabled in this environment yet." : metaShowDisconnect ? "Disconnect Meta" : "Connect Meta"}
-            >
-              {metaActionWorking ? (metaShowDisconnect ? "Disconnecting..." : "Opening Meta...") : metaShowDisconnect ? "Disconnect Meta" : metaActionLabel}
-            </button>
-            <div className="mt-2 text-xs text-zinc-500">Manual posting remains the active path today. Direct publish and metrics stay blocked until Meta permissions and app review are ready.</div>
-            {metaReadiness?.callbackUrl ? (
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-                Callback URL: {metaReadiness.callbackUrl}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
       {folderId && viewMode === "library" ? (
         <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
           <button
@@ -1687,35 +1926,20 @@ export function PortalMediaLibraryClient() {
       ) : null}
 
       <div className="mt-4">
-        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white">
+        <div className={classNames(viewMode === "calendar" ? "" : "overflow-hidden rounded-3xl border border-zinc-200 bg-white")}>
+          {viewMode === "calendar" ? null : (
           <div className="border-b border-zinc-100 p-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">{viewMode === "calendar" ? "Content calendar" : "Folders"}</div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  {viewMode === "calendar"
-                    ? "Planned posts, ready-to-schedule assets, and manual posting status all live here."
-                    : "Each folder gets a tag you can reference later."}
-                </div>
+                <div className="text-sm font-semibold text-zinc-900">Folders</div>
+                <div className="mt-1 text-xs text-zinc-500">Each folder gets a tag you can reference later.</div>
               </div>
-              {viewMode === "calendar" ? (
-                <div className="flex items-center gap-2 text-xs text-zinc-500">
-                  <span>Manual posting is available now. Direct provider publish is not connected yet.</span>
-                  <button
-                    type="button"
-                    onClick={(e) => void copyTextWithToast(calendarExportText, "Calendar export copied", e.currentTarget)}
-                    className="rounded-full border border-zinc-200 bg-white px-3 py-1 font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    Copy export
-                  </button>
-                </div>
-              ) : (
-                <div className="text-xs text-zinc-500">Select any item for preview actions.</div>
-              )}
+              <div className="text-xs text-zinc-500">Select any item for preview actions.</div>
             </div>
           </div>
+          )}
 
-          <div className="p-4">
+          <div className={viewMode === "calendar" ? "" : "p-4"}>
             {refreshing ? (
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
                 <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
@@ -1725,143 +1949,78 @@ export function PortalMediaLibraryClient() {
             {loading ? (
               <div className="text-sm text-zinc-600">Loading…</div>
             ) : viewMode === "calendar" ? (
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                  <div className="font-semibold text-amber-950">Manual posting is available now.</div>
-                  <div className="mt-1">No Meta, Facebook, or Instagram publishing is connected from this workspace yet.</div>
-                  <div className="mt-2 text-xs text-amber-800">Connect your own Facebook Page and Instagram professional account when this is enabled. Purely will never post without your approval. Publishing requires Meta approval and permissions. Until connected, use manual posting.</div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-                  {queueSummary.map((entry) => (
-                    <div
-                      key={entry.label}
-                      className={classNames(
-                        "rounded-2xl border p-3",
-                        entry.tone === "rose"
-                          ? "border-rose-200 bg-rose-50"
-                          : entry.tone === "amber"
-                            ? "border-amber-200 bg-amber-50"
-                            : entry.tone === "emerald"
-                              ? "border-emerald-200 bg-emerald-50"
-                              : entry.tone === "sky"
-                                ? "border-sky-200 bg-sky-50"
-                                : entry.tone === "orange"
-                                  ? "border-orange-200 bg-orange-50"
-                                  : "border-zinc-200 bg-zinc-50",
-                      )}
+              <div className="space-y-6">
+                <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Content planning</div>
+                      <div className="mt-1 text-sm text-zinc-600">
+                        {isCreditWorkspace
+                          ? "Plan directly from your media, then open any card for consultation links, notes, scheduling, and posted-manual tracking."
+                          : "Plan directly from your media, then open any card for booking links, notes, scheduling, and posted-manual tracking."}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">Video assets can be prepared for YouTube here. Upload and analytics stay manual for now.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => void copyTextWithToast(calendarExportText, "Calendar export copied", e.currentTarget)}
+                      className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                     >
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-600">{entry.label}</div>
-                      <div className="mt-2 text-2xl font-semibold text-zinc-900">{entry.count}</div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">Queue and readiness</div>
-                      <div className="mt-1 text-xs text-zinc-500">See what still needs captioning, approval, scheduling, manual posting, or provider setup.</div>
-                    </div>
-                    <div className="text-xs text-zinc-500">Suggested pacing: keep social distribution under 3 posts per provider per day until direct queueing is live.</div>
+                      Copy export
+                    </button>
                   </div>
 
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-zinc-900">Needs caption</div>
-                        <div className="text-xs text-zinc-500">Assets still waiting on copy or review</div>
-                      </div>
-                      {needsCaptionItems.length ? <div className="mt-2 space-y-3">{needsCaptionItems.map((item) => renderCalendarItem(item))}</div> : <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No assets are blocked on caption right now.</div>}
+                  {workflowFilterOptions.length > 1 ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {workflowFilterOptions.map((option) => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={() => setWorkflowFilter(option.key)}
+                          className={classNames(
+                            "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors",
+                            workflowFilter === option.key
+                              ? "border-zinc-900 bg-zinc-900 text-white"
+                              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                          )}
+                        >
+                          <span className="font-semibold">{option.label}</span>
+                          <span className={classNames(
+                            "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                            workflowFilter === option.key ? "bg-white/15 text-white" : "bg-zinc-100 text-zinc-600",
+                          )}>
+                            {option.count}
+                          </span>
+                        </button>
+                      ))}
                     </div>
-
-                    <div>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-zinc-900">Needs approval</div>
-                        <div className="text-xs text-zinc-500">Content that should be approved before queueing or posting</div>
-                      </div>
-                      {needsApprovalItems.length ? <div className="mt-2 space-y-3">{needsApprovalItems.map((item) => renderCalendarItem(item))}</div> : <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No assets are waiting for approval.</div>}
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-zinc-900">Approved and waiting</div>
-                        <div className="text-xs text-zinc-500">Approved assets that still need a schedule, queue slot, or manual post</div>
-                      </div>
-                      {approvedQueueItems.length ? <div className="mt-2 space-y-3">{approvedQueueItems.map((item) => renderCalendarItem(item))}</div> : <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No approved assets are waiting on the next step.</div>}
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-zinc-900">Provider blocked</div>
-                        <div className="text-xs text-zinc-500">Manual posting can continue, but direct provider continuity is blocked</div>
-                      </div>
-                      {providerBlockedItems.length ? <div className="mt-2 space-y-3">{providerBlockedItems.map((item) => renderCalendarItem(item))}</div> : <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No assets are currently blocked on provider readiness.</div>}
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-zinc-900">Queued for provider</div>
-                        <div className="text-xs text-zinc-500">Prepared for a future direct-publish path</div>
-                      </div>
-                      {queuedProviderItems.length ? <div className="mt-2 space-y-3">{queuedProviderItems.map((item) => renderCalendarItem(item))}</div> : <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Nothing is queued for provider publishing yet.</div>}
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-zinc-900">Provider failed</div>
-                        <div className="text-xs text-zinc-500">Future provider attempts that need a clear operator fix</div>
-                      </div>
-                      {providerFailedItems.length ? <div className="mt-2 space-y-3">{providerFailedItems.map((item) => renderCalendarItem(item))}</div> : <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No provider failures are stored yet.</div>}
-                    </div>
-                  </div>
+                  ) : null}
                 </div>
 
-                {plannedCalendarItems.length === 0 && unscheduledReadyItems.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No planned content yet</div>
-                    <div className="mt-2">Upload media, add a caption draft, choose a platform, set a planned date, then post manually or wait for future integrations.</div>
+                {visibleWorkflowSections.length === 0 && !(workflowFilter === "all" && providerHistoryItems.length) ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">
+                      {workflowFilter === "all" ? "Nothing is in the planner yet" : `${workflowFilterLabel} is clear`}
+                    </div>
+                    <div className="mt-2">{workflowEmptyMessage}</div>
                   </div>
                 ) : null}
 
-                {plannedCalendarGroups.map((group) => (
-                  <div key={group.label}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-zinc-900">{group.label}</div>
-                      <div className="text-xs text-zinc-500">{group.entries.length} planned item{group.entries.length === 1 ? "" : "s"}</div>
-                    </div>
-                    <div className="mt-2 space-y-3">
-                      {group.entries.map((item) => renderCalendarItem(item))}
-                    </div>
-                  </div>
-                ))}
-
-                <div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-zinc-900">Unscheduled ready</div>
-                    <div className="text-xs text-zinc-500">Assets marked ready with no planned date</div>
-                  </div>
-                  {unscheduledReadyItems.length ? (
-                    <div className="mt-2 space-y-3">
-                      {unscheduledReadyItems.map((item) => renderCalendarItem(item))}
-                    </div>
-                  ) : (
-                    <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                      No ready items are waiting for a schedule.
-                    </div>
-                  )}
+                <div className="space-y-6">
+                  {visibleWorkflowSections.map((section) => renderWorkflowSection(section))}
                 </div>
 
-                {postedCalendarItems.length ? (
-                  <div>
+                {workflowFilter === "all" && providerHistoryItems.length ? (
+                  <section className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-zinc-900">Posted manually</div>
-                      <div className="text-xs text-zinc-500">Tracked here after you publish outside Purely</div>
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Stored provider history</div>
+                        <div className="mt-1 text-xs text-zinc-500">Older provider records stay attached to the asset for continuity, but live publishing still stays manual here.</div>
+                      </div>
+                      <div className="text-xs text-zinc-500">{providerHistoryItems.length} item{providerHistoryItems.length === 1 ? "" : "s"}</div>
                     </div>
-                    <div className="mt-2 space-y-3">
-                      {postedCalendarItems.map((item) => renderCalendarItem(item))}
-                    </div>
-                  </div>
+                    <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">{providerHistoryItems.map((item) => renderCalendarItem(item))}</div>
+                  </section>
                 ) : null}
               </div>
             ) : filteredFolders.length === 0 && filteredItems.length === 0 ? (
@@ -2421,8 +2580,8 @@ export function PortalMediaLibraryClient() {
 
                   <div className="space-y-4">
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="text-sm font-semibold text-zinc-900">Next actions</div>
-                      <div className="mt-1 text-xs text-zinc-600">Write the caption, route the asset through approval, set the schedule, then post manually now or queue it for a future provider path.</div>
+                      <div className="text-sm font-semibold text-zinc-900">Workflow actions</div>
+                      <div className="mt-1 text-xs text-zinc-600">Update the asset, move it through approval, set the schedule, then store the manual-post result here when it goes live.</div>
                       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                         <button
                           type="button"
@@ -2437,7 +2596,7 @@ export function PortalMediaLibraryClient() {
                           }}
                           className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
                         >
-                          Write caption
+                          Write copy
                         </button>
                         <button
                           type="button"
@@ -2460,7 +2619,7 @@ export function PortalMediaLibraryClient() {
                           onClick={() => void saveSelectedGrowthProfile({ workflowState: "needs_approval" })}
                           className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
                         >
-                          Needs approval
+                          Review before posting
                         </button>
                         <button
                           type="button"
@@ -2476,7 +2635,7 @@ export function PortalMediaLibraryClient() {
                           onClick={() => void saveSelectedGrowthProfile({ workflowState: "ready_to_use" })}
                           className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
                         >
-                          Mark ready
+                          Mark ready to plan
                         </button>
                         <button
                           type="button"
@@ -2484,16 +2643,43 @@ export function PortalMediaLibraryClient() {
                           onClick={() => void saveSelectedGrowthProfile({ workflowState: "posted_manually", postedAtIso: previewGrowthProfile.postedAtIso || new Date().toISOString(), providerPublishState: "manual_only" })}
                           className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-60"
                         >
-                          Mark posted
+                          Mark posted manually
                         </button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 lg:grid-cols-[0.85fr,1.15fr]">
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="text-sm font-semibold text-zinc-900">What to do next</div>
+                        <div className="mt-2 text-sm font-semibold text-zinc-900">{previewNextStep?.title || "Move this asset forward"}</div>
+                        <div className="mt-1 text-xs text-zinc-600">{previewNextStep?.detail || "Add the missing workflow details, then schedule or post it manually."}</div>
+                        {previewContinuity ? <div className="mt-3 text-xs text-zinc-500">{previewContinuity.detail}</div> : null}
+                      </div>
+
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="text-sm font-semibold text-zinc-900">Result slots</div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          {previewResultSlots.slice(0, 4).map((slot) => (
+                            <div key={slot.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-700">
+                              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{slot.label}</div>
+                              <div className="mt-2 font-semibold text-zinc-900">{slot.value}</div>
+                              <div className="mt-1 break-words text-xs text-zinc-500">{slot.detail}</div>
+                              {slot.href ? (
+                                <a href={slot.href} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-semibold text-brand-ink hover:underline">
+                                  Open
+                                </a>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
                     <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <div className="text-sm font-semibold text-zinc-900">Campaign details</div>
-                          <div className="mt-1 text-xs text-zinc-500">Stored with the asset so calendar planning, approval, provider continuity, and later reporting can reuse the same record.</div>
+                          <div className="text-sm font-semibold text-zinc-900">Content workflow details</div>
+                          <div className="mt-1 text-xs text-zinc-500">Stored with the asset so schedule, posting status, provider state, and later reporting can reuse the same record.</div>
                         </div>
                         <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
                           {growthStateLabel(previewGrowthProfile.workflowState)}
@@ -2511,12 +2697,12 @@ export function PortalMediaLibraryClient() {
                             className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
                           >
                             <option value="needs_review">Needs review</option>
-                            <option value="needs_caption">Needs caption</option>
-                            <option value="needs_approval">Needs approval</option>
+                            <option value="needs_caption">Needs copy</option>
+                            <option value="needs_approval">Review before posting</option>
                             <option value="approved">Approved</option>
-                            <option value="ready_to_use">Ready to use</option>
+                            <option value="ready_to_use">Ready to plan</option>
                             <option value="planned">Planned</option>
-                            <option value="provider_blocked">Provider blocked</option>
+                            <option value="provider_blocked">Manual posting only</option>
                             <option value="queued">Queued</option>
                             <option value="provider_failed">Provider failed</option>
                             <option value="posted_manually">Posted manually</option>
@@ -2546,6 +2732,7 @@ export function PortalMediaLibraryClient() {
                             <option value="instagram_post">Instagram post</option>
                             <option value="instagram_story">Instagram story</option>
                             <option value="facebook_post">Facebook post</option>
+                            {previewSupportsYouTubePlanning ? <option value="youtube_video">YouTube video</option> : null}
                             <option value="newsletter">Newsletter</option>
                             <option value="email">Email</option>
                             <option value="sms">SMS</option>
@@ -2589,6 +2776,14 @@ export function PortalMediaLibraryClient() {
                             onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, plannedForIso: fromDateTimeLocalValue(e.target.value) })}
                             className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
                           />
+                          <button
+                            type="button"
+                            disabled={!previewGrowthProfile.plannedForIso}
+                            onClick={() => setSelectedGrowthProfile({ ...previewGrowthProfile, plannedForIso: null, workflowState: previewGrowthProfile.postedAtIso ? previewGrowthProfile.workflowState : "ready_to_use" })}
+                            className="mt-2 inline-flex text-xs font-semibold text-zinc-600 hover:text-zinc-900 disabled:pointer-events-none disabled:text-zinc-400"
+                          >
+                            Clear schedule
+                          </button>
                         </label>
                         <label className="block">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Queue order</div>
@@ -2781,8 +2976,9 @@ export function PortalMediaLibraryClient() {
                               className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
                             >
                               <option value="manual">Manual upload</option>
-                              <option value="facebook_page">Facebook Page</option>
-                              <option value="instagram_business">Instagram Business</option>
+                              <option value="facebook_page">Social page</option>
+                              <option value="instagram_business">Social account</option>
+                              {previewSupportsYouTubePlanning ? <option value="future_youtube">YouTube (coming soon)</option> : null}
                               <option value="future_tiktok">TikTok (future)</option>
                               <option value="future_linkedin">LinkedIn (future)</option>
                             </select>
@@ -2793,7 +2989,7 @@ export function PortalMediaLibraryClient() {
                             <input
                               value={previewGrowthProfile.providerAccountLabel || ""}
                               onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, providerAccountLabel: e.target.value || null })}
-                              placeholder="Main Facebook Page, Clinic Instagram"
+                              placeholder="Main social page or account"
                               className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
                             />
                           </label>
@@ -2807,42 +3003,9 @@ export function PortalMediaLibraryClient() {
                           <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Metrics continuity</div>
                             <div className="mt-2 font-semibold text-zinc-900">{previewContinuity?.metricsLabel || "Metrics require a connected provider post."}</div>
-                            <div className="mt-1 text-xs text-zinc-500">{previewGrowthProfile.providerPostId ? `Provider post ID: ${previewGrowthProfile.providerPostId}` : previewGrowthProfile.workflowState === "posted_manually" ? "Manual posts do not create provider metrics or a provider post ID here." : "No provider post ID stored yet."}</div>
+                            <div className="mt-1 text-xs text-zinc-500">{previewGrowthProfile.providerPostId ? `Provider post ID: ${previewGrowthProfile.providerPostId}` : previewGrowthProfile.workflowState === "posted_manually" ? "Posted-manual records do not create provider metrics or a provider post ID here." : "No provider post ID stored yet."}</div>
                           </div>
                         </div>
-
-                        {previewContinuity?.providerKey === "facebook_page" || previewContinuity?.providerKey === "instagram_business" ? (
-                          <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
-                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                              <div>
-                                <div className="font-semibold">Meta connection stays owner-scoped.</div>
-                                <div className="mt-1 text-xs text-sky-800">{metaSetupMessage}</div>
-                                {metaReadiness?.connectedAccountLabel ? (
-                                  <div className="mt-2 text-xs font-semibold text-sky-900">Connected account: {metaReadiness.connectedAccountLabel}</div>
-                                ) : null}
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  {metaTargetAccounts.map((account) => (
-                                    <div key={account.key} className="rounded-full border border-sky-200 bg-white px-3 py-1 text-[11px] font-semibold text-sky-800">
-                                      {account.label} · {providerConnectionLabel(account.status)}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={metaShowDisconnect ? handleMetaDisconnect : handleMetaConnect}
-                                disabled={metaActionDisabled}
-                                className="inline-flex h-10 min-w-40 items-center justify-center rounded-2xl border border-sky-200 bg-white px-4 text-sm font-semibold text-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-                                aria-label={metaShowDisconnect ? "Disconnect Meta" : metaActionLabel}
-                              >
-                                {metaActionWorking ? (metaShowDisconnect ? "Disconnecting..." : "Opening Meta...") : metaShowDisconnect ? "Disconnect Meta" : metaActionLabel}
-                              </button>
-                            </div>
-                            {metaPermissionGaps.length ? (
-                              <div className="mt-3 text-xs text-sky-900">Missing permissions: {metaPermissionGaps.join(", ")}</div>
-                            ) : null}
-                          </div>
-                        ) : null}
 
                         {previewGrowthProfile.providerLastError ? (
                           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-800">
@@ -2875,7 +3038,7 @@ export function PortalMediaLibraryClient() {
                         <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Manual post tracking</div>
                         <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <label className="block sm:col-span-2">
-                            <div className="text-xs font-semibold text-zinc-700">Posted URL or permalink</div>
+                            <div className="text-xs font-semibold text-zinc-700">{previewGrowthProfile.targetPlatform === "youtube_video" ? "Posted URL or YouTube permalink" : "Posted URL or permalink"}</div>
                             <input
                               value={previewGrowthProfile.postedUrl || ""}
                               onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, postedUrl: e.target.value || null })}
@@ -2889,12 +3052,24 @@ export function PortalMediaLibraryClient() {
                               : "This item has not been marked as posted manually yet."}
                           </div>
                         </div>
-                        <div className="mt-2 text-[11px] text-zinc-500">Tracking a post here does not publish anything. It only stores planning and manual-post history. Manual posts do not generate provider metrics or provider post IDs in this flow.</div>
+                        <div className="mt-2 text-[11px] text-zinc-500">
+                          {previewGrowthProfile.targetPlatform === "youtube_video"
+                            ? "Tracking a YouTube URL here does not upload, schedule, or publish anything. It only stores manual-post history until Google OAuth, scopes, quota, and verification are ready."
+                            : "Tracking a post here does not publish anything. It only stores planning and posted-manual history. Posted-manual records do not generate provider metrics or provider post IDs in this flow."}
+                        </div>
                       </div>
+
+                      {previewSupportsYouTubePlanning ? (
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">YouTube continuity</div>
+                          <div className="mt-2">Prepare the video, title, description, thumbnail direction, and posting notes here now. Direct YouTube upload, scheduling, and analytics stay off in this beta slice.</div>
+                          <div className="mt-2 text-xs text-zinc-500">Use the draft field for title and description ideas, the notes field for thumbnail or upload notes, and the posted URL field for the live YouTube link after manual upload.</div>
+                        </div>
+                      ) : null}
 
                       <label className="mt-4 block">
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Caption or copy draft</div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewGrowthProfile.targetPlatform === "youtube_video" ? "Title, description, or copy draft" : "Caption or copy draft"}</div>
                           <div className="grid grid-cols-1 gap-2 md:min-w-64 md:grid-cols-2">
                             <button
                               type="button"
@@ -2921,18 +3096,26 @@ export function PortalMediaLibraryClient() {
                         <textarea
                           value={previewGrowthProfile.captionDraft || ""}
                           onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, captionDraft: e.target.value || null })}
-                          placeholder="Write or edit a caption, email blurb, SMS angle, or post draft here. This stays editable and does not publish anything."
+                          placeholder={previewGrowthProfile.targetPlatform === "youtube_video"
+                            ? "Write a YouTube title, description outline, pinned-link copy, or manual posting draft here. This stays editable and does not upload anything."
+                            : "Write or edit a caption, email blurb, SMS angle, or post draft here. This stays editable and does not publish anything."}
                           className="mt-2 min-h-32 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 placeholder:text-zinc-500"
                         />
-                        <div className="mt-1 text-[11px] text-zinc-500">Drafts are editable planning notes only. No outbound action is triggered from this screen.</div>
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          {previewGrowthProfile.targetPlatform === "youtube_video"
+                            ? "Drafts are planning notes only. Purely does not upload, schedule, or publish YouTube content from this screen yet."
+                            : "Drafts are editable planning notes only. No outbound action is triggered from this screen."}
+                        </div>
                       </label>
 
                       <label className="mt-4 block">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Notes</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewSupportsYouTubePlanning ? "Next iteration notes / thumbnail plan" : "Next iteration notes"}</div>
                         <textarea
                           value={previewGrowthProfile.notes || ""}
                           onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, notes: e.target.value || null })}
-                          placeholder="Add campaign notes, shot ideas, proof placement, export reminders, or manual posting notes."
+                          placeholder={previewSupportsYouTubePlanning
+                            ? "Add thumbnail direction, opening hook, chapters, upload checklist notes, blocked reasons, or the next title/description version to try."
+                            : "Add what changed, what to test next, blocked reasons, follow-up reminders, or the next offer/caption/time to try."}
                           className="mt-2 min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 placeholder:text-zinc-500"
                         />
                       </label>

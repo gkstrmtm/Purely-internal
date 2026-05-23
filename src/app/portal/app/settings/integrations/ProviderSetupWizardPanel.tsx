@@ -93,10 +93,36 @@ export function ProviderSetupWizardPanel() {
     };
   }, []);
 
+  const visibleItems = useMemo(() => payload?.items.filter((item) => item.key !== "meta") ?? [], [payload]);
+
+  const visibleSummary = useMemo(() => {
+    return visibleItems.reduce(
+      (summary, item) => {
+        summary.totalCount += 1;
+        if (item.status !== "coming_soon") summary.actionableCount += 1;
+        if (item.status === "live_ready") summary.liveReadyCount += 1;
+        if (item.status === "test_ready") summary.testReadyCount += 1;
+        if (item.status === "blocked") summary.blockedCount += 1;
+        if (item.status === "live_ready" || item.status === "test_ready" || item.status === "connected") {
+          summary.configuredCount += 1;
+        }
+        return summary;
+      },
+      {
+        configuredCount: 0,
+        actionableCount: 0,
+        totalCount: 0,
+        liveReadyCount: 0,
+        testReadyCount: 0,
+        blockedCount: 0,
+      },
+    );
+  }, [visibleItems]);
+
   const progress = useMemo(() => {
-    if (!payload || payload.summary.actionableCount <= 0) return 0;
-    return Math.round((payload.summary.configuredCount / payload.summary.actionableCount) * 100);
-  }, [payload]);
+    if (visibleSummary.actionableCount <= 0) return 0;
+    return Math.round((visibleSummary.configuredCount / visibleSummary.actionableCount) * 100);
+  }, [visibleSummary]);
 
   return (
     <section id="provider-setup-wizard" className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -113,13 +139,13 @@ export function ProviderSetupWizardPanel() {
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Overall progress</div>
             <div className="mt-2 text-3xl font-semibold text-brand-ink">{progress}%</div>
             <div className="mt-1 text-sm text-zinc-600">
-              {payload.summary.configuredCount} of {payload.summary.actionableCount || payload.summary.totalCount} actionable providers are configured well enough to use.
+              {visibleSummary.configuredCount} of {visibleSummary.actionableCount || visibleSummary.totalCount} actionable providers are configured well enough to use.
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-200">
               <div className="h-full rounded-full bg-linear-to-r from-sky-500 to-emerald-500" style={{ width: `${progress}%` }} />
             </div>
             <div className="mt-3 text-xs text-zinc-500">
-              Live ready: {payload.summary.liveReadyCount} • Test ready: {payload.summary.testReadyCount} • Blocked: {payload.summary.blockedCount}
+              Live ready: {visibleSummary.liveReadyCount} • Test ready: {visibleSummary.testReadyCount} • Blocked: {visibleSummary.blockedCount}
             </div>
           </div>
         ) : null}
@@ -143,7 +169,7 @@ export function ProviderSetupWizardPanel() {
         </div>
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {payload.items.map((item) => {
+          {visibleItems.map((item) => {
             const focused = focusedKey === item.key;
             return (
               <article

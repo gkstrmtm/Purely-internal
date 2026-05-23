@@ -172,13 +172,32 @@ type MediaStatsPayload =
       distributionContinuity?: {
         plannedPosts: number;
         approvedPosts: number;
+        readyToUseAssets: number;
+        unscheduledReadyAssets: number;
+        needsCaptionAssets: number;
+        notesNeededAssets: number;
+        needsApprovalAssets: number;
+        missingCtaAssets: number;
         manuallyPostedAssets: number;
         providerReadyAssets: number;
         providerBlockedAssets: number;
         providerFailedAssets: number;
+        youtubePreparedAssets: number;
       };
     }
   | { ok: false; error?: string };
+
+type MediaDistributionContinuity = NonNullable<Extract<MediaStatsPayload, { ok: true }>['distributionContinuity']>;
+
+type ContentWorkflowCardSummary = {
+  primaryValue: string;
+  primaryLabel: string;
+  summary: string;
+  note: string;
+  actionHref: string;
+  guidance: string[];
+  signals: Array<{ label: string; value: string; sub?: string }>;
+};
 
 type ServiceKey =
   | "all"
@@ -679,6 +698,176 @@ function ServicePerfCard({
             <div className="mt-1 text-sm font-bold text-brand-ink">{s.value}</div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function contentAssetsNeedingCopyOrNotes(continuity: MediaDistributionContinuity) {
+  return (continuity.needsCaptionAssets ?? 0) + (continuity.notesNeededAssets ?? 0);
+}
+
+function buildContentWorkflowGuidanceMessages(args: {
+  continuity: MediaDistributionContinuity;
+  variant: ReportingWorkspaceVariant;
+}) {
+  const { continuity, variant } = args;
+  const ready = continuity.unscheduledReadyAssets ?? 0;
+  const planned = continuity.plannedPosts ?? 0;
+  const manual = continuity.manuallyPostedAssets ?? 0;
+  const blocked = continuity.providerBlockedAssets ?? 0;
+  const youtubePrepared = continuity.youtubePreparedAssets ?? 0;
+  const usable = ready + planned + manual;
+  const guidance: string[] = [];
+
+  if (ready > 0) {
+    guidance.push(
+      variant === "credit"
+        ? "You have consultation support content ready but not scheduled."
+        : "You have content ready but not scheduled.",
+    );
+  }
+
+  if (planned > 0 && manual === 0) {
+    guidance.push(
+      variant === "credit"
+        ? "You planned consultation support content but have not marked anything posted."
+        : "You planned content but have not marked anything posted.",
+    );
+  }
+
+  if (blocked > 0 && (ready > 0 || planned > 0 || youtubePrepared > 0)) {
+    guidance.push(
+      variant === "credit"
+        ? "You are preparing consultation support content, but publishing is still manual."
+        : "You are preparing content, but provider publishing is still manual.",
+    );
+  }
+
+  if (usable === 0) {
+    guidance.push(
+      variant === "credit"
+        ? "Add more usable consultation support content before expecting demand lift."
+        : "Add more usable content before expecting traffic lift.",
+    );
+  }
+
+  return guidance.slice(0, 3);
+}
+
+function buildContentWorkflowCardSummary(args: {
+  continuity: MediaDistributionContinuity;
+  pathname: string | null | undefined;
+  variant: ReportingWorkspaceVariant;
+  trackedHandoffs: number;
+}): ContentWorkflowCardSummary {
+  const { continuity, pathname, variant, trackedHandoffs } = args;
+  const needsCopyOrNotes = contentAssetsNeedingCopyOrNotes(continuity);
+  const ready = continuity.unscheduledReadyAssets ?? 0;
+  const planned = continuity.plannedPosts ?? 0;
+  const manual = continuity.manuallyPostedAssets ?? 0;
+  const blocked = continuity.providerBlockedAssets ?? 0;
+  const youtubePrepared = continuity.youtubePreparedAssets ?? 0;
+  const usable = ready + planned + manual;
+
+  const summary = usable > 0
+    ? variant === "credit"
+      ? `${usable.toLocaleString()} usable asset${usable === 1 ? "" : "s"} currently support consultation demand inside the shared Media Library workflow.`
+      : `${usable.toLocaleString()} usable asset${usable === 1 ? "" : "s"} currently support the stored business-growth content pipeline.`
+    : variant === "credit"
+      ? "No consultation-support content is ready, planned, or marked posted yet."
+      : "No usable content is ready, planned, or marked posted yet.";
+
+  const note = trackedHandoffs > 0
+    ? `${trackedHandoffs.toLocaleString()} booking handoff${trackedHandoffs === 1 ? " is" : "s are"} tracked separately in booking reporting. Asset-level attribution is still not automatic.`
+    : variant === "credit"
+      ? "Manual post history is stored here. Consultation demand, client outcomes, and provider performance are not inferred from this card."
+      : "Manual post history is stored here. Traffic, bookings, leads, and provider performance are not inferred from this card.";
+
+  const signals: ContentWorkflowCardSummary["signals"] = [
+    {
+      label: "Need caption or notes",
+      value: needsCopyOrNotes.toLocaleString(),
+      sub: needsCopyOrNotes > 0 ? "Still in preparation" : "No drafting backlog",
+    },
+    {
+      label: variant === "credit" ? "Ready for demand support" : "Ready to schedule",
+      value: ready.toLocaleString(),
+      sub: ready > 0 ? "Usable but unscheduled" : "Nothing waiting",
+    },
+    {
+      label: "Planned",
+      value: planned.toLocaleString(),
+      sub: planned > 0 ? "Scheduled in workflow" : "Nothing scheduled",
+    },
+    {
+      label: "Manual posts",
+      value: manual.toLocaleString(),
+      sub: manual > 0 ? "Marked posted here" : "No posted history yet",
+    },
+    {
+      label: "Manual-only lane",
+      value: blocked.toLocaleString(),
+      sub: blocked > 0 ? "Future provider connection still blocks direct publishing" : "No blocked provider lane",
+    },
+    ...(youtubePrepared > 0
+      ? [{ label: "YouTube prep", value: youtubePrepared.toLocaleString(), sub: "Future manual workflow" }]
+      : []),
+  ];
+
+  return {
+    primaryValue: usable.toLocaleString(),
+    primaryLabel: variant === "credit" ? "assets supporting demand" : "usable assets in motion",
+    summary,
+    note,
+    actionHref: toCurrentPortalHref("/portal/app/services/media-library", pathname) || "/portal/app/services/media-library",
+    guidance: buildContentWorkflowGuidanceMessages({ continuity, variant }),
+    signals,
+  };
+}
+
+function ContentWorkflowCard({ summary }: { summary: ContentWorkflowCardSummary }) {
+  const t = toneClasses("amber");
+
+  return (
+    <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
+      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-xs font-semibold text-zinc-500">Content workflow</div>
+          <div className="mt-2 text-3xl font-bold text-brand-ink">{summary.primaryValue}</div>
+          <div className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">{summary.primaryLabel}</div>
+          <div className="mt-2 max-w-3xl text-sm text-zinc-600">{summary.summary}</div>
+        </div>
+        <Link href={summary.actionHref} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
+          Open media library
+        </Link>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {summary.signals.map((signal) => (
+          <div key={signal.label} className={classNames("rounded-2xl border border-zinc-200 p-3", t.softBg)}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold text-zinc-600">{signal.label}</div>
+              <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
+            </div>
+            <div className="mt-1 text-sm font-bold text-brand-ink">{signal.value}</div>
+            {signal.sub ? <div className="mt-1 text-[11px] text-zinc-500">{signal.sub}</div> : null}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Next step</div>
+        <div className="mt-2 space-y-2 text-sm text-zinc-700">
+          {summary.guidance.length > 0 ? summary.guidance.map((line) => (
+            <div key={line} className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+              <span>{line}</span>
+            </div>
+          )) : <div>The stored workflow does not show a clear content next step yet.</div>}
+        </div>
+        <div className="mt-3 text-xs text-zinc-500">{summary.note}</div>
       </div>
     </div>
   );
@@ -1196,6 +1385,19 @@ export function PortalReportingClient() {
       creditRunwayDays: runwayDays,
     };
   }, [data]);
+
+  const contentWorkflowSummary = useMemo(() => {
+    const continuity = mediaStats && mediaStats.ok ? mediaStats.distributionContinuity : null;
+    if (!continuity) return null;
+
+    const handoffs = Number(data?.externalBookingHandoff?.totalHandoffs ?? 0);
+    return buildContentWorkflowCardSummary({
+      continuity,
+      pathname,
+      variant: workspaceVariant,
+      trackedHandoffs: handoffs,
+    });
+  }, [data?.externalBookingHandoff?.totalHandoffs, mediaStats, pathname, workspaceVariant]);
 
   const insightCards = useMemo<ReportingInsightCard[]>(() => {
     if (!data) return [];
@@ -1743,6 +1945,10 @@ export function PortalReportingClient() {
                   tone="slate"
                 />
               </div>
+            ) : null}
+
+            {visible("contentWorkflow", "mediaLibrary", ["Content workflow", "Need caption or notes", "Ready to schedule", "Manual posts", "YouTube prep"]) ? (
+              contentWorkflowSummary ? <ContentWorkflowCard summary={contentWorkflowSummary} /> : <StatCard label="Content workflow" value="N/A" sub="No stored content workflow summary yet." tone="amber" />
             ) : null}
 
             {visible("creditsRemaining", "billing", ["Credits remaining", "Top up", "Billing", "Credits"]) ? (

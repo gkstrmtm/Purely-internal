@@ -160,8 +160,29 @@ type ReportingPayload = {
 };
 
 type MediaStatsPayload =
-  | { ok: true; itemsCount: number; foldersCount: number }
+  | {
+      ok: true;
+      itemsCount: number;
+      foldersCount: number;
+      distributionContinuity?: {
+        plannedPosts: number;
+        approvedPosts: number;
+        readyToUseAssets: number;
+        unscheduledReadyAssets: number;
+        needsCaptionAssets: number;
+        notesNeededAssets: number;
+        needsApprovalAssets: number;
+        missingCtaAssets: number;
+        manuallyPostedAssets: number;
+        providerReadyAssets: number;
+        providerBlockedAssets: number;
+        providerFailedAssets: number;
+        youtubePreparedAssets: number;
+      };
+    }
   | { ok: false; error?: string };
+
+type MediaDistributionContinuity = NonNullable<Extract<MediaStatsPayload, { ok: true }>['distributionContinuity']>;
 
 type DashboardServicesStatus =
   | {
@@ -170,6 +191,11 @@ type DashboardServicesStatus =
         string,
         {
           state: "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled";
+          label: string;
+          access: {
+            state: string;
+            label: string;
+          };
           readiness: {
             state: "ready" | "needs_setup" | "needs_connection" | "empty" | "blocked";
             label: string;
@@ -180,7 +206,10 @@ type DashboardServicesStatus =
         }
       >;
     }
-  | { ok: false; error?: string };
+  | {
+      ok: false;
+      error?: string;
+    };
 
 type ServiceCoverageState = "ready" | "needs_setup" | "provider_blocked" | "not_enabled" | "checking";
 
@@ -599,7 +628,101 @@ const PREVIEW_REPORTING: ReportingPayload = {
   ],
 };
 
-const PREVIEW_MEDIA_STATS: MediaStatsPayload = { ok: true, itemsCount: 44, foldersCount: 3 };
+const PREVIEW_MEDIA_STATS: MediaStatsPayload = {
+  ok: true,
+  itemsCount: 44,
+  foldersCount: 3,
+  distributionContinuity: {
+    plannedPosts: 3,
+    approvedPosts: 2,
+    readyToUseAssets: 4,
+    unscheduledReadyAssets: 3,
+    needsCaptionAssets: 2,
+    notesNeededAssets: 1,
+    needsApprovalAssets: 1,
+    missingCtaAssets: 3,
+    manuallyPostedAssets: 5,
+    providerReadyAssets: 0,
+    providerBlockedAssets: 3,
+    providerFailedAssets: 0,
+    youtubePreparedAssets: 1,
+  },
+};
+
+function contentAssetsNeedingCopyOrNotes(continuity: MediaDistributionContinuity) {
+  return (continuity.needsCaptionAssets ?? 0) + (continuity.notesNeededAssets ?? 0);
+}
+
+function buildContentGuidanceItem(args: {
+  continuity: MediaDistributionContinuity;
+  isCreditWorkspace: boolean;
+  href: string;
+}): GuidanceItem | null {
+  const { continuity, isCreditWorkspace, href } = args;
+  const needsCopyOrNotes = contentAssetsNeedingCopyOrNotes(continuity);
+  const usableAssets = (continuity.unscheduledReadyAssets ?? 0) + (continuity.plannedPosts ?? 0) + (continuity.manuallyPostedAssets ?? 0);
+  const youtubePreparedAssets = continuity.youtubePreparedAssets ?? 0;
+
+  if ((continuity.unscheduledReadyAssets ?? 0) > 0) {
+    return {
+      id: 'content-ready-not-scheduled',
+      priority: 0,
+      category: 'growth',
+      status: 'opportunity',
+      title: isCreditWorkspace ? 'You have consultation support content ready but not scheduled' : 'You have content ready but not scheduled',
+      reason: isCreditWorkspace
+        ? `${continuity.unscheduledReadyAssets.toLocaleString()} asset${continuity.unscheduledReadyAssets === 1 ? '' : 's'} can support consultation demand, but ${continuity.unscheduledReadyAssets === 1 ? 'it is' : 'they are'} not on the calendar yet.`
+        : `${continuity.unscheduledReadyAssets.toLocaleString()} asset${continuity.unscheduledReadyAssets === 1 ? '' : 's'} can support business growth, but ${continuity.unscheduledReadyAssets === 1 ? 'it is' : 'they are'} not on the calendar yet.`,
+      nextActionLabel: 'Open content workflow',
+      href,
+    };
+  }
+
+  if ((continuity.plannedPosts ?? 0) > 0 && (continuity.manuallyPostedAssets ?? 0) === 0) {
+    return {
+      id: 'content-planned-not-posted',
+      priority: 0,
+      category: 'follow-up',
+      status: 'needs-attention',
+      title: isCreditWorkspace ? 'You planned consultation support content but have not marked anything posted' : 'You planned content but have not marked anything posted',
+      reason: `${continuity.plannedPosts.toLocaleString()} planned item${continuity.plannedPosts === 1 ? '' : 's'} ${continuity.plannedPosts === 1 ? 'is' : 'are'} stored here, but there is no manual post history yet.`,
+      nextActionLabel: 'Review schedule',
+      href,
+    };
+  }
+
+  if ((continuity.providerBlockedAssets ?? 0) > 0 && ((continuity.plannedPosts ?? 0) > 0 || usableAssets > 0 || youtubePreparedAssets > 0)) {
+    return {
+      id: 'content-provider-manual',
+      priority: 0,
+      category: 'setup',
+      status: 'blocked',
+      title: isCreditWorkspace ? 'You are preparing consultation support content, but publishing is still manual' : 'You are preparing content, but provider publishing is still manual',
+      reason: youtubePreparedAssets > 0
+        ? `${continuity.providerBlockedAssets.toLocaleString()} asset${continuity.providerBlockedAssets === 1 ? '' : 's'} still sit in a manual-only provider lane, including ${youtubePreparedAssets.toLocaleString()} future YouTube video ${youtubePreparedAssets === 1 ? 'plan' : 'plans'}.`
+        : `${continuity.providerBlockedAssets.toLocaleString()} asset${continuity.providerBlockedAssets === 1 ? '' : 's'} still sit in a manual-only provider lane, so the next live step stays inside Media Library planning and manual posting.`,
+      nextActionLabel: 'Open content workflow',
+      href,
+    };
+  }
+
+  if (usableAssets === 0) {
+    return {
+      id: 'content-build-more-usable',
+      priority: 0,
+      category: 'growth',
+      status: 'opportunity',
+      title: isCreditWorkspace ? 'Add more usable consultation support content before expecting demand lift' : 'Add more usable content before expecting traffic lift',
+      reason: needsCopyOrNotes > 0
+        ? `${needsCopyOrNotes.toLocaleString()} asset${needsCopyOrNotes === 1 ? '' : 's'} still need caption or planning notes before they can move into a usable queue.`
+        : 'Media Library does not yet show enough ready, planned, or manually posted content to expect a meaningful lift from consistency.',
+      nextActionLabel: 'Open content workflow',
+      href,
+    };
+  }
+
+  return null;
+}
 
 async function fetchWithRetry(input: string, init?: RequestInit, attempts = 2) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -621,6 +744,7 @@ export function PortalDashboardClient() {
   const [data, setData] = useState<MeResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
+  const [contentWorkflowStats, setContentWorkflowStats] = useState<MediaDistributionContinuity | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload["data"] | null>(null);
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationStatusPayload | null>(null);
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
@@ -635,6 +759,36 @@ export function PortalDashboardClient() {
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (uiPreview) {
+        setContentWorkflowStats(PREVIEW_MEDIA_STATS.ok ? (PREVIEW_MEDIA_STATS.distributionContinuity ?? null) : null);
+        return;
+      }
+
+      const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
+      const response = await fetchWithRetry("/api/portal/media/stats", {
+        cache: "no-store",
+        headers: { "x-portal-variant": requestPortalVariant },
+      });
+
+      if (!mounted) return;
+
+      if (!response?.ok) {
+        setContentWorkflowStats(null);
+        return;
+      }
+
+      const stats = (await response.json().catch(() => null)) as MediaStatsPayload | null;
+      setContentWorkflowStats(stats?.ok ? (stats.distributionContinuity ?? null) : null);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [pathname, uiPreview]);
 
   useEffect(() => {
     let mounted = true;
@@ -768,6 +922,7 @@ export function PortalDashboardClient() {
 
       const requiredController = new AbortController();
       const requiredTimeout = window.setTimeout(() => requiredController.abort(), 60000);
+      const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
 
       const loadOptionalData = async () => {
         const optionalController = new AbortController();
@@ -775,17 +930,35 @@ export function PortalDashboardClient() {
 
         try {
           const [repRes, statsRes, svcRes, growthRes] = await Promise.all([
-            fetchWithRetry("/api/portal/reporting?range=30d", { cache: "no-store", signal: optionalController.signal }),
-            fetchWithRetry("/api/portal/media/stats", { cache: "no-store", signal: optionalController.signal }),
-            fetchWithRetry("/api/portal/services/status", { cache: "no-store", signal: optionalController.signal }),
-            fetchWithRetry("/api/portal/growth/readiness", { cache: "no-store", signal: optionalController.signal }),
+            fetchWithRetry("/api/portal/reporting?range=30d", {
+              cache: "no-store",
+              signal: optionalController.signal,
+              headers: { "x-portal-variant": requestPortalVariant },
+            }),
+            fetchWithRetry("/api/portal/media/stats", {
+              cache: "no-store",
+              signal: optionalController.signal,
+              headers: { "x-portal-variant": requestPortalVariant },
+            }),
+            fetchWithRetry("/api/portal/services/status", {
+              cache: "no-store",
+              signal: optionalController.signal,
+              headers: { "x-portal-variant": requestPortalVariant },
+            }),
+            fetchWithRetry("/api/portal/growth/readiness", {
+              cache: "no-store",
+              signal: optionalController.signal,
+              headers: { "x-portal-variant": requestPortalVariant },
+            }),
           ]);
 
           if (!mounted) return;
 
           if (repRes?.ok) {
             const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
-            if (rep?.ok) setReporting(rep);
+            if (rep?.ok) {
+              setReporting(rep);
+            }
           } else if (repRes) {
             reportPortalActionFailure({
               area: "dashboard",
@@ -816,7 +989,6 @@ export function PortalDashboardClient() {
       };
 
       try {
-        const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
         const [meRes, dashRes] = await Promise.all([
           fetchWithRetry("/api/portal/me", {
             cache: "no-store",
@@ -986,12 +1158,23 @@ export function PortalDashboardClient() {
     return (["puraAttention", "activityPulse", "successRate", "dailyActivity"] as DashboardWidgetId[]).filter((id) => !current.has(id));
   }, [dashboard]);
 
+  const contentGuidanceItem = useMemo((): GuidanceItem | null => {
+    const continuity = contentWorkflowStats || (mediaStats && mediaStats.ok ? mediaStats.distributionContinuity : null);
+    if (!continuity) return null;
+
+    return buildContentGuidanceItem({
+      continuity,
+      isCreditWorkspace: portalBase === "/credit",
+      href: `${portalBase}/app/services/media-library`,
+    });
+  }, [contentWorkflowStats, mediaStats, portalBase]);
+
   const guidanceItems = useMemo((): GuidanceItem[] => {
     if (!data) return [];
     const isCredit = portalBase === "/credit";
     const svcStatuses =
       servicesStatus && servicesStatus.ok ? servicesStatus.statuses : {};
-    return buildGuidanceItems({
+    const built = buildGuidanceItems({
       isCreditWorkspace: isCredit,
       portalBase,
       billingConfigured: Boolean(data.billing?.configured),
@@ -1029,6 +1212,8 @@ export function PortalDashboardClient() {
           }
         : null,
     });
+
+    return built;
   }, [data, portalBase, reporting, servicesStatus]);
 
   const hasStripeSalesWidget = useMemo(
@@ -2596,6 +2781,28 @@ export function PortalDashboardClient() {
             </Link>
           </div>
 
+          {contentGuidanceItem ? (
+            <Link
+              href={contentGuidanceItem.href}
+              className="mb-3 block rounded-[26px] border border-amber-200 bg-[linear-gradient(180deg,rgba(255,251,235,0.98),rgba(255,247,237,0.92))] p-5 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                      {isCreditWorkspace ? "Content demand" : "Content workflow"}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">{contentGuidanceItem.title}</div>
+                  <div className="mt-1 text-sm text-zinc-600">{contentGuidanceItem.reason}</div>
+                </div>
+                <div className="shrink-0 inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-4 py-2 text-xs font-semibold text-amber-700">
+                  {contentGuidanceItem.nextActionLabel}
+                </div>
+              </div>
+            </Link>
+          ) : null}
+
           <div className="rounded-[26px] border border-brand-ink/10 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
@@ -2640,12 +2847,12 @@ export function PortalDashboardClient() {
       );
     }
 
-    if (guidanceItems.length === 0) return null;
+    if (guidanceItems.length === 0 && !contentGuidanceItem) return null;
     // Show top 4 items.
-    const visible = guidanceItems.slice(0, 4);
+    const visible = guidanceItems.slice(0, contentGuidanceItem ? 3 : 4);
     const topItem = visible[0];
-    if (!topItem) return null;
-    const topColors = guidanceStatusColors(topItem.status);
+    if (!topItem && !contentGuidanceItem) return null;
+    const topColors = topItem ? guidanceStatusColors(topItem.status) : null;
     const secondaryItems = visible.slice(1);
     const secondaryGridClass = secondaryItems.length >= 3 ? "sm:grid-cols-3" : "sm:grid-cols-2";
 
@@ -2668,26 +2875,50 @@ export function PortalDashboardClient() {
           </Link>
         </div>
 
-        {/* Top item — featured */}
-        <div className={`rounded-[26px] border p-5 shadow-sm ${topColors.border} ${topColors.bg}`}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${topColors.badge}`}>
-                  {guidanceStatusLabel(topItem.status)}
-                </span>
+        {contentGuidanceItem ? (
+          <Link
+            href={contentGuidanceItem.href}
+            className="mb-3 block rounded-[26px] border border-amber-200 bg-[linear-gradient(180deg,rgba(255,251,235,0.98),rgba(255,247,237,0.92))] p-5 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                    {isCreditWorkspace ? "Content demand" : "Content workflow"}
+                  </span>
+                </div>
+                <div className="mt-2 text-sm font-semibold text-zinc-900">{contentGuidanceItem.title}</div>
+                <div className="mt-1 text-sm text-zinc-600">{contentGuidanceItem.reason}</div>
               </div>
-              <div className="mt-2 text-sm font-semibold text-zinc-900">{topItem.title}</div>
-              <div className="mt-1 text-sm text-zinc-600">{topItem.reason}</div>
+              <div className="shrink-0 inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-4 py-2 text-xs font-semibold text-amber-700">
+                {contentGuidanceItem.nextActionLabel}
+              </div>
             </div>
-            <Link
-              href={topItem.href}
-              className="shrink-0 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
-            >
-              {topItem.nextActionLabel}
-            </Link>
+          </Link>
+        ) : null}
+
+        {/* Top item — featured */}
+        {topItem && topColors ? (
+          <div className={`rounded-[26px] border p-5 shadow-sm ${topColors.border} ${topColors.bg}`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${topColors.badge}`}>
+                    {guidanceStatusLabel(topItem.status)}
+                  </span>
+                </div>
+                <div className="mt-2 text-sm font-semibold text-zinc-900">{topItem.title}</div>
+                <div className="mt-1 text-sm text-zinc-600">{topItem.reason}</div>
+              </div>
+              <Link
+                href={topItem.href}
+                className="shrink-0 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+              >
+                {topItem.nextActionLabel}
+              </Link>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {/* Secondary items — compact row */}
         {secondaryItems.length > 0 ? (
