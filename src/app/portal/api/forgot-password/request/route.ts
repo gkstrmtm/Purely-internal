@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: result.reason }, { status: 400 });
     }
   } catch {
-    return NextResponse.json({ ok: false, error: "Unable to send code right now." }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Reset code did not send. Retry from sign in." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

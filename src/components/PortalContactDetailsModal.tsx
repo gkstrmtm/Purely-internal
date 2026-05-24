@@ -234,12 +234,12 @@ export function PortalContactDetailsModal(props: Props) {
 
         if (!detailRes?.ok) {
           const json = await readJson(detailRes as any);
-          throw new Error(String(json?.error || "Failed to load contact"));
+          throw new Error(String(json?.error || "Contact details did not load. Retry here or return to contacts."));
         }
 
         const json = (await detailRes.json().catch(() => ({}))) as any;
         if (!json?.ok || !json?.contact?.id) {
-          throw new Error(String(json?.error || "Failed to load contact"));
+          throw new Error(String(json?.error || "Contact details did not load. Retry here or return to contacts."));
         }
 
         const nextDetail: ContactDetail = {
@@ -275,7 +275,7 @@ export function PortalContactDetailsModal(props: Props) {
           tags: nextDetailTags,
         });
       } catch (e: any) {
-        toast.error(String(e?.message || "Failed to load contact"));
+        toast.error(String(e?.message || "Contact details did not load. Retry here or return to contacts."));
       } finally {
         if (!cancelled) setDetailLoading(false);
       }
@@ -314,7 +314,9 @@ export function PortalContactDetailsModal(props: Props) {
         body: JSON.stringify({ name, email: editEmail, phone: editPhone, customVariables }),
       });
       const json = await readJson(res);
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save"));
+      if (!res.ok || !json?.ok) {
+        throw new Error(String(json?.error || "Contact details did not save. Retry here or return to contacts."));
+      }
 
       toast.success("Contact updated.");
   lastSavedEditSigRef.current = nextSig;
@@ -351,7 +353,7 @@ export function PortalContactDetailsModal(props: Props) {
         });
       }
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to save"));
+      toast.error(String(e?.message || "Contact details did not save. Retry here or return to contacts."));
     } finally {
       setSaving(false);
     }
@@ -368,7 +370,9 @@ export function PortalContactDetailsModal(props: Props) {
         body: JSON.stringify({ tagId }),
       });
       const json = await readJson(res);
-      if (!res.ok || !json?.ok || !Array.isArray(json?.tags)) throw new Error(String(json?.error || "Failed to update tags"));
+      if (!res.ok || !json?.ok || !Array.isArray(json?.tags)) {
+        throw new Error(String(json?.error || "Contact tags did not update. Retry here or review the selected tags again."));
+      }
 
       const nextTags: ContactTag[] = json.tags
         .map((t: any) => ({
@@ -384,7 +388,7 @@ export function PortalContactDetailsModal(props: Props) {
         tags: nextTags,
       });
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to update tags"));
+      toast.error(String(e?.message || "Contact tags did not update. Retry here or review the selected tags again."));
     } finally {
       setTagBusyId(null);
     }
@@ -407,7 +411,9 @@ export function PortalContactDetailsModal(props: Props) {
         body: JSON.stringify({ name, color: createTagColor }),
       });
       const json = await readJson(res);
-      if (!res.ok || !json?.ok || !json?.tag?.id) throw new Error(String(json?.error || "Failed to create tag"));
+      if (!res.ok || !json?.ok || !json?.tag?.id) {
+        throw new Error(String(json?.error || "Tag creation did not finish. Retry here or choose a different tag name."));
+      }
 
       const created: ContactTag = {
         id: String(json.tag.id),
@@ -427,7 +433,7 @@ export function PortalContactDetailsModal(props: Props) {
 
       await setTagChecked(created.id, true);
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to create tag"));
+      toast.error(String(e?.message || "Tag creation did not finish. Retry here or choose a different tag name."));
     } finally {
       setCreateTagBusy(false);
     }

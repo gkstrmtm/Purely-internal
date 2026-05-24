@@ -177,9 +177,9 @@ function getB2bSubTabFromPathname(
 }
 
 function getLeadScrapingLoadErrorMessage(mode: "pull" | "leads" | "settings") {
-  if (mode === "pull") return "Lead scraper did not load. Retry here, open settings, or ask Pura to help.";
-  if (mode === "leads") return "Leads did not load. Retry here, open settings, or ask Pura to help.";
-  return "Lead scraping did not load. Retry here, open settings, or ask Pura to help.";
+  if (mode === "pull") return "Lead scraper is still syncing. Retry here, open settings, or ask Pura to help.";
+  if (mode === "leads") return "Leads are still syncing. Retry here, open settings, or ask Pura to help.";
+  return "Lead scraping is still syncing. Retry here, open settings, or ask Pura to help.";
 }
 
 function LeadScrapingShellBlock({ className }: { className?: string }) {
@@ -3959,7 +3959,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
               })
             ) : (
               <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-3 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No tags yet</div>
+                <div className="font-semibold text-zinc-900">No lead tags yet</div>
                 <div className="mt-1">Create one here so this lead can be segmented for follow-up, nurture, or exports.</div>
                 <button
                   type="button"
@@ -4473,7 +4473,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
 
                     {!placesConfigured ? (
                       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                        Google Places is not configured in this environment (missing GOOGLE_PLACES_API_KEY / GOOGLE_MAPS_API_KEY).
+                        Google Places is not linked in this environment yet. Add `GOOGLE_PLACES_API_KEY` or `GOOGLE_MAPS_API_KEY` to turn on live location discovery here.
                       </div>
                     ) : null}
                   </div>
@@ -4621,7 +4621,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                             </div>
                           ) : (
                             <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-3 text-xs text-zinc-600">
-                              <div className="font-semibold text-zinc-900">No locations selected yet</div>
+                              <div className="font-semibold text-zinc-900">No locations chosen yet</div>
                               <div className="mt-1">Add at least one city, zip, or region so the next pull knows where to search.</div>
                               <button
                                 type="button"

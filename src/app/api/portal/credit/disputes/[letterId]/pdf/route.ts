@@ -82,7 +82,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
     bytes: pdfBytes,
   });
 
-  if (!media) return NextResponse.json({ ok: false, error: "Failed to save PDF" }, { status: 500 });
+  if (!media) {
+    return NextResponse.json({ ok: false, error: "The PDF did not save. Retry here or open letters again." }, { status: 500 });
+  }
 
   await prisma.creditDisputeLetter.updateMany({
     where: { id, ownerId },

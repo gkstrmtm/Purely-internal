@@ -113,12 +113,12 @@ export function PortalInviteAcceptClient({
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) {
-        throw new Error(String(json?.error || "Failed to accept invite"));
+        throw new Error(String(json?.error || "Invite acceptance did not finish. Retry here or return to sign in."));
       }
 
       router.push(String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app", { scroll: false });
     } catch (e: any) {
-      setError(String(e?.message || "Failed to accept invite"));
+      setError(String(e?.message || "Invite acceptance did not finish. Retry here or return to sign in."));
     } finally {
       setBusy(false);
     }

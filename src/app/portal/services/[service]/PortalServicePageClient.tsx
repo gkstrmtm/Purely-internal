@@ -161,12 +161,12 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
         if (!options?.signal?.aborted) {
           setPricing(body && (body as any).ok === true ? body : null);
           if (!body || (body as any).ok !== true) {
-            setPricingLoadError("Pricing details are temporarily unavailable.");
+            setPricingLoadError("Pricing details are syncing right now. Retry here or open Billing for the latest numbers.");
           }
         }
       } else {
         setPricing(null);
-        setPricingLoadError("Pricing details are temporarily unavailable.");
+        setPricingLoadError("Pricing details are syncing right now. Retry here or open Billing for the latest numbers.");
       }
 
       if (statusResult.status === "fulfilled" && statusResult.value.ok) {
@@ -174,12 +174,12 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
         if (!options?.signal?.aborted) {
           setStatusRes(body);
           if (!body || body.ok !== true) {
-            setStatusLoadError("Live service status did not load. Retry here, open the service, or ask Pura for help.");
+            setStatusLoadError("Live service status is still syncing. Retry here, open the service, or ask Pura for help.");
           }
         }
       } else {
         setStatusRes(null);
-        setStatusLoadError("Live service status did not load. Retry here, open the service, or ask Pura for help.");
+        setStatusLoadError("Live service status is still syncing. Retry here, open the service, or ask Pura for help.");
       }
 
       if (!options?.signal?.aborted) {
@@ -252,13 +252,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
 
   const serviceMetaRecoveryCard = hasMetaLoadIssue ? (
     <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-      <div className="text-base font-semibold">Service details are partially unavailable</div>
+      <div className="text-base font-semibold">Service details are still syncing</div>
       <div className="mt-2 leading-6">
         {statusLoadError && pricingLoadError
-          ? "Live service status and pricing did not load. Retry here, open the service, or ask Pura for help while this page uses a safe fallback."
+          ? "Live service status and pricing have not loaded yet. Retry here, open the service, or ask Pura for help while this page uses a safe fallback."
           : statusLoadError
-            ? "Live service status did not load. Retry here, open the service, or keep working while this page uses a safe fallback."
-            : "Pricing details did not load. Retry here, open the service, or keep working while this page uses a safe fallback."}
+            ? "Live service status has not loaded yet. Retry here, open the service, or keep working while this page uses a safe fallback."
+            : "Pricing details have not loaded yet. Retry here, open the service, or keep working while this page uses a safe fallback."}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <button

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { IconBillingGlyph, IconProfileGlyph, IconSettingsGlyph } from "@/app/portal/PortalIcons";
@@ -25,6 +26,7 @@ import { PortalSalesReportingClient } from "@/app/portal/app/services/reporting/
 import { PortalStripeSalesClient } from "@/app/portal/app/services/reporting/stripe/PortalStripeSalesClient";
 import PortalReviewsClient from "@/app/portal/app/services/reviews/setup/PortalReviewsClient";
 import { PortalAppearanceSettingsClient } from "@/app/portal/app/settings/appearance/PortalAppearanceSettingsClient";
+import { ProviderSetupWizardPanel } from "@/app/portal/app/settings/integrations/ProviderSetupWizardPanel";
 import { PortalBillingClient } from "@/app/portal/billing/PortalBillingClient";
 import { PortalDashboardClient } from "@/app/portal/PortalDashboardClient";
 import { PortalPeopleContactsClient } from "@/app/portal/app/people/contacts/PortalPeopleContactsClient";
@@ -195,7 +197,7 @@ function CreditSettingsLanding() {
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {cards.map((card) => (
-            <a
+            <Link
               key={card.href}
               href={card.href}
               className="group rounded-3xl border border-zinc-200 bg-zinc-50 p-4 transition-colors duration-150 hover:border-zinc-300 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
@@ -208,7 +210,7 @@ function CreditSettingsLanding() {
               </div>
               <div className="mt-4 text-sm font-semibold text-zinc-900">{card.title}</div>
               <div className="mt-1 text-sm leading-6 text-zinc-600">{card.description}</div>
-            </a>
+            </Link>
           ))}
         </div>
       </section>
@@ -283,6 +285,9 @@ export default async function CreditAppCatchallPage({
       <div className="mx-auto w-full max-w-6xl">
         <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Integrations</h1>
         <div className="mt-6">
+          <ProviderSetupWizardPanel />
+        </div>
+        <div id="provider-setup-controls" className="mt-6">
           <PortalProfileClient embedded mode="integrations" />
         </div>
       </div>

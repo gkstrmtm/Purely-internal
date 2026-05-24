@@ -142,20 +142,20 @@ function LockedShell(opts: {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <div className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass}`}>
-            {opts.label || (opts.state === "paused" ? "Paused" : opts.state === "canceled" ? "Canceled" : opts.state === "coming_soon" ? "Coming soon" : "Locked")}
+            {opts.label || (opts.state === "paused" ? "Paused" : opts.state === "canceled" ? "Canceled" : opts.state === "coming_soon" ? "Rolling out" : "Locked")}
           </div>
           <h1 className="mt-3 text-2xl font-bold text-brand-ink sm:text-3xl">
             {opts.state === "paused" || opts.state === "canceled"
               ? `${opts.title} is ${opts.state}`
               : opts.state === "coming_soon"
-                ? `${opts.title} is coming soon`
+                ? `${opts.title} is in rollout`
                 : `Unlock ${opts.title}`}
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
             {opts.state === "paused" || opts.state === "canceled"
               ? "This service is currently off. Resume it from your service access section whenever you are ready to bring it back live."
               : opts.state === "coming_soon"
-                ? "This service is still being rolled out. You can preview the walkthrough now so the setup path is already clear when it goes live."
+                ? "This service is in active rollout. You can review the walkthrough now so the setup path is already clear before access opens for this workspace."
                 : "This service isn’t included in your current plan. You can add it any time."}
           </p>
         </div>
@@ -204,7 +204,7 @@ function LockedShell(opts: {
               {opts.state === "paused" || opts.state === "canceled"
                 ? "Resume this service from service access, then come back here to continue setup."
                 : opts.state === "coming_soon"
-                  ? "Use the walkthrough now so you already know the setup path when access opens up."
+                  ? "Review the rollout guide now so the setup path is already clear when access opens up."
                   : "Enable this service now, then come back here to configure it."}
             </div>
             <div className="mt-4 flex flex-col gap-3">
@@ -278,7 +278,6 @@ export async function PortalServiceGate({
       ownerId,
       fallbackEmail: user.email,
       portalVariant: variant,
-      serviceSlugs: [slug],
     }).catch((error) => {
       console.error("[portal][service-gate] status lookup failed", {
         ownerId,

@@ -31,7 +31,7 @@ export async function GET() {
     });
   } catch {
     return NextResponse.json(
-      { ok: false, error: "Unable to load suggested setup" },
+      { ok: false, error: "Suggested setup did not load. Retry here or open Profile to review the basics." },
       { status: 500 },
     );
   }

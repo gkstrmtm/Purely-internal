@@ -426,7 +426,7 @@ export function BusinessProfileForm({
       if (options?.signal?.aborted) return;
 
       if (!res.ok) {
-        setError((json as { error?: string })?.error ?? "Business profile did not load. Retry here, open profile, or ask Pura to help.");
+        setError((json as { error?: string })?.error ?? "Business profile is still syncing. Retry here, open profile, or ask Pura to help.");
         setLoading(false);
         return;
       }
@@ -436,7 +436,7 @@ export function BusinessProfileForm({
       setLoading(false);
     } catch {
       if (options?.signal?.aborted) return;
-      setError("Business profile did not load. Retry here, open profile, or ask Pura to help.");
+      setError("Business profile is still syncing. Retry here, open profile, or ask Pura to help.");
       setLoading(false);
     }
   }, []);

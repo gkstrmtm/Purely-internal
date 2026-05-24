@@ -342,7 +342,7 @@ function normalizeFunnelBuilderError(action: string, error: unknown, status?: nu
   if (normalized.includes("verification failed")) return "We could not verify that domain yet. Check the DNS records and try again.";
   if (normalized.includes("stripe is not connected")) return "Connect Stripe before using product-linked funnel actions.";
   if (action.includes("load builder settings")) {
-    return "Builder settings did not load. Retry this tab, open integrations, or ask Pura for help.";
+    return "Builder settings are still syncing. Retry this tab, open integrations, or ask Pura for help.";
   }
   if (action.includes("save builder settings")) {
     return "Builder settings did not save. Retry here or open integrations if the source account still needs attention.";
@@ -945,7 +945,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       const res = await fetch("/api/portal/funnel-builder/settings", { cache: "no-store" });
       const json = await readFunnelBuilderJson<any>(res, "load builder settings");
       if (!json.settings) {
-        throw new Error("Builder settings did not load. Retry this tab, open integrations, or ask Pura for help.");
+        throw new Error("Builder settings are still syncing. Retry this tab, open integrations, or ask Pura for help.");
       }
 
       const nextSettings: FunnelBuilderSettings = {
@@ -2388,7 +2388,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <div className="mt-6 text-sm text-zinc-600">Loading funnels…</div>
           ) : funnels.length === 0 ? (
             <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No funnels yet</div>
+              <div className="font-semibold text-zinc-900">No funnels built yet</div>
               <div className="mt-1">Create the first funnel to start from a guided structure instead of a blank page.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
@@ -2588,7 +2588,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <div className="mt-6 text-sm text-zinc-600">Loading forms…</div>
           ) : forms.length === 0 ? (
             <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No forms yet</div>
+              <div className="font-semibold text-zinc-900">No forms built yet</div>
               <div className="mt-1">Create a form to capture leads, surveys, or intake details on a hosted route.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
@@ -2662,7 +2662,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 </p>
               </div>
               <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">
-                {builderSettingsBusy ? "Loading…" : normalizedMetaPixelIdInput ? "Configured" : "Not configured"}
+                {builderSettingsBusy ? "Loading…" : normalizedMetaPixelIdInput ? "Configured" : "No pixel ID yet"}
               </div>
             </div>
 
@@ -2689,7 +2689,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                   <div className="text-xs text-zinc-500">Current default pixel: {normalizedMetaPixelIdInput}</div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No default Meta pixel is configured yet</div>
+                    <div className="font-semibold text-zinc-900">No default Meta pixel ready yet</div>
                     <div className="mt-1">Add a numeric pixel ID here, open integrations if the source account still needs to be connected, or ask Pura to walk you through the setup.</div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <Link

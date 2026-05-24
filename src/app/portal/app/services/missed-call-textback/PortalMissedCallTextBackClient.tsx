@@ -177,7 +177,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
 
     if (opts.action === "save") return "These Missed-Call Text Back settings did not save. Retry here or keep editing them.";
     if (opts.action === "regenerate") return "That webhook token did not regenerate. Retry here or keep editing the settings.";
-    return "Missed-Call Text Back did not load. Retry here, open AI Receptionist, or ask Pura to help.";
+    return "Missed-Call Text Back is still syncing. Retry here, open AI Receptionist, or ask Pura to help.";
   }, [embedded]);
 
   const readJsonError = useCallback(async (res: Response) => {
@@ -931,7 +931,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             </div>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No activity yet</div>
+              <div className="font-semibold text-zinc-900">No missed-call activity yet</div>
               <div className="mt-1">Once missed calls hit the connected number and the text-back rule is live, replies and delivery outcomes will appear here.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button

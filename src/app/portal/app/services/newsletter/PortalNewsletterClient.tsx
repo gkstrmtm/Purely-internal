@@ -456,21 +456,21 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       const funnelDomainsJson = funnelDomainsRes ? (((await funnelDomainsRes.json().catch(() => ({}))) as any) ?? {}) : {};
 
       if (!siteRes.ok) {
-        const message = siteJson?.error ?? "Newsletter workspace did not load. Retry here, open settings, or ask Pura to help.";
+        const message = siteJson?.error ?? "Newsletter workspace is still syncing. Retry here, open settings, or ask Pura to help.";
         toast.error(message);
         setLoadError((prev) => prev ?? message);
       }
       if (!settingsExternalRes.ok) {
-        const message = settingsExternalJson?.error ?? "Newsletter settings did not load. Retry here, open settings, or ask Pura to help.";
+        const message = settingsExternalJson?.error ?? "Newsletter settings are still syncing. Retry here, open settings, or ask Pura to help.";
         toast.error(message);
         setLoadError((prev) => prev ?? message);
       }
       if (!settingsInternalRes.ok) {
-        const message = settingsInternalJson?.error ?? "Newsletter settings did not load. Retry here, open settings, or ask Pura to help.";
+        const message = settingsInternalJson?.error ?? "Newsletter settings are still syncing. Retry here, open settings, or ask Pura to help.";
         toast.error(message);
         setLoadError((prev) => prev ?? message);
       }
-      if (!tagsRes.ok) toast.error(tagsJson?.error ?? "Contact tags did not load. Retry this page or open settings to review the audience.");
+      if (!tagsRes.ok) toast.error(tagsJson?.error ?? "Contact tags are still syncing. Retry this page or open settings to review the audience.");
 
       if (siteRes.ok) {
         setSite(siteJson?.site ?? null);
@@ -531,7 +531,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
       if (didLoad) hasLoadedOnceRef.current = true;
     } catch (error) {
-      const fallbackMessage = "Newsletter workspace did not load. Retry here, open settings, or ask Pura to help.";
+      const fallbackMessage = "Newsletter workspace is still syncing. Retry here, open settings, or ask Pura to help.";
       const message = error instanceof Error && error.message.trim() ? error.message.trim() : fallbackMessage;
       setLoadError((prev) => prev ?? message);
       toast.error(message);
@@ -997,7 +997,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     const res = await fetch(`/api/portal/newsletter/newsletters/${encodeURIComponent(newsletterId)}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
     const json = (await res?.json().catch(() => ({}))) as any;
     if (!res?.ok || !json?.ok || !json?.newsletter?.id) {
-      setDraftError(String(json?.error || "This draft did not load. Retry here or ask Pura to help."));
+      setDraftError(String(json?.error || "This draft is still syncing. Retry here or ask Pura to help."));
       setDraftLoading(false);
       return;
     }
@@ -1345,22 +1345,22 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-(--color-brand-mist) to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
-                <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
+                <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "Syncing balance" : credits.toLocaleString()}</div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Newsletter credits used</div>
-                <div className="mt-2 text-2xl font-bold text-brand-ink">{creditsUsed30d === null ? "N/A" : creditsUsed30d.toLocaleString()}</div>
+                <div className="mt-2 text-2xl font-bold text-brand-ink">{creditsUsed30d === null ? "Watching usage" : creditsUsed30d.toLocaleString()}</div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  Last 30 days · {generations30d === null ? "N/A" : generations30d} generation{generations30d === 1 ? "" : "s"} · 30 credits/generation
+                  Last 30 days · {generations30d === null ? "No generations yet" : `${generations30d} generation${generations30d === 1 ? "" : "s"}`} · 30 credits/generation
                 </div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-brand-blue/10 via-white to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Schedule</div>
                 <div className="mt-2 text-sm text-zinc-800">
-                  <span className="font-semibold">Last:</span> {formatDate(settings?.lastGeneratedAt ?? null) || "N/A"}
+                  <span className="font-semibold">Last:</span> {formatDate(settings?.lastGeneratedAt ?? null) || "Not generated yet"}
                 </div>
                 <div className="mt-1 text-sm text-zinc-800">
-                  <span className="font-semibold">Next:</span> {formatDate(settings?.nextDueAt ?? null) || "N/A"}
+                  <span className="font-semibold">Next:</span> {formatDate(settings?.nextDueAt ?? null) || "Not scheduled yet"}
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">Based on current frequency.</div>
               </div>
@@ -1396,7 +1396,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   {newsletters.length === 0 ? (
                     <tr>
                       <td className="px-4 py-5 text-zinc-600" colSpan={4}>
-                        <div className="font-semibold text-zinc-900">No newsletters yet</div>
+                        <div className="font-semibold text-zinc-900">No newsletters created yet</div>
                         <div className="mt-1 text-sm text-zinc-600">Create the first newsletter to draft content, preview delivery, and start building a repeatable send flow.</div>
                         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                           <button
@@ -1736,7 +1736,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       ) : null}
                     </div>
                     <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
-                      {manualAssetUrl ? manualAssetFileName || manualAssetUrl : "No file selected yet."}
+                      {manualAssetUrl ? manualAssetFileName || manualAssetUrl : "No file attached yet."}
                     </div>
                   </div>
                 </div>
@@ -2556,7 +2556,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   })
                 ) : (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No audience tags selected yet</div>
+                    <div className="font-semibold text-zinc-900">No newsletter audience selected yet</div>
                     <div className="mt-1">Pick existing tags or create one now so this newsletter goes to the right audience.</div>
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                       <button
@@ -2897,7 +2897,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Usage (30d)</div>
                 <div className="mt-2 text-sm text-zinc-800">
-                  {creditsUsed30d === null ? "N/A" : `${creditsUsed30d} credits used`} · {generations30d === null ? "N/A" : `${generations30d} generations`}
+                  {creditsUsed30d === null ? "Watching usage" : `${creditsUsed30d} credits used`} · {generations30d === null ? "No generations yet" : `${generations30d} generations`}
                 </div>
               </div>
 
@@ -3159,7 +3159,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           ) : null}
                         </div>
                         <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
-                          {assetUrl ? assetFileName || assetUrl : "No file selected yet."}
+                          {assetUrl ? assetFileName || assetUrl : "No file attached yet."}
                         </div>
                       </div>
                     </div>
@@ -3478,7 +3478,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       ] as any
                     }
                     onChange={(v) => setSiteConfigDomain(String(v || ""))}
-                    placeholder={funnelDomainsBusy ? "Loading domains…" : (funnelDomains || []).length ? "Choose a domain" : "No domains yet"}
+                    placeholder={funnelDomainsBusy ? "Loading domains…" : (funnelDomains || []).length ? "Choose a domain" : "No custom domains yet"}
                   />
                 </div>
                 <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">

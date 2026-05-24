@@ -255,7 +255,7 @@ export function PortalNurtureCampaignsClient() {
       const res = await fetch("/api/portal/nurture/campaigns", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as ListRes;
       if (!res.ok || !json.ok || !Array.isArray((json as any).campaigns)) {
-        throw new Error(String((json as any).error || "Nurture campaigns did not load. Retry here, start a campaign, or ask Pura to help."));
+        throw new Error(String((json as any).error || "Nurture campaigns are still syncing. Retry here, start a campaign, or ask Pura to help."));
       }
       const next = (json as any).campaigns as CampaignListRow[];
       setCampaigns(next);
@@ -265,7 +265,7 @@ export function PortalNurtureCampaignsClient() {
         setSelectedId(next[0]?.id ?? null);
       }
     } catch (e: any) {
-      const message = String(e?.message || "Nurture campaigns did not load. Retry here, start a campaign, or ask Pura to help.");
+      const message = String(e?.message || "Nurture campaigns are still syncing. Retry here, start a campaign, or ask Pura to help.");
       toast.error(message);
       setListError(message);
       setCampaigns([]);
@@ -281,7 +281,7 @@ export function PortalNurtureCampaignsClient() {
       const res = await fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as TagsRes;
       if (!res.ok || !json.ok || !Array.isArray((json as any).tags)) {
-        throw new Error(String((json as any).error || "Audience tags did not load. Refresh this page or create a tag from the campaign panel."));
+        throw new Error(String((json as any).error || "Audience tags are still syncing. Refresh this page or create a tag from the campaign panel."));
       }
       const next = (json as any).tags
         .map((t: any) => ({ id: String(t?.id || ""), name: String(t?.name || "").slice(0, 60), color: typeof t?.color === "string" ? String(t.color) : null }))
@@ -291,7 +291,7 @@ export function PortalNurtureCampaignsClient() {
     } catch {
       setOwnerTags([]);
       if (!opts?.suppressErrorToast) {
-        toast.error("Audience tags did not load. Refresh this page or create a tag from the campaign panel.");
+        toast.error("Audience tags are still syncing. Refresh this page or create a tag from the campaign panel.");
       }
     } finally {
       setLoadingTags(false);
@@ -305,12 +305,12 @@ export function PortalNurtureCampaignsClient() {
       const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}`, { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as DetailRes;
       if (!res.ok || !json.ok || !(json as any).campaign?.id) {
-        throw new Error(String((json as any).error || "That campaign did not load. Retry here, open campaigns, or ask Pura to help."));
+        throw new Error(String((json as any).error || "That campaign is still syncing. Retry here, open campaigns, or ask Pura to help."));
       }
       setDetail((json as any).campaign);
       setCampaignDirty(false);
     } catch (e: any) {
-      const message = String(e?.message || "That campaign did not load. Retry here, open campaigns, or ask Pura to help.");
+      const message = String(e?.message || "That campaign is still syncing. Retry here, open campaigns, or ask Pura to help.");
       toast.error(message);
       setDetailError(message);
       setDetail(null);
@@ -494,7 +494,7 @@ export function PortalNurtureCampaignsClient() {
             body: JSON.stringify({ kind: s.kind }),
           });
           const json = (await res.json().catch(() => ({}))) as any;
-          if (!res.ok || !json?.ok || !json?.id) throw new Error(String(json?.error || "That template did not load. Retry here or keep building the steps manually."));
+          if (!res.ok || !json?.ok || !json?.id) throw new Error(String(json?.error || "That template is still syncing. Retry here or keep building the steps manually."));
           const stepId = String(json.id);
 
           await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, {
@@ -513,7 +513,7 @@ export function PortalNurtureCampaignsClient() {
         await refreshList({ keepSelected: true });
         setTemplateOpen(false);
       } catch (e: any) {
-        toast.error(String(e?.message || "That template did not load. Retry here or keep building the steps manually."));
+        toast.error(String(e?.message || "That template is still syncing. Retry here or keep building the steps manually."));
       } finally {
         setTemplateBusy(false);
       }
@@ -592,7 +592,7 @@ export function PortalNurtureCampaignsClient() {
               })
             ) : (
               <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No campaigns yet</div>
+                <div className="font-semibold text-zinc-900">No nurture campaigns yet</div>
                 <div className="mt-1">Create the first sequence so tags, steps, and enrollments have a live campaign to work with.</div>
                 <button
                   type="button"
@@ -726,7 +726,7 @@ export function PortalNurtureCampaignsClient() {
                   <div className="text-sm text-zinc-600">Loading…</div>
                 ) : campaigns.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No campaigns yet</div>
+                    <div className="font-semibold text-zinc-900">No nurture campaigns yet</div>
                     <div className="mt-1">Create the first campaign, then load a template or build the sequence step by step.</div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <button
@@ -1231,7 +1231,7 @@ export function PortalNurtureCampaignsClient() {
                       ))
                   ) : (
                     <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                      <div className="font-semibold text-zinc-900">No steps yet</div>
+                      <div className="font-semibold text-zinc-900">No nurture steps yet</div>
                       <div className="mt-1">Load a template or add the first SMS or email step so this campaign can actually nurture contacts.</div>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <button

@@ -219,7 +219,7 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error && error.message ? error.message : "Failed to load campaigns",
+        error: error instanceof Error && error.message ? error.message : "Campaigns did not load. Retry here, create a campaign, or ask Pura to help.",
       },
       { status: 500 },
     );

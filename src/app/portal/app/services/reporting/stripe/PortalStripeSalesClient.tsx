@@ -108,14 +108,14 @@ export function PortalStripeSalesClient() {
       if (!salesRes?.ok) {
         const body = (await salesRes?.json().catch(() => ({}))) as { error?: string };
         if (isFirstLoad) setData(null);
-        setError(body?.error ?? "Stripe sales did not load. Retry here or review Stripe setup while reporting catches up.");
+        setError(body?.error ?? "Stripe sales are still syncing. Retry here or review Stripe setup while reporting catches up.");
         return;
       }
 
       const payload = ((await salesRes.json().catch(() => null)) as StripeSalesPayload | null) ?? null;
       if (!payload || (payload as any).ok !== true) {
         if (isFirstLoad) setData(null);
-        setError((payload as any)?.error ?? "Stripe sales did not load. Retry here or review Stripe setup while reporting catches up.");
+        setError((payload as any)?.error ?? "Stripe sales are still syncing. Retry here or review Stripe setup while reporting catches up.");
         return;
       }
 

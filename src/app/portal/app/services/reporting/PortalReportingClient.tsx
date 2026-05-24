@@ -1,17 +1,46 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 
-import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
-import { IconFunnel, IconSearch } from "@/app/portal/PortalIcons";
+import { InlineSpinner } from "@/components/InlineSpinner";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
-import { portalGlassButtonClass } from "@/components/portalGlass";
-import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
-import { portalWidgetUsesFilledSurface, toneForPortalWidget, type PortalWidgetTone } from "@/lib/portalWidgetTones";
+import { growthReadinessLevelLabel, type GrowthReadinessLevel, type GrowthReadinessPayload } from "@/lib/portalGrowthReadiness";
 
 type RangeKey = "today" | "7d" | "30d" | "90d" | "all";
+
+type ExternalBookingHandoffSummary = {
+  enabled: boolean;
+  handoffMode: "direct_book" | "lead_first";
+  providerKey: string;
+  providerLabel: string;
+  destinationHost: string;
+  confirmationState: "handoff_only" | "redirect_confirmed" | "provider_confirmed";
+  providerConfirmationAvailable: boolean;
+  providerConfirmationConnected: boolean;
+  totalHandoffs: number;
+  directHandoffs: number;
+  leadFirstCaptures: number;
+  distinctCapturedContacts: number;
+  confirmedViaRedirect: number;
+  distinctConfirmedContacts: number;
+  providerConfirmedBookings: number;
+  distinctProviderConfirmedContacts: number;
+  providerCanceledBookings: number;
+  providerRescheduledBookings: number;
+  latestHandoffAt: string | null;
+  latestConfirmedAt: string | null;
+  latestProviderConfirmedAt: string | null;
+  latestActivityAt: string | null;
+  providerBreakdown: Array<{ providerKey: string; providerLabel: string; handoffs: number }>;
+  guidance: {
+    state: "disabled" | "provider_not_connected" | "no_handoffs" | "handoffs_only" | "captured_leads" | "redirect_confirmed" | "provider_confirmed";
+    title: string;
+    detail: string;
+  };
+};
 
 type ReportingPayload = {
   ok: boolean;
@@ -19,7 +48,32 @@ type ReportingPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
-  warnings?: string[];
+  externalBookingHandoff: ExternalBookingHandoffSummary;
+  diagnostics: {
+    actionFailures: number;
+    runtimeErrors: number;
+    unhandledRejections: number;
+    resourceErrors: number;
+    manualBugReports: number;
+    topPaths: Array<{ path: string; count: number }>;
+    topMessages: Array<{ kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure"; message: string; count: number }>;
+  };
+  attention: {
+    tasksOverdueNow: number;
+    inboxNeedsReplyNow: number;
+    creditReportsImported: number;
+    creditReportItemsPendingNow: number;
+    creditReportItemsNegativeNow: number;
+    creditDisputeDraftsNow: number;
+    creditDisputePdfsReadyNow: number;
+    creditDisputeMarkedMailedNow: number;
+    betaFeedbackPortalRecent: number;
+    betaFeedbackPortalUnresolvedNow: number;
+    betaFeedbackPortalHighSeverityNow: number;
+    betaFeedbackCreditRecent: number;
+    betaFeedbackCreditUnresolvedNow: number;
+    betaFeedbackCreditHighSeverityNow: number;
+  };
   kpis: {
     automationsRun: number;
     aiCalls: number;
@@ -111,20 +165,39 @@ type SalesReportPayload =
   | { ok: false; error?: string };
 
 type MediaStatsPayload =
-  | { ok: true; itemsCount: number; foldersCount: number }
+  | {
+      ok: true;
+      itemsCount: number;
+      foldersCount: number;
+      distributionContinuity?: {
+        plannedPosts: number;
+        approvedPosts: number;
+        readyToUseAssets: number;
+        unscheduledReadyAssets: number;
+        needsCaptionAssets: number;
+        notesNeededAssets: number;
+        needsApprovalAssets: number;
+        missingCtaAssets: number;
+        manuallyPostedAssets: number;
+        providerReadyAssets: number;
+        providerBlockedAssets: number;
+        providerFailedAssets: number;
+        youtubePreparedAssets: number;
+      };
+    }
   | { ok: false; error?: string };
 
-async function fetchJsonWithTimeout<T>(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 15000): Promise<T | null> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(input, { ...init, signal: controller.signal }).catch(() => null as any);
-    if (!res?.ok) return null;
-    return ((await res.json().catch(() => null)) as T | null) ?? null;
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
+type MediaDistributionContinuity = NonNullable<Extract<MediaStatsPayload, { ok: true }>['distributionContinuity']>;
+
+type ContentWorkflowCardSummary = {
+  primaryValue: string;
+  primaryLabel: string;
+  summary: string;
+  note: string;
+  actionHref: string;
+  guidance: string[];
+  signals: Array<{ label: string; value: string; sub?: string }>;
+};
 
 type ServiceKey =
   | "all"
@@ -145,6 +218,35 @@ type ServiceKey =
 
 type ServiceInfo = { key: ServiceKey; name: string; href: string | null };
 
+type ReportingWorkspaceVariant = "portal" | "credit";
+
+type ReportingCoverageItem = {
+  label: string;
+  detail: string;
+};
+
+type ReportingCoverage = {
+  summary: string;
+  includedIntro: string;
+  included: ReportingCoverageItem[];
+  notIncludedIntro: string;
+  notIncluded: ReportingCoverageItem[];
+};
+
+type ReportingInsightCard = {
+  id: string;
+  tone: "danger" | "warning" | "neutral";
+  title: string;
+  value: string;
+  detail: string;
+  actionLabel?: string;
+  actionHref?: string | null;
+};
+
+type GrowthReadinessResponse =
+  | ({ ok: true } & GrowthReadinessPayload)
+  | { ok: false; error?: string };
+
 function currentPortalBase(pathname: string | null | undefined): "/portal" | "/credit" {
   return String(pathname || "").startsWith("/credit") ? "/credit" : "/portal";
 }
@@ -162,7 +264,7 @@ const SERVICE_INFOS: ServiceInfo[] = [
   { key: "mediaLibrary", name: "Media Library", href: "/portal/app/services/media-library" },
   { key: "aiReceptionist", name: "AI Receptionist", href: "/portal/app/services/ai-receptionist" },
   { key: "aiOutboundCalls", name: "AI outbound", href: "/portal/app/services/ai-outbound-calls/calls" },
-  { key: "missedCallTextBack", name: "Missed-Call Text Back", href: "/portal/app/services/missed-call-textback" },
+  { key: "missedCallTextBack", name: "Missed-Call Text Back", href: "/portal/app/services/ai-receptionist?tab=missed-call-textback" },
   { key: "booking", name: "Booking Automation", href: "/portal/app/services/booking" },
   { key: "blogs", name: "Automated Blogs", href: "/portal/app/services/blogs" },
   { key: "newsletter", name: "Newsletter", href: "/portal/app/services/newsletter/external" },
@@ -173,7 +275,105 @@ const SERVICE_INFOS: ServiceInfo[] = [
   { key: "leadScraping", name: "Lead Scraping", href: "/portal/app/services/lead-scraping" },
 ];
 
-function matchTokens(query: string, terms: string[]) {
+function getReportingWorkspaceVariant(pathname: string | null | undefined): ReportingWorkspaceVariant {
+  return currentPortalBase(pathname) === "/credit" ? "credit" : "portal";
+}
+
+function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCoverage {
+  if (variant === "credit") {
+    return {
+      summary:
+        "This page shows the activity Purely currently records for this credit account. It does not mean every step of the credit process is tracked yet.",
+      includedIntro:
+        "Included now: the shared account activity and credit-related counts Purely already records today.",
+      included: [
+        {
+          label: "Bookings and consultations",
+          detail: "Bookings created inside Purely are counted here when a consultation or appointment is created through the booking system. If you send someone to an outside booking page, clicks through, returns to your site, and confirmed outside bookings stay separate instead of being mixed into Purely booking totals.",
+        },
+        {
+          label: "Tracked lead and contact records",
+          detail: "This dashboard shows tracked lead records and contacts created in Purely, plus lead-scraping run counts where that service is active.",
+        },
+        {
+          label: "Imported credit reports and review queues",
+          detail: "When reports and dispute letters exist, reporting can show imported report volume, report items that still need review, dispute drafts, PDFs ready, and letters marked mailed manually.",
+        },
+        {
+          label: "Conversation and follow-up activity",
+          detail: "Inbox message volume, AI receptionist calls, missed-call text-back activity, newsletter sends, nurture enrollments, and task counts are included when those services record events.",
+        },
+        {
+          label: "Connected payment totals",
+          detail: "Sales and Stripe pages only show payment totals when those connections are set up. They do not represent dispute or bureau work.",
+        },
+      ],
+      notIncludedIntro:
+        "Not included yet: parts of the credit process that Purely does not reliably store in this summary yet.",
+      notIncluded: [
+        {
+          label: "Bureau pull or score outcome tracking",
+          detail: "This page does not claim bureau pull completion, score-change outcomes, or lender decisions unless those events are explicitly stored elsewhere.",
+        },
+        {
+          label: "External dispute delivery proof",
+          detail: "Marked mailed is only a manual state inside Purely. Reporting does not prove delivery, bureau receipt, or external submission progress.",
+        },
+        {
+          label: "All funnel and nurture attribution",
+          detail: "Funnel leads, page-by-page conversion attribution, and other source attribution are not guaranteed here unless they become standard tracked lead records elsewhere in Purely.",
+        },
+      ],
+    };
+  }
+
+  return {
+    summary:
+      "This page shows the service activity Purely currently records across your account. Connected sales data appears separately only where those connections exist.",
+    includedIntro:
+      "Included now: activity across services that Purely already measures today.",
+    included: [
+      {
+        label: "Service activity and outcomes",
+        detail: "Automations, AI receptionist calls, missed-call text-back events, bookings, external booking handoffs, reviews, inbox volume, newsletter sends, nurture enrollments, tasks, and blog generation activity are counted here when those services record events.",
+      },
+      {
+        label: "Tracked leads, contacts, and credits",
+        detail: "Tracked lead records, contacts created, credits remaining, credits used, and estimated credit runway are included in this dashboard.",
+      },
+      {
+        label: "Lead-scraping and operational volume",
+        detail: "Lead-scraping runs, charged or refunded credits, and related activity totals are included when that service is active.",
+      },
+      {
+        label: "Connected sales totals",
+        detail: "Sales and Stripe pages show payment totals only. They do not fill in every operating metric from the rest of the portal.",
+      },
+    ],
+    notIncludedIntro:
+      "Not included yet: metrics the shared reporting summary does not currently collect or attribute.",
+    notIncluded: [
+      {
+        label: "Full attribution and source analysis",
+        detail: "This page does not yet provide end-to-end attribution by funnel, campaign source, or page-level conversion path.",
+      },
+      {
+        label: "Every workflow-specific milestone",
+        detail: "Lead follow-up gaps, form submissions without a tracked next step, and booking review states are not inferred unless Purely stores a concrete task, reply-needed thread, or other explicit status for them.",
+      },
+      {
+        label: "Outside booking steps without source tracking",
+        detail: "This page can separate clicks to an outside booking page, returns back to your site, and confirmed outside bookings when Purely receives them. It still cannot guess source attribution or unstored steps from those signals alone.",
+      },
+      {
+        label: "Audited labor tracking",
+        detail: "Estimated runway and automation summaries are operational estimates, not audited hours-saved accounting or payroll-grade productivity reporting.",
+      },
+    ],
+  };
+}
+
+function matchTokens(query: string, terms: Array<string | null | undefined>): boolean {
   const q = (query ?? "").toLowerCase().trim();
   if (!q) return true;
   const haystack = terms
@@ -256,12 +456,12 @@ function formatIsoDay(isoDay: string) {
 }
 
 function formatRating(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "No rating yet";
   return value.toFixed(1);
 }
 
 function formatPct(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Not enough data yet";
   return `${Math.round(value * 100)}%`;
 }
 
@@ -281,64 +481,6 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-type ReportingPendingLink = {
-  label: string;
-  href: string;
-};
-
-function ReportingPendingState({
-  title,
-  body,
-  links,
-  action,
-}: {
-  title: string;
-  body: string;
-  links: ReportingPendingLink[];
-  action?: { label: string; onClick: () => void } | null;
-}) {
-  return (
-    <div className="pa-reporting-pending mt-4 rounded-[28px] border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-[0_18px_48px_rgba(15,23,42,0.08)]">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="max-w-2xl">
-          <div className="text-sm font-semibold text-brand-ink">{title}</div>
-          <p className="mt-2 text-sm leading-6 text-zinc-600">{body}</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {action ? (
-              <button
-                type="button"
-                onClick={action.onClick}
-                className="inline-flex items-center justify-center rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-              >
-                {action.label}
-              </button>
-            ) : null}
-            {links.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="pa-reporting-pending-link inline-flex items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors duration-100 hover:bg-zinc-100"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-        <div className="pa-reporting-pending-aside grid min-w-55 gap-3 rounded-3xl bg-zinc-50 p-4 text-xs text-zinc-500">
-          <div>
-            <div className="font-semibold uppercase tracking-[0.18em] text-zinc-400">What you should expect</div>
-            <div className="mt-2 text-sm text-zinc-600">Credits, activity, and sales widgets appear here once reporting data finishes loading.</div>
-          </div>
-          <div>
-            <div className="font-semibold uppercase tracking-[0.18em] text-zinc-400">Best next step</div>
-            <div className="mt-2 text-sm text-zinc-600">If you are brand new, start with billing or the sales dashboard, then come back here for the full summary.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function formatMoneyFromCents(cents: number, currency: string) {
   const amount = (typeof cents === "number" && Number.isFinite(cents) ? cents : 0) / 100;
   try {
@@ -349,95 +491,90 @@ function formatMoneyFromCents(cents: number, currency: string) {
   }
 }
 
-type StatTone = PortalWidgetTone;
+function reportingActionHref(
+  pathname: string | null | undefined,
+  route: "reporting" | "billing" | "tasks" | "inbox" | "creditReports" | "disputeLetters" | "booking",
+) {
+  const portalBase = currentPortalBase(pathname);
+  switch (route) {
+    case "billing":
+      return `${portalBase}/app/billing`;
+    case "booking":
+      return `${portalBase}/app/services/booking?tab=settings`;
+    case "tasks":
+      return `${portalBase}/app/services/tasks`;
+    case "inbox":
+      return `${portalBase}/app/services/inbox/email`;
+    case "creditReports":
+      return `${portalBase}/app/services/credit-reports`;
+    case "disputeLetters":
+      return `${portalBase}/app/services/dispute-letters`;
+    case "reporting":
+    default:
+      return `${portalBase}/app/services/reporting`;
+  }
+}
+
+type StatTone = "blue" | "pink" | "ink" | "emerald" | "slate" | "violet" | "amber";
 
 function toneClasses(tone: StatTone) {
-  const filled = portalWidgetUsesFilledSurface(tone);
   switch (tone) {
     case "blue":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.92),rgba(29,78,216,0.22))]",
         ring: "ring-1 ring-[color:rgba(29,78,216,0.16)]",
-        surface: filled ? "bg-[linear-gradient(180deg,rgba(239,246,255,0.98),rgba(219,234,254,0.94))]" : "bg-white",
         pill: "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]",
-        icon: "bg-[color:rgba(29,78,216,0.10)] text-[color:rgba(29,78,216,0.95)]",
-        softPanel: "bg-[rgba(219,234,254,0.72)]",
-        label: filled ? "text-[rgba(29,78,216,0.9)]" : "text-zinc-500",
-        sub: filled ? "text-[rgba(30,64,175,0.8)]" : "text-zinc-500",
-        filled,
+        icon: "border-[color:rgba(29,78,216,0.20)] bg-[color:rgba(29,78,216,0.10)] text-[color:rgba(29,78,216,0.95)]",
+        softBg: "bg-[color:rgba(29,78,216,0.04)]",
       };
     case "pink":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(251,113,133,0.92),rgba(251,113,133,0.18))]",
         ring: "ring-1 ring-[color:rgba(251,113,133,0.16)]",
-        surface: "bg-white",
         pill: "bg-[color:rgba(251,113,133,0.14)] text-[color:var(--color-brand-pink)]",
-        icon: "bg-[color:rgba(251,113,133,0.14)] text-[color:rgba(251,113,133,0.95)]",
-        softPanel: "bg-[rgba(255,228,230,0.66)]",
-        label: "text-zinc-500",
-        sub: "text-zinc-500",
-        filled,
+        icon: "border-[color:rgba(251,113,133,0.22)] bg-[color:rgba(251,113,133,0.14)] text-[color:rgba(251,113,133,0.95)]",
+        softBg: "bg-[color:rgba(251,113,133,0.05)]",
       };
     case "emerald":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(16,185,129,0.88),rgba(16,185,129,0.18))]",
         ring: "ring-1 ring-[color:rgba(16,185,129,0.14)]",
-        surface: filled ? "bg-[linear-gradient(180deg,rgba(240,253,244,0.98),rgba(220,252,231,0.94))]" : "bg-white",
         pill: "bg-emerald-50 text-emerald-700",
-        icon: "bg-emerald-50 text-emerald-700",
-        softPanel: "bg-[rgba(220,252,231,0.78)]",
-        label: filled ? "text-[rgba(5,150,105,0.94)]" : "text-zinc-500",
-        sub: filled ? "text-[rgba(6,95,70,0.78)]" : "text-zinc-500",
-        filled,
+        icon: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        softBg: "bg-[color:rgba(16,185,129,0.05)]",
       };
     case "violet":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(124,58,237,0.92),rgba(124,58,237,0.18))]",
         ring: "ring-1 ring-[color:rgba(124,58,237,0.16)]",
-        surface: filled ? "bg-[linear-gradient(180deg,rgba(250,245,255,0.98),rgba(243,232,255,0.94))]" : "bg-white",
         pill: "bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
-        icon: "bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
-        softPanel: "bg-[rgba(243,232,255,0.8)]",
-        label: filled ? "text-[rgba(109,40,217,0.92)]" : "text-zinc-500",
-        sub: filled ? "text-[rgba(91,33,182,0.8)]" : "text-zinc-500",
-        filled,
+        icon: "border-[color:rgba(124,58,237,0.20)] bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
+        softBg: "bg-[color:rgba(124,58,237,0.05)]",
       };
     case "amber":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(245,158,11,0.92),rgba(245,158,11,0.18))]",
         ring: "ring-1 ring-[color:rgba(245,158,11,0.18)]",
-        surface: filled ? "bg-[linear-gradient(180deg,rgba(255,251,235,0.98),rgba(254,243,199,0.94))]" : "bg-white",
         pill: "bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
-        icon: "bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
-        softPanel: "bg-[rgba(254,243,199,0.82)]",
-        label: filled ? "text-[rgba(180,83,9,0.94)]" : "text-zinc-500",
-        sub: filled ? "text-[rgba(146,64,14,0.78)]" : "text-zinc-500",
-        filled,
+        icon: "border-[color:rgba(245,158,11,0.22)] bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
+        softBg: "bg-[color:rgba(245,158,11,0.06)]",
       };
     case "slate":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(100,116,139,0.92),rgba(100,116,139,0.22))]",
         ring: "ring-1 ring-[color:rgba(100,116,139,0.14)]",
-        surface: "bg-white",
         pill: "bg-slate-50 text-slate-700",
-        icon: "bg-slate-50 text-slate-700",
-        softPanel: "bg-[rgba(241,245,249,0.94)]",
-        label: "text-zinc-500",
-        sub: "text-zinc-500",
-        filled,
+        icon: "border-slate-200 bg-slate-50 text-slate-700",
+        softBg: "bg-slate-50",
       };
     case "ink":
     default:
       return {
         bar: "bg-[linear-gradient(90deg,rgba(51,65,85,0.92),rgba(51,65,85,0.22))]",
         ring: "ring-1 ring-[color:rgba(51,65,85,0.14)]",
-        surface: "bg-white",
         pill: "bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
-        icon: "bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
-        softPanel: "bg-[rgba(248,250,252,0.96)]",
-        label: "text-zinc-500",
-        sub: "text-zinc-500",
-        filled,
+        icon: "border-[color:rgba(51,65,85,0.16)] bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
+        softBg: "bg-zinc-50",
       };
   }
 }
@@ -487,20 +624,20 @@ function StatCard({
 }) {
   const t = toneClasses(tone);
   return (
-    <div className={classNames("pa-reporting-stat-card rounded-3xl border border-zinc-200 p-6", t.surface, t.ring)} data-reporting-tone={tone}>
-      {!t.filled ? <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} /> : null}
+    <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
+      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
       <div className="flex items-center justify-between gap-3">
-        <div className={classNames("pa-reporting-stat-label text-xs font-semibold", t.label)}>{label}</div>
+        <div className="text-xs font-semibold text-zinc-500">{label}</div>
         {icon ? (
-          <div className={classNames("pa-reporting-stat-icon inline-flex items-center justify-center rounded-xl p-2", t.icon)} aria-hidden="true">
+          <div className={classNames("inline-flex items-center justify-center rounded-xl border p-2", t.icon)} aria-hidden="true">
             {icon}
           </div>
         ) : (
-          <div className={classNames("pa-reporting-stat-pill h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
+          <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
         )}
       </div>
       <div className="mt-2 text-3xl font-bold text-brand-ink">{value}</div>
-      {sub ? <div className={classNames("pa-reporting-stat-sub mt-1 text-xs", t.sub)}>{sub}</div> : null}
+      {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}
     </div>
   );
 }
@@ -509,22 +646,16 @@ function MiniCard({
   label,
   value,
   sub,
-  tone,
-  filled,
 }: {
   label: string;
   value: string;
   sub?: string;
-  tone?: StatTone;
-  filled?: boolean;
 }) {
-  const t = tone ? toneClasses(tone) : null;
-  const surfaceClass = filled && t ? t.softPanel : t?.surface ?? "bg-white";
   return (
-    <div className={classNames("pa-reporting-mini-card rounded-3xl border border-zinc-200 p-5", surfaceClass, t?.ring)} data-reporting-tone={tone ?? "ink"}>
-      <div className={classNames("pa-reporting-stat-label text-xs font-semibold", t?.label ?? "text-zinc-500")}>{label}</div>
+    <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+      <div className="text-xs font-semibold text-zinc-500">{label}</div>
       <div className="mt-2 text-2xl font-bold text-brand-ink">{value}</div>
-      {sub ? <div className={classNames("pa-reporting-stat-sub mt-1 text-xs", t?.sub ?? "text-zinc-500")}>{sub}</div> : null}
+      {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}
     </div>
   );
 }
@@ -544,7 +675,8 @@ function ServicePerfCard({
 }) {
   const t = toneClasses(tone ?? "slate");
   return (
-    <div className={classNames("pa-reporting-service-card rounded-3xl border border-zinc-200 bg-white p-6", t.ring)} data-reporting-tone={tone ?? "slate"}>
+    <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
+      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
         <div className="flex items-center gap-2">
@@ -558,10 +690,10 @@ function ServicePerfCard({
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {stats.slice(0, 6).map((s) => (
-          <div key={s.label} className={classNames("pa-reporting-service-stat rounded-2xl p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]", t.softPanel)}>
+          <div key={s.label} className={classNames("rounded-2xl border border-zinc-200 p-3", t.softBg)}>
             <div className="flex items-center justify-between gap-2">
               <div className="text-[11px] font-semibold text-zinc-600">{s.label}</div>
-              <div className={classNames("pa-reporting-stat-pill h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
+              <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
             </div>
             <div className="mt-1 text-sm font-bold text-brand-ink">{s.value}</div>
           </div>
@@ -571,30 +703,326 @@ function ServicePerfCard({
   );
 }
 
-function computeReportingMenuStyle(
-  anchor: HTMLButtonElement,
-  options?: { width?: number; estHeight?: number; minHeight?: number; alignX?: "left" | "right" },
-): CSSProperties {
-  const rect = anchor.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+function contentAssetsNeedingCopyOrNotes(continuity: MediaDistributionContinuity) {
+  return (continuity.needsCaptionAssets ?? 0) + (continuity.notesNeededAssets ?? 0);
+}
 
-  const padding = 12;
-  const gap = 4;
-  const width = Math.min(options?.width ?? 224, vw - padding * 2);
-  const alignX = options?.alignX ?? "left";
-  const rawLeft = alignX === "right" ? rect.right - width : rect.left;
-  const left = Math.min(Math.max(rawLeft, padding), vw - padding - width);
+function buildContentWorkflowGuidanceMessages(args: {
+  continuity: MediaDistributionContinuity;
+  variant: ReportingWorkspaceVariant;
+}) {
+  const { continuity, variant } = args;
+  const ready = continuity.unscheduledReadyAssets ?? 0;
+  const planned = continuity.plannedPosts ?? 0;
+  const manual = continuity.manuallyPostedAssets ?? 0;
+  const blocked = continuity.providerBlockedAssets ?? 0;
+  const youtubePrepared = continuity.youtubePreparedAssets ?? 0;
+  const usable = ready + planned + manual;
+  const guidance: string[] = [];
 
-  const spaceBelow = vh - rect.bottom - padding - gap;
-  const spaceAbove = rect.top - padding - gap;
-  const estHeight = options?.estHeight ?? 220;
-  const minHeight = options?.minHeight ?? 160;
-  const preferDown = spaceBelow >= estHeight || spaceBelow >= spaceAbove;
+  if (ready > 0) {
+    guidance.push(
+      variant === "credit"
+        ? "You have consultation support content ready but not scheduled."
+        : "You have content ready but not scheduled.",
+    );
+  }
 
-  return preferDown
-    ? { left, top: rect.bottom + gap, width, maxHeight: Math.max(minHeight, spaceBelow) }
-    : { left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(minHeight, spaceAbove) };
+  if (planned > 0 && manual === 0) {
+    guidance.push(
+      variant === "credit"
+        ? "You planned consultation support content but have not marked anything posted."
+        : "You planned content but have not marked anything posted.",
+    );
+  }
+
+  if (blocked > 0 && (ready > 0 || planned > 0 || youtubePrepared > 0)) {
+    guidance.push(
+      variant === "credit"
+        ? "You are preparing consultation support content, but publishing is still manual."
+        : "You are preparing content, but provider publishing is still manual.",
+    );
+  }
+
+  if (usable === 0) {
+    guidance.push(
+      variant === "credit"
+        ? "Add more usable consultation support content before expecting demand lift."
+        : "Add more usable content before expecting traffic lift.",
+    );
+  }
+
+  return guidance.slice(0, 3);
+}
+
+function buildContentWorkflowCardSummary(args: {
+  continuity: MediaDistributionContinuity;
+  pathname: string | null | undefined;
+  variant: ReportingWorkspaceVariant;
+  trackedHandoffs: number;
+}): ContentWorkflowCardSummary {
+  const { continuity, pathname, variant, trackedHandoffs } = args;
+  const needsCopyOrNotes = contentAssetsNeedingCopyOrNotes(continuity);
+  const ready = continuity.unscheduledReadyAssets ?? 0;
+  const planned = continuity.plannedPosts ?? 0;
+  const manual = continuity.manuallyPostedAssets ?? 0;
+  const blocked = continuity.providerBlockedAssets ?? 0;
+  const youtubePrepared = continuity.youtubePreparedAssets ?? 0;
+  const usable = ready + planned + manual;
+
+  const summary = usable > 0
+    ? variant === "credit"
+      ? `${usable.toLocaleString()} usable asset${usable === 1 ? "" : "s"} currently support consultation demand inside the shared Media Library workflow.`
+      : `${usable.toLocaleString()} usable asset${usable === 1 ? "" : "s"} currently support the stored business-growth content pipeline.`
+    : variant === "credit"
+      ? "No consultation-support content is ready, planned, or marked posted yet."
+      : "No usable content is ready, planned, or marked posted yet.";
+
+  const note = trackedHandoffs > 0
+    ? `${trackedHandoffs.toLocaleString()} booking handoff${trackedHandoffs === 1 ? " is" : "s are"} tracked separately in booking reporting. Asset-level attribution is still not automatic.`
+    : variant === "credit"
+      ? "Manual post history is stored here. Consultation demand, client outcomes, and provider performance are not inferred from this card."
+      : "Manual post history is stored here. Traffic, bookings, leads, and provider performance are not inferred from this card.";
+
+  const signals: ContentWorkflowCardSummary["signals"] = [
+    {
+      label: "Need caption or notes",
+      value: needsCopyOrNotes.toLocaleString(),
+      sub: needsCopyOrNotes > 0 ? "Still in preparation" : "No drafting backlog",
+    },
+    {
+      label: variant === "credit" ? "Ready for demand support" : "Ready to schedule",
+      value: ready.toLocaleString(),
+      sub: ready > 0 ? "Usable but unscheduled" : "Nothing waiting",
+    },
+    {
+      label: "Planned",
+      value: planned.toLocaleString(),
+      sub: planned > 0 ? "Scheduled in workflow" : "Nothing scheduled",
+    },
+    {
+      label: "Manual posts",
+      value: manual.toLocaleString(),
+      sub: manual > 0 ? "Marked posted here" : "No posted history yet",
+    },
+    {
+      label: "Manual-only lane",
+      value: blocked.toLocaleString(),
+      sub: blocked > 0 ? "Future provider connection still blocks direct publishing" : "No blocked provider lane",
+    },
+    ...(youtubePrepared > 0
+      ? [{ label: "YouTube prep", value: youtubePrepared.toLocaleString(), sub: "Future manual workflow" }]
+      : []),
+  ];
+
+  return {
+    primaryValue: usable.toLocaleString(),
+    primaryLabel: variant === "credit" ? "assets supporting demand" : "usable assets in motion",
+    summary,
+    note,
+    actionHref: toCurrentPortalHref("/portal/app/services/media-library", pathname) || "/portal/app/services/media-library",
+    guidance: buildContentWorkflowGuidanceMessages({ continuity, variant }),
+    signals,
+  };
+}
+
+function ContentWorkflowCard({ summary }: { summary: ContentWorkflowCardSummary }) {
+  const t = toneClasses("amber");
+
+  return (
+    <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
+      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-xs font-semibold text-zinc-500">Content workflow</div>
+          <div className="mt-2 text-3xl font-bold text-brand-ink">{summary.primaryValue}</div>
+          <div className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">{summary.primaryLabel}</div>
+          <div className="mt-2 max-w-3xl text-sm text-zinc-600">{summary.summary}</div>
+        </div>
+        <Link href={summary.actionHref} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
+          Open media library
+        </Link>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {summary.signals.map((signal) => (
+          <div key={signal.label} className={classNames("rounded-2xl border border-zinc-200 p-3", t.softBg)}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold text-zinc-600">{signal.label}</div>
+              <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
+            </div>
+            <div className="mt-1 text-sm font-bold text-brand-ink">{signal.value}</div>
+            {signal.sub ? <div className="mt-1 text-[11px] text-zinc-500">{signal.sub}</div> : null}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Next step</div>
+        <div className="mt-2 space-y-2 text-sm text-zinc-700">
+          {summary.guidance.length > 0 ? summary.guidance.map((line) => (
+            <div key={line} className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+              <span>{line}</span>
+            </div>
+          )) : <div>The stored workflow does not show a clear content next step yet.</div>}
+        </div>
+        <div className="mt-3 text-xs text-zinc-500">{summary.note}</div>
+      </div>
+    </div>
+  );
+}
+
+function ContentWorkflowEmptyCard({ pathname, workspaceVariant }: { pathname: string | null | undefined; workspaceVariant: "portal" | "credit" }) {
+  const t = toneClasses("amber");
+  const mediaHref = toCurrentPortalHref("/portal/app/services/media-library", pathname) || "/portal/app/services/media-library";
+
+  return (
+    <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
+      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-xs font-semibold text-zinc-500">Content workflow</div>
+          <div className="mt-2 text-3xl font-bold text-brand-ink">Not started</div>
+          <div className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Stored workflow summary</div>
+          <div className="mt-2 max-w-3xl text-sm text-zinc-600">
+            {workspaceVariant === "credit"
+              ? "This card becomes useful after media drafts, consultation-support assets, and manual posting history are stored in Media Library."
+              : "This card becomes useful after media drafts, booking or funnel links, and manual posting history are stored in Media Library."}
+          </div>
+        </div>
+        <Link href={mediaHref} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
+          Open media library
+        </Link>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Next step</div>
+        <div className="mt-2 space-y-2 text-sm text-zinc-700">
+          <div className="flex items-start gap-2">
+            <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+            <span>Upload or organize the assets you actually plan to use.</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+            <span>{workspaceVariant === "credit" ? "Attach the consultation destination and planning notes." : "Attach the booking or funnel destination and planning notes."}</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+            <span>Mark manual posts here when they go live so reporting stays grounded in real continuity instead of assumptions.</span>
+          </div>
+        </div>
+        <div className="mt-3 text-xs text-zinc-500">Reporting leaves this card empty on purpose until Purely has real stored workflow signals.</div>
+      </div>
+    </div>
+  );
+}
+
+function insightToneClasses(tone: ReportingInsightCard["tone"]) {
+  if (tone === "danger") {
+    return {
+      shell: "border-rose-200 bg-rose-50",
+      value: "text-rose-700",
+      badge: "bg-rose-100 text-rose-700",
+      button: "border-rose-200 bg-white text-rose-700 hover:bg-rose-100",
+    };
+  }
+  if (tone === "warning") {
+    return {
+      shell: "border-amber-200 bg-amber-50",
+      value: "text-amber-700",
+      badge: "bg-amber-100 text-amber-700",
+      button: "border-amber-200 bg-white text-amber-700 hover:bg-amber-100",
+    };
+  }
+  return {
+    shell: "border-sky-200 bg-sky-50",
+    value: "text-sky-700",
+    badge: "bg-sky-100 text-sky-700",
+    button: "border-sky-200 bg-white text-sky-700 hover:bg-sky-100",
+  };
+}
+
+function growthLevelBadgeClasses(level: GrowthReadinessLevel) {
+  switch (level) {
+    case "active":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "ready":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "partially_ready":
+      return "border-violet-200 bg-violet-50 text-violet-700";
+    case "needs_setup":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "missing":
+    default:
+      return "border-zinc-200 bg-zinc-50 text-zinc-600";
+  }
+}
+
+function ReportingInsightSection({
+  cards,
+  pathname,
+  workspaceVariant,
+}: {
+  cards: ReportingInsightCard[];
+  pathname: string | null | undefined;
+  workspaceVariant: ReportingWorkspaceVariant;
+}) {
+  const emptyActionHref = reportingActionHref(pathname, workspaceVariant === "credit" ? "creditReports" : "tasks");
+  const emptyActionLabel = workspaceVariant === "credit" ? "Open credit reports" : "Open tasks";
+
+  return (
+    <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-zinc-900">Action insights</div>
+          <div className="mt-2 max-w-3xl text-sm text-zinc-600">
+            {workspaceVariant === "credit"
+              ? "These cues only use stored task, inbox, diagnostics, report, and dispute-letter data. They do not imply bureau pulls, submission proof, or score outcomes."
+              : "These cues only use stored task, inbox, diagnostics, feedback, and shared reporting data. They do not infer follow-up that Purely is not explicitly tracking yet."}
+          </div>
+        </div>
+      </div>
+
+      {cards.length ? (
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          {cards.map((card) => {
+            const tone = insightToneClasses(card.tone);
+            return (
+              <div key={card.id} className={classNames("rounded-3xl border p-5", tone.shell)}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="text-sm font-semibold text-zinc-900">{card.title}</div>
+                  <span className={classNames("rounded-full px-2.5 py-1 text-xs font-semibold", tone.badge)}>{card.value}</span>
+                </div>
+                <div className={classNames("mt-3 text-sm font-semibold", tone.value)}>{card.detail}</div>
+                {card.actionHref && card.actionLabel ? (
+                  <div className="mt-4">
+                    <Link href={card.actionHref} className={classNames("inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold", tone.button)}>
+                      {card.actionLabel}
+                    </Link>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-5">
+          <div className="text-sm font-semibold text-zinc-900">No tracked bottlenecks in this view right now</div>
+          <div className="mt-2 max-w-3xl text-sm text-zinc-600">
+            {workspaceVariant === "credit"
+              ? "This empty state only means Purely has no current tasks, reply-needed conversations, report review queue, or dispute-letter queue for this account right now. Imported reports, mailed delivery proof, and score outcomes are still excluded unless they are explicitly stored."
+              : "This empty state only means Purely has no current tasks, reply-needed conversations, action failures, or feedback queue flagged here. It does not imply lead follow-up, form next steps, or booking review are fully tracked."}
+          </div>
+          <div className="mt-4">
+            <Link href={emptyActionHref} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-100">
+              {emptyActionLabel}
+            </Link>
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function MenuButton({
@@ -617,14 +1045,11 @@ function MenuButton({
   goToLabel?: string | null;
 }) {
   const open = openId === id;
-  const pathname = usePathname() || "";
-  const router = useRouter();
-  const resolvedGoToHref = toCurrentPortalHref(goToHref ?? null, pathname);
 
   const anchorRef = useRef<HTMLButtonElement | null>(null);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!open) {
       setMenuStyle(null);
       return;
@@ -633,7 +1058,24 @@ function MenuButton({
     const recompute = () => {
       const anchor = anchorRef.current;
       if (!anchor) return;
-      setMenuStyle(computeReportingMenuStyle(anchor));
+      const rect = anchor.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      const padding = 12;
+      const gap = 8;
+      const width = Math.min(224, vw - padding * 2);
+      const left = Math.min(Math.max(rect.right - width, padding), vw - padding - width);
+
+      const spaceBelow = vh - rect.bottom - padding - gap;
+      const spaceAbove = rect.top - padding - gap;
+      const preferDown = spaceBelow >= 220 || spaceBelow >= spaceAbove;
+
+      setMenuStyle(
+        preferDown
+          ? { left, top: rect.bottom + gap, width, maxHeight: Math.max(160, spaceBelow) }
+          : { left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(160, spaceAbove) },
+      );
     };
 
     let raf = 0;
@@ -664,32 +1106,23 @@ function MenuButton({
       <button
         ref={anchorRef}
         type="button"
-        className={classNames("rounded-xl px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
-        onClick={() => {
-          if (open) {
-            setOpenId(null);
-            return;
-          }
-          const anchor = anchorRef.current;
-          if (anchor) setMenuStyle(computeReportingMenuStyle(anchor));
-          setOpenId(id);
-        }}
+        className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+        onClick={() => setOpenId(open ? null : id)}
         aria-label="More"
       >
         ⋯
       </button>
 
-      {open && menuStyle ? (
-        <LiquidGlassPopupSurface
-          className="fixed z-40 w-56 overflow-hidden border border-[rgba(96,165,250,0.2)] p-1.5 shadow-[0_18px_44px_rgba(37,99,235,0.16),0_10px_28px_rgba(15,23,42,0.14)]"
-          contentClassName="rounded-[22px] bg-[linear-gradient(180deg,rgba(239,246,255,0.34),rgba(255,255,255,0.14))]"
-          style={menuStyle}
+      {open ? (
+        <div
+          className="fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg"
+          style={menuStyle ?? undefined}
         >
           <button
             type="button"
             className={classNames(
-              "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors",
-              addDisabled ? "cursor-not-allowed text-zinc-400" : "text-brand-ink hover:bg-[rgba(219,234,254,0.5)]",
+              "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold",
+              addDisabled ? "cursor-not-allowed bg-zinc-50 text-zinc-400" : "text-brand-ink hover:bg-zinc-50",
             )}
             disabled={Boolean(addDisabled)}
             onClick={() => {
@@ -699,23 +1132,19 @@ function MenuButton({
           >
             {addLabel ?? "Add to dashboard"}
           </button>
-          {isPlainNonEmptyString(resolvedGoToHref) && isPlainNonEmptyString(goToLabel) ? (
+          {isPlainNonEmptyString(goToHref) && isPlainNonEmptyString(goToLabel) ? (
             <button
               type="button"
-              className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-[rgba(219,234,254,0.42)]"
+              className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
               onClick={() => {
                 setOpenId(null);
-                if (resolvedGoToHref.startsWith("/")) {
-                  router.push(resolvedGoToHref, { scroll: false });
-                  return;
-                }
-                window.location.href = resolvedGoToHref;
+                window.location.href = goToHref;
               }}
             >
               Go to {goToLabel}
             </button>
           ) : null}
-        </LiquidGlassPopupSurface>
+        </div>
       ) : null}
     </div>
   );
@@ -723,20 +1152,21 @@ function MenuButton({
 
 export function PortalReportingClient() {
   const pathname = usePathname() || "";
+  const workspaceVariant = getReportingWorkspaceVariant(pathname);
+  const coverage = useMemo(() => getReportingCoverage(workspaceVariant), [workspaceVariant]);
   const toast = useToast();
-  const portalVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
-  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
+  const [growthReadiness, setGrowthReadiness] = useState<GrowthReadinessResponse | null>(null);
+  const [growthLoading, setGrowthLoading] = useState(true);
+  const [growthError, setGrowthError] = useState<string | null>(null);
   const [twilio, setTwilio] = useState<TwilioMasked | null>(null);
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationStatusPayload | null>(null);
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const initialLoadStartedRef = useRef(false);
-  const latestLoadRequestRef = useRef(0);
-  const [, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -749,18 +1179,6 @@ export function PortalReportingClient() {
   const [serviceFilter, setServiceFilter] = useState<ServiceKey>("all");
   const [activeOnly, setActiveOnly] = useState(true);
   const [dashboardWidgetIds, setDashboardWidgetIds] = useState<Set<string>>(() => new Set());
-  const filterButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filtersMenuStyle, setFiltersMenuStyle] = useState<CSSProperties | null>(null);
-  const reportingPendingLinks = useMemo(
-    () => [
-      { label: "Open Sales dashboard", href: toCurrentPortalHref("/portal/app/services/reporting/sales", pathname) ?? "/portal/app/services/reporting/sales" },
-      { label: "Review billing", href: toCurrentPortalHref("/portal/app/billing", pathname) ?? "/portal/app/billing" },
-      { label: "Check inbox", href: toCurrentPortalHref("/portal/app/services/inbox", pathname) ?? "/portal/app/services/inbox" },
-      { label: "Open booking", href: toCurrentPortalHref("/portal/app/services/booking", pathname) ?? "/portal/app/services/booking" },
-    ],
-    [pathname],
-  );
 
   const dashboardScope = (() => {
     if (typeof window === "undefined") return "default" as const;
@@ -782,12 +1200,12 @@ export function PortalReportingClient() {
     setNote(null);
     const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
       method: "PUT",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "add", widgetId }),
     });
     const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; data?: DashboardData };
     if (!res.ok || !body?.ok) {
-      setNote(body?.error ?? "That widget did not add. Try again here or keep choosing from this panel.");
+      setNote(body?.error ?? "Unable to add to dashboard");
       window.setTimeout(() => setNote(null), 2500);
       return;
     }
@@ -800,7 +1218,7 @@ export function PortalReportingClient() {
   }
 
   async function loadDashboardWidgetIds() {
-    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, { cache: "no-store" }).catch(() => null as any);
     if (!res?.ok) return;
     const body = (await res.json().catch(() => ({}))) as { ok?: boolean; data?: DashboardData };
     const ids = new Set<string>(Array.isArray(body?.data?.widgets) ? body!.data!.widgets.map((w) => w.id).filter(Boolean) : []);
@@ -808,70 +1226,75 @@ export function PortalReportingClient() {
   }
 
   async function load(nextRange: RangeKey) {
-    const requestId = latestLoadRequestRef.current + 1;
-    latestLoadRequestRef.current = requestId;
     const isFirstLoad = !hasLoadedOnceRef.current;
     if (isFirstLoad) setLoading(true);
     else setRefreshing(true);
 
     setError(null);
+    setGrowthLoading(true);
+    setGrowthError(null);
 
     try {
-      const requiredController = new AbortController();
-      const requiredTimeout = window.setTimeout(() => requiredController.abort(), 75000);
-      const repRes = await fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, {
-        cache: "no-store",
-        headers: variantHeaders,
-        signal: requiredController.signal,
-      }).catch(() => null as any);
-      window.clearTimeout(requiredTimeout);
+      const [repRes, twilioRes, statsRes, salesStatusRes, growthRes] = await Promise.all([
+        fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }),
+        fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/media/stats", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/growth/readiness", { cache: "no-store" }).catch(() => null as any),
+      ]);
 
-      if (requestId !== latestLoadRequestRef.current) {
-        return;
-      }
-
-      if (!repRes?.ok) {
-        const body = (await repRes?.json?.().catch(() => ({}))) as { error?: string };
-        setError(body?.error ?? "Reporting did not load. Retry here or open sales, billing, inbox, or booking while it catches up.");
+      if (!repRes.ok) {
+        const body = (await repRes.json().catch(() => ({}))) as { error?: string };
+        setError(body?.error ?? "Unable to load reporting");
         if (isFirstLoad) setData(null);
         return;
       }
 
       const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
       if (!rep?.ok) {
-        setError(rep?.error ?? "Reporting did not load. Retry here or open sales, billing, inbox, or booking while it catches up.");
+        setError(rep?.error ?? "Unable to load reporting");
         if (isFirstLoad) setData(null);
         return;
       }
 
       setData(rep);
-      hasLoadedOnceRef.current = true;
 
-      void (async () => {
-        const [stats, twilioBody, salesStatusBody] = await Promise.all([
-          fetchJsonWithTimeout<MediaStatsPayload>("/api/portal/media/stats", { cache: "no-store", headers: variantHeaders }, 15000),
-          fetchJsonWithTimeout<{ ok?: boolean; twilio?: TwilioMasked }>("/api/portal/integrations/twilio", { cache: "no-store", headers: variantHeaders }, 15000),
-          fetchJsonWithTimeout<SalesIntegrationStatusPayload>("/api/portal/integrations/sales-reporting", { cache: "no-store", headers: variantHeaders }, 15000),
-        ]);
+      if (statsRes?.ok) {
+        const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
+        if (stats) setMediaStats(stats);
+      }
 
-        if (stats) {
-          setMediaStats(stats);
-        } else if (isFirstLoad) {
-          setMediaStats(null);
-        }
+      if (growthRes?.ok) {
+        const growth = (await growthRes.json().catch(() => null)) as GrowthReadinessResponse | null;
+        if (growth) setGrowthReadiness(growth);
+        setGrowthError(null);
+      } else {
+        setGrowthReadiness(null);
+        const growthBody = growthRes
+          ? ((await growthRes.json().catch(() => null)) as { error?: string } | null)
+          : null;
+        setGrowthError(growthBody?.error ?? "Unable to load growth readiness");
+      }
 
-        if (twilioBody) {
-          setTwilio(twilioBody.twilio ?? null);
-        } else if (isFirstLoad) {
-          setTwilio(null);
-        }
+      if (twilioRes?.ok) {
+        const body = (await twilioRes.json().catch(() => ({}))) as { ok?: boolean; twilio?: TwilioMasked };
+        setTwilio(body?.twilio ?? null);
+      } else if (isFirstLoad) {
+        setTwilio(null);
+      }
 
-        if (salesStatusBody?.ok) {
-          setSalesStatus(salesStatusBody);
-          const anyConnected = Boolean(salesStatusBody.providers && Object.values(salesStatusBody.providers).some((provider) => Boolean(provider?.configured)));
+      if (salesStatusRes?.ok) {
+        const body = (await salesStatusRes.json().catch(() => null)) as SalesIntegrationStatusPayload | null;
+        if (body?.ok) {
+          setSalesStatus(body);
+          const anyConnected = Boolean(body?.providers && Object.values(body.providers).some((p) => Boolean(p?.configured)));
           if (anyConnected) {
-            const sales = await fetchJsonWithTimeout<SalesReportPayload>("/api/portal/reporting/sales?range=30d", { cache: "no-store", headers: variantHeaders }, 15000);
-            setSalesReport(sales);
+            const salesRes = await fetch("/api/portal/reporting/sales?range=30d", { cache: "no-store" }).catch(() => null as any);
+            if (salesRes?.ok) {
+              setSalesReport(((await salesRes.json().catch(() => null)) as SalesReportPayload | null) ?? null);
+            } else if (isFirstLoad) {
+              setSalesReport(null);
+            }
           } else {
             setSalesReport(null);
           }
@@ -879,16 +1302,20 @@ export function PortalReportingClient() {
           setSalesStatus(null);
           setSalesReport(null);
         }
-      })();
+      } else if (isFirstLoad) {
+        setSalesStatus(null);
+        setSalesReport(null);
+      }
+
+      hasLoadedOnceRef.current = true;
     } finally {
+      setGrowthLoading(false);
       setLoading(false);
       setRefreshing(false);
     }
   }
 
   useEffect(() => {
-    if (initialLoadStartedRef.current) return;
-    initialLoadStartedRef.current = true;
     void load(range);
     void loadDashboardWidgetIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -909,48 +1336,6 @@ export function PortalReportingClient() {
       document.removeEventListener("keydown", onKey);
     };
   }, [openMenuId]);
-
-  useLayoutEffect(() => {
-    if (!filtersOpen) {
-      setFiltersMenuStyle(null);
-      return;
-    }
-
-    const recompute = () => {
-      const anchor = filterButtonRef.current;
-      if (!anchor) return;
-      setFiltersMenuStyle(computeReportingMenuStyle(anchor, { width: 320, estHeight: 460, minHeight: 320, alignX: "right" }));
-    };
-
-    let raf = 0;
-    const schedule = () => {
-      if (raf) return;
-      raf = window.requestAnimationFrame(() => {
-        raf = 0;
-        recompute();
-      });
-    };
-
-    recompute();
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
-    return () => {
-      if (raf) window.cancelAnimationFrame(raf);
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
-    };
-  }, [filtersOpen]);
-
-  useEffect(() => {
-    if (!filtersOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setFiltersOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [filtersOpen]);
 
   const activeServiceKeys = useMemo(() => {
     const keys = new Set<ServiceKey>();
@@ -1046,7 +1431,180 @@ export function PortalReportingClient() {
     };
   }, [data]);
 
-  const activeFilterCount = (serviceFilter !== "all" ? 1 : 0) + (activeOnly ? 1 : 0) + (range !== "30d" ? 1 : 0);
+  const contentWorkflowSummary = useMemo(() => {
+    const continuity = mediaStats && mediaStats.ok ? mediaStats.distributionContinuity : null;
+    if (!continuity) return null;
+
+    const handoffs = Number(data?.externalBookingHandoff?.totalHandoffs ?? 0);
+    return buildContentWorkflowCardSummary({
+      continuity,
+      pathname,
+      variant: workspaceVariant,
+      trackedHandoffs: handoffs,
+    });
+  }, [data?.externalBookingHandoff?.totalHandoffs, mediaStats, pathname, workspaceVariant]);
+
+  const insightCards = useMemo<ReportingInsightCard[]>(() => {
+    if (!data) return [];
+
+    const cards: ReportingInsightCard[] = [];
+    const actionFailures = data.diagnostics?.actionFailures ?? 0;
+    const overdueTasks = data.attention?.tasksOverdueNow ?? 0;
+    const openTasks = data.kpis?.tasksOpenNow ?? 0;
+    const needsReply = data.attention?.inboxNeedsReplyNow ?? 0;
+    const portalFeedbackRecent = data.attention?.betaFeedbackPortalRecent ?? 0;
+    const portalFeedbackHigh = data.attention?.betaFeedbackPortalHighSeverityNow ?? 0;
+    const creditFeedbackRecent = data.attention?.betaFeedbackCreditRecent ?? 0;
+    const creditFeedbackHigh = data.attention?.betaFeedbackCreditHighSeverityNow ?? 0;
+
+    if (actionFailures > 0) {
+      cards.push({
+        id: "action-failures",
+        tone: "danger",
+        title: "Portal action failures",
+        value: `${actionFailures.toLocaleString()} flagged`,
+        detail: "Recent tracked failures need review before operators trust the related workflow.",
+        actionLabel: "Open reporting",
+        actionHref: reportingActionHref(pathname, "reporting"),
+      });
+    }
+
+    if (overdueTasks > 0) {
+      cards.push({
+        id: "overdue-tasks",
+        tone: "danger",
+        title: "Overdue tasks",
+        value: `${overdueTasks.toLocaleString()} overdue`,
+        detail: `There are ${openTasks.toLocaleString()} open tasks in the workspace, and overdue work is the clearest stored follow-up gap today.`,
+        actionLabel: "Review tasks",
+        actionHref: reportingActionHref(pathname, "tasks"),
+      });
+    } else if (openTasks > 0) {
+      cards.push({
+        id: "open-tasks",
+        tone: "warning",
+        title: "Open tasks still waiting",
+        value: `${openTasks.toLocaleString()} open`,
+        detail: "Purely is tracking follow-up tasks here, so this is a real queue rather than a guessed bottleneck.",
+        actionLabel: "Open tasks",
+        actionHref: reportingActionHref(pathname, "tasks"),
+      });
+    }
+
+    if (needsReply > 0) {
+      cards.push({
+        id: "needs-reply",
+        tone: "warning",
+        title: "Conversations need a reply",
+        value: `${needsReply.toLocaleString()} threads`,
+        detail: "This uses the inbox thread state where the latest message is inbound, so it stays grounded in stored conversation data.",
+        actionLabel: "Open inbox",
+        actionHref: reportingActionHref(pathname, "inbox"),
+      });
+    }
+
+    if (typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays) && derived.creditRunwayDays < 14) {
+      cards.push({
+        id: "credit-runway",
+        tone: "warning",
+        title: "Credits runway is getting short",
+        value: `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`,
+        detail: "This is a safe estimate from stored credits remaining and recent credits used. It is not an audited utilization forecast.",
+        actionLabel: "Open billing",
+        actionHref: reportingActionHref(pathname, "billing"),
+      });
+    }
+
+    const handoff = data.externalBookingHandoff;
+    const handoffProvider = handoff.providerBreakdown[0]?.providerLabel || handoff.providerLabel || "External booking page";
+    const handoffTone: ReportingInsightCard["tone"] =
+      handoff.totalHandoffs > 0 && handoff.leadFirstCaptures === 0 && handoff.confirmedViaRedirect === 0 && handoff.providerConfirmedBookings === 0 ? "warning" : "neutral";
+    cards.push({
+      id: "external-booking-handoff",
+      tone: handoffTone,
+      title: workspaceVariant === "credit" ? "Consultation page activity" : "Booking page activity",
+      value: `${handoff.totalHandoffs.toLocaleString()} click${handoff.totalHandoffs === 1 ? "" : "s"} to book`,
+      detail:
+        `${handoffProvider}: ${handoff.directHandoffs.toLocaleString()} straight-to-book click${handoff.directHandoffs === 1 ? "" : "s"}, ${handoff.leadFirstCaptures.toLocaleString()} lead capture${handoff.leadFirstCaptures === 1 ? "" : "s"} before booking, ${handoff.confirmedViaRedirect.toLocaleString()} return${handoff.confirmedViaRedirect === 1 ? "" : "s"} to your site after booking, and ${handoff.providerConfirmedBookings.toLocaleString()} confirmed outside booking${handoff.providerConfirmedBookings === 1 ? "" : "s"} in ${rangeLabel.toLowerCase()}. ${handoff.guidance.detail}`,
+      actionLabel:
+        handoff.guidance.state === "provider_not_connected"
+          ? "Set up confirmed booking updates"
+          : handoff.guidance.state === "captured_leads" || handoff.guidance.state === "redirect_confirmed" || handoff.guidance.state === "provider_confirmed"
+          ? "Open booking automation"
+          : "Open booking settings",
+      actionHref: reportingActionHref(pathname, "booking"),
+    });
+
+    if (workspaceVariant === "credit") {
+      const reportsImported = data.attention?.creditReportsImported ?? 0;
+      const pendingReview = data.attention?.creditReportItemsPendingNow ?? 0;
+      const negativeItems = data.attention?.creditReportItemsNegativeNow ?? 0;
+      const draftLetters = data.attention?.creditDisputeDraftsNow ?? 0;
+      const pdfReady = data.attention?.creditDisputePdfsReadyNow ?? 0;
+      const mailed = data.attention?.creditDisputeMarkedMailedNow ?? 0;
+
+      if (pendingReview > 0 || negativeItems > 0 || reportsImported > 0) {
+        cards.push({
+          id: "credit-report-review",
+          tone: pendingReview > 0 ? "danger" : "neutral",
+          title: "Credit report review queue",
+          value: `${pendingReview.toLocaleString()} pending`,
+          detail:
+            pendingReview > 0
+              ? `${reportsImported.toLocaleString()} reports imported in ${rangeLabel.toLowerCase()} and ${negativeItems.toLocaleString()} items already marked as dispute priorities.`
+              : `${reportsImported.toLocaleString()} reports were imported in ${rangeLabel.toLowerCase()}, and ${negativeItems.toLocaleString()} items are marked as dispute priorities.` ,
+          actionLabel: "Review report items",
+          actionHref: reportingActionHref(pathname, "creditReports"),
+        });
+      }
+
+      if (draftLetters > 0 || pdfReady > 0 || mailed > 0) {
+        cards.push({
+          id: "credit-dispute-workflow",
+          tone: draftLetters > 0 ? "warning" : "neutral",
+          title: "Dispute letter workflow",
+          value: `${draftLetters.toLocaleString()} drafts`,
+          detail: `${pdfReady.toLocaleString()} PDFs ready and ${mailed.toLocaleString()} letters marked mailed manually. Reporting does not claim external delivery proof.`,
+          actionLabel: draftLetters > 0 ? "Review drafts" : "Open dispute letters",
+          actionHref: reportingActionHref(pathname, "disputeLetters"),
+        });
+      }
+
+      if (creditFeedbackHigh > 0 || creditFeedbackRecent > 0) {
+        cards.push({
+          id: "credit-feedback",
+          tone: creditFeedbackHigh > 0 ? "danger" : "neutral",
+          title: "Credit beta feedback",
+          value: `${creditFeedbackRecent.toLocaleString()} recent`,
+          detail:
+            creditFeedbackHigh > 0
+              ? `${creditFeedbackHigh.toLocaleString()} high-severity credit feedback items are still unresolved in the stored queue.`
+              : "Structured credit beta feedback exists for this workspace, but reporting only shows queue volume and severity that Purely already stores.",
+        });
+      }
+    } else {
+      if (portalFeedbackHigh > 0 || portalFeedbackRecent > 0) {
+        cards.push({
+          id: "portal-feedback",
+          tone: portalFeedbackHigh > 0 ? "danger" : "neutral",
+          title: "Beta feedback queue",
+          value: `${portalFeedbackRecent.toLocaleString()} recent`,
+          detail:
+            portalFeedbackHigh > 0
+              ? `${portalFeedbackHigh.toLocaleString()} high-severity feedback items are still unresolved in the stored queue.`
+              : "Structured beta feedback exists for this workspace, but this page only reports saved volume and unresolved severity where Purely stores it.",
+        });
+      }
+    }
+
+    return cards.slice(0, 6);
+  }, [data, derived.creditRunwayDays, pathname, rangeLabel, workspaceVariant]);
+
+  const growthPayload = growthReadiness && growthReadiness.ok ? growthReadiness : null;
+  const reportingCategory = growthPayload?.categories.find((item) => item.key === "reporting_visibility") ?? null;
+  const reportingPrimaryAction = growthPayload?.providerBlockers[0] ?? reportingCategory?.nextAction ?? null;
+  const reportingStarterActions = growthPayload?.starterPath.slice(0, 4) ?? [];
+  const reportingPlaybooks = growthPayload?.playbooks.slice(0, 4) ?? [];
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
@@ -1054,192 +1612,302 @@ export function PortalReportingClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Reporting</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            A dashboard view of activity, outcomes, and credit usage across your services.
+            {coverage.summary}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={toCurrentPortalHref("/portal/app/services/reporting/sales", pathname) || "/portal/app/services/reporting/sales"}
-            className="inline-flex items-center justify-center rounded-2xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 shadow-[0_10px_28px_rgba(16,185,129,0.12)] transition-colors duration-150 hover:bg-emerald-100"
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
-            Sales dashboard
+            Sales
           </Link>
+          <Link
+            href={toCurrentPortalHref("/portal/app/services", pathname) || "/portal/app/services"}
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+          >
+            All services
+          </Link>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-sm font-semibold text-zinc-900">Currently included</div>
+          <div className="mt-2 text-sm text-zinc-600">{coverage.includedIntro}</div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {coverage.included.map((item) => (
+              <div key={item.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{item.label}</div>
+                <div className="mt-2 text-sm text-zinc-700">{item.detail}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
+          <div className="text-sm font-semibold text-zinc-900">Not included yet</div>
+          <div className="mt-2 text-sm text-zinc-700">{coverage.notIncludedIntro}</div>
+          <ul className="mt-4 space-y-3 text-sm text-zinc-800">
+            {coverage.notIncluded.map((item) => (
+              <li key={item.label} className="rounded-2xl border border-amber-200 bg-white/70 px-4 py-3">
+                <div className="font-semibold text-zinc-900">{item.label}</div>
+                <div className="mt-1 text-zinc-700">{item.detail}</div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+
+      {growthPayload ? (
+        <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">What the numbers say to do next</div>
+              <div className="mt-2 max-w-3xl text-sm text-zinc-600">
+                {growthPayload.isLowActivityWorkspace
+                  ? "Reporting stays honest here: Purely cannot prove much until real activity exists, so the next steps focus on creating the first real signals."
+                  : "These next steps are tied to the current reporting gaps, provider blockers, and shared readiness categories already stored in Purely."}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
+              <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 font-semibold">Ready or active: {growthPayload.summary.readyOrActiveCategories}</span>
+              <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 font-semibold text-rose-700">Provider blockers: {growthPayload.summary.providerBlockers}</span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="text-sm font-semibold text-zinc-900">Reporting visibility</div>
+                {reportingCategory ? (
+                  <span className={classNames("rounded-full border px-2.5 py-1 text-xs font-semibold", growthLevelBadgeClasses(reportingCategory.level))}>
+                    {growthReadinessLevelLabel(reportingCategory.level)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-3 text-sm text-zinc-700">{reportingCategory?.summary || "Reporting guidance is loading."}</div>
+              <div className="mt-4 space-y-2 text-sm text-zinc-600">
+                {(reportingCategory?.evidence || []).slice(0, 3).map((item) => (
+                  <div key={item} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{item}</div>
+                ))}
+              </div>
+              {reportingCategory?.blockers[0] ? <div className="mt-4 text-xs font-semibold text-amber-700">{reportingCategory.blockers[0]}</div> : null}
+              {reportingPrimaryAction ? (
+                <Link
+                  href={reportingPrimaryAction.href}
+                  className="mt-4 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  {reportingPrimaryAction.ctaLabel}
+                </Link>
+              ) : null}
+
+              {growthPayload.providerBlockers.length > 0 ? (
+                <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Provider blockers</div>
+                  <div className="mt-2 space-y-2 text-sm text-amber-900">
+                    {growthPayload.providerBlockers.slice(0, 2).map((item) => (
+                      <div key={item.id}>{item.detail}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {growthPayload.isLowActivityWorkspace
+                ? reportingStarterActions.map((item) => (
+                    <Link key={item.id} href={item.href} className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5 hover:bg-zinc-50">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Starter step</div>
+                      <div className="mt-2 text-sm font-semibold text-zinc-900">{item.title}</div>
+                      <div className="mt-2 text-sm text-zinc-600">{item.detail}</div>
+                      <div className="mt-4 text-sm font-semibold text-brand-ink">{item.ctaLabel} →</div>
+                    </Link>
+                  ))
+                : reportingPlaybooks.map((playbook) => (
+                    <div key={playbook.key} className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                        <div className="text-sm font-semibold text-zinc-900">{playbook.title}</div>
+                        <span className={classNames("self-start whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold sm:shrink-0", growthLevelBadgeClasses(playbook.level))}>
+                          {growthReadinessLevelLabel(playbook.level)}
+                        </span>
+                      </div>
+                      <div className="mt-3 text-sm text-zinc-700">{playbook.summary}</div>
+                      {playbook.blocker ? <div className="mt-3 text-xs font-semibold text-amber-700">{playbook.blocker}</div> : null}
+                      <div className="mt-4 text-xs text-zinc-500">{playbook.whyItMatters}</div>
+                      <Link
+                        href={playbook.nextAction.href}
+                        className="mt-4 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                      >
+                        {playbook.nextAction.ctaLabel}
+                      </Link>
+                    </div>
+                  ))}
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">What the numbers say to do next</div>
+              <div className="mt-2 max-w-3xl text-sm text-zinc-600">
+                {growthLoading
+                  ? "Checking growth readiness so Reporting can connect the current metrics to the next truthful action."
+                  : data?.kpis &&
+                      data.kpis.bookingsCreated + data.kpis.reviewsCollected + data.kpis.inboxMessagesIn + data.kpis.newsletterSendEvents > 0
+                    ? "Growth guidance is still syncing. Use the stored metrics below and open the matching service page instead of inferring outcomes that are not recorded."
+                    : workspaceVariant === "credit"
+                      ? "Reporting stays limited until Purely records real credit workflow activity, conversations, tasks, or connected booking updates in this account."
+                      : "Reporting becomes more useful after Purely records real bookings, conversations, reviews, follow-up activity, or connected booking updates in this account."}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-zinc-600">
+              <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 font-semibold">
+                {growthLoading ? "Loading readiness" : "Fail-soft guidance"}
+              </span>
+              {growthError ? (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-semibold text-amber-700">{growthError}</span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {[
+              {
+                title: "Activity that makes reporting useful",
+                detail:
+                  workspaceVariant === "credit"
+                    ? "Imported reports, dispute-letter progress, tasks, inbox activity, and connected provider data create the first trustworthy reporting signals here."
+                    : "Bookings, reviews, inbox activity, newsletter sends, follow-up, and connected provider data create the first trustworthy reporting signals here.",
+              },
+              {
+                title: "Open the operational route next",
+                detail:
+                  workspaceVariant === "credit"
+                    ? "Use Credit reports, Dispute letters, Tasks, and Profile setup for the workflow steps that reporting cannot prove on its own."
+                    : "Use Booking, Reviews, Follow-up, and Sales reporting for the workflow steps that reporting cannot prove on its own.",
+              },
+            ].map((item) => (
+              <div key={item.title} className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+                <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
+                <div className="mt-3 text-sm text-zinc-700">{item.detail}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            {workspaceVariant === "credit" ? (
+              <>
+                <Link href="/credit/app/services/credit-reports" className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Credit reports</Link>
+                <Link href="/credit/app/services/tasks" className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Tasks</Link>
+                <Link href="/credit/app/profile" className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Profile</Link>
+              </>
+            ) : (
+              <>
+                <Link href={toCurrentPortalHref("/portal/app/services/booking/settings", pathname) || "/portal/app/services/booking/settings"} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Booking settings</Link>
+                <Link href={toCurrentPortalHref("/portal/app/services/reviews", pathname) || "/portal/app/services/reviews"} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Reviews</Link>
+                <Link href={toCurrentPortalHref("/portal/app/services/reporting/sales", pathname) || "/portal/app/services/reporting/sales"} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50">Sales</Link>
+              </>
+            )}
+          </div>
+        </section>
+      )}
+
+      {workspaceVariant === "credit" ? (
+        <section className="mt-4 rounded-3xl border border-sky-200 bg-sky-50 p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="text-sm font-semibold text-zinc-900">Credit workflow handoff</div>
+              <div className="mt-2 text-sm text-zinc-700">Use reporting for shared activity counts and connected service metrics only. Use credit reports for item review throughput, dispute letters for draft, PDF, and mailed-manual states, and tasks for the operational follow-up that sits between those steps.</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href="/credit/app/services/credit-reports" className="inline-flex items-center justify-center rounded-2xl border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-sky-100">Credit reports</Link>
+              <Link href="/credit/app/services/dispute-letters" className="inline-flex items-center justify-center rounded-2xl border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-sky-100">Dispute letters</Link>
+              <Link href="/credit/app/services/tasks" className="inline-flex items-center justify-center rounded-2xl border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-sky-100">Tasks</Link>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <ReportingInsightSection cards={insightCards} pathname={pathname} workspaceVariant={workspaceVariant} />
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-zinc-900">{rangeLabel}</div>
+        <div className="flex flex-wrap gap-2">
+          {([
+            ["today", "Today"],
+            ["7d", "7d"],
+            ["30d", "30d"],
+            ["90d", "90d"],
+            ["all", "All"],
+          ] as Array<[RangeKey, string]>).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                setRange(key);
+                void load(key);
+              }}
+              className={
+                range === key
+                  ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              }
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-1 items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
-              <IconSearch size={18} />
-            </div>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search metrics or services…"
-              className="w-full rounded-full border border-zinc-200 bg-white py-2.5 pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
-            />
-          </div>
-          <div className="relative shrink-0">
-            {filtersOpen && filtersMenuStyle ? (
-              <>
-                <div className="fixed inset-0 z-30" onMouseDown={() => setFiltersOpen(false)} onTouchStart={() => setFiltersOpen(false)} aria-hidden />
-                <LiquidGlassPopupSurface
-                  className="pa-reporting-filters-popover fixed z-140000 w-80 overflow-hidden border border-[rgba(96,165,250,0.24)] p-1.5 shadow-[0_22px_54px_rgba(37,99,235,0.16),0_14px_36px_rgba(15,23,42,0.16)]"
-                  contentClassName="pa-reporting-filters-popover-content rounded-[26px] bg-[linear-gradient(180deg,rgba(239,246,255,0.28),rgba(255,255,255,0.14))]"
-                  style={filtersMenuStyle}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onTouchStart={(e) => e.stopPropagation()}
-                >
-                  <div className="flex flex-col" style={{ maxHeight: filtersMenuStyle.maxHeight }}>
-                    <div className="space-y-5 overflow-y-auto px-4 pb-3 pt-4">
-                      <div>
-                        <div className="pa-reporting-filters-heading text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Range</div>
-                        <div className="mt-2 space-y-1">
-                        {([
-                          ["today", "Today"],
-                          ["7d", "Last 7 days"],
-                          ["30d", "Last 30 days"],
-                          ["90d", "Last 90 days"],
-                          ["all", "All time"],
-                        ] as Array<[RangeKey, string]>).map(([key, label]) => (
-                          <button
-                            key={key}
-                            type="button"
-                            className={classNames(
-                              "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors",
-                              range === key
-                                ? "pa-reporting-filter-option pa-reporting-filter-option--active font-semibold"
-                                : "pa-reporting-filter-option text-zinc-700 hover:bg-[rgba(255,255,255,0.42)]",
-                            )}
-                            onClick={() => {
-                              setRange(key);
-                              void load(key);
-                            }}
-                          >
-                            <span>{label}</span>
-                            {range === key ? <span className="pa-reporting-filter-selected-badge text-xs">Selected</span> : null}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="pa-reporting-filter-toggle-card flex items-center justify-between gap-3 rounded-2xl border border-[rgba(148,163,184,0.22)] bg-[rgba(255,255,255,0.20)] px-3 py-2.5 backdrop-blur-[6px]">
-                      <div className="pr-2">
-                        <div className="pa-reporting-filter-toggle-title text-xs font-semibold text-zinc-900">Active only</div>
-                        <div className="pa-reporting-filter-toggle-copy text-[11px] text-zinc-500">Keep the list focused on services already showing activity.</div>
-                      </div>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={activeOnly}
-                        aria-label="Active only"
-                        className={classNames(
-                          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition",
-                          activeOnly
-                            ? "pa-reporting-filter-switch pa-reporting-filter-switch--active border-[rgba(96,165,250,0.42)] bg-[rgba(96,165,250,0.38)]"
-                            : "pa-reporting-filter-switch border-[rgba(148,163,184,0.35)] bg-[rgba(148,163,184,0.22)]",
-                        )}
-                        onClick={() => setActiveOnly((value) => !value)}
-                      >
-                        <span
-                          className={classNames(
-                            "pointer-events-none absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.16)] transition",
-                            activeOnly ? "pa-reporting-filter-switch-thumb left-[calc(100%-1.375rem)] bg-[rgba(239,246,255,0.98)]" : "pa-reporting-filter-switch-thumb left-0.5",
-                          )}
-                        />
-                      </button>
-                    </div>
-
-                    <div>
-                      <div className="pa-reporting-filters-heading text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Service</div>
-                      <div className="mt-2 space-y-1">
-                        {SERVICE_INFOS.map((service) => (
-                          <button
-                            key={service.key}
-                            type="button"
-                            className={classNames(
-                              "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors",
-                              serviceFilter === service.key
-                                ? "pa-reporting-filter-option pa-reporting-filter-option--active font-semibold"
-                                : "pa-reporting-filter-option text-zinc-700 hover:bg-[rgba(255,255,255,0.42)]",
-                            )}
-                            onClick={() => setServiceFilter(service.key)}
-                          >
-                            <span>{service.name}</span>
-                            {serviceFilter === service.key ? <span className="pa-reporting-filter-selected-badge text-xs">Selected</span> : null}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    </div>
-
-                    <div className="border-t border-white/35 px-4 pb-4 pt-3">
-                    <button
-                      type="button"
-                      className="pa-reporting-filter-reset w-full rounded-xl border border-[rgba(148,163,184,0.26)] bg-[rgba(255,255,255,0.26)] px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:bg-[rgba(255,255,255,0.42)]"
-                      onClick={() => {
-                        setRange("30d");
-                        void load("30d");
-                        setActiveOnly(true);
-                        setServiceFilter("all");
-                      }}
-                    >
-                      Clear filters
-                    </button>
-                  </div>
-                  </div>
-                </LiquidGlassPopupSurface>
-              </>
-            ) : null}
-
-            <button
-              ref={filterButtonRef}
-              type="button"
-              className={classNames(
-                "pa-reporting-filters-trigger inline-flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-100 hover:bg-zinc-50",
-                activeFilterCount > 0 && "text-brand-blue",
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                const anchor = e.currentTarget;
-                if (filtersOpen) {
-                  setFiltersOpen(false);
-                  return;
-                }
-                setFiltersMenuStyle(computeReportingMenuStyle(anchor, { width: 320, estHeight: 460, minHeight: 320, alignX: "right" }));
-                setFiltersOpen(true);
-              }}
-              aria-label="Reporting filters"
-              title="Reporting filters"
-            >
-              <IconFunnel size={18} />
-            </button>
-          </div>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search metrics or services…"
+            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="mr-2 inline-flex items-center gap-3">
+            <span className="text-xs font-semibold text-zinc-500">Active only</span>
+            <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={activeOnly}
+                onChange={(e) => setActiveOnly(e.target.checked)}
+                aria-label="Active only"
+              />
+              <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white" />
+              <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+            </span>
+          </label>
+          <div className="text-xs font-semibold text-zinc-500">Service</div>
+          <PortalListboxDropdown
+            value={serviceFilter}
+            onChange={(v) => setServiceFilter(v as ServiceKey)}
+            options={SERVICE_INFOS.map((s) => ({ value: s.key as any, label: s.name }))}
+            className="min-w-50"
+            buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+          />
         </div>
       </div>
 
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
+      {refreshing ? (
+        <div className="mt-4 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-600">
+          <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+          Refreshing…
+        </div>
+      ) : null}
+
       {loading && !hasLoadedOnceRef.current ? (
-        <ReportingPendingState
-          title="Loading your reporting workspace"
-          body="We are collecting credits, activity, and sales data for this account. You can still jump into the most useful follow-up areas right now instead of waiting on a blank panel."
-          links={reportingPendingLinks}
-        />
-      ) : !data ? (
-        <ReportingPendingState
-          title={error ? "Reporting is not ready yet" : "Loading your reporting workspace"}
-          body={
-            error
-              ? `${error} You can still use the sales dashboard, billing, inbox, or booking while reporting catches up.`
-              : "We are still collecting reporting data for this account. If you are setting things up for the first time, the shortcuts below are the best next places to work."
-          }
-          links={reportingPendingLinks}
-          action={error ? { label: "Retry", onClick: () => { void load(range); } } : null}
-        />
-      ) : (
+        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+      ) : !data ? null : (
         <>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visible("stripeSales", "reporting", ["Sales", "Revenue", "Payments", "Stripe", "Paystack", "Razorpay", "Mollie", "Braintree", "Authorize.Net", "Mercado Pago", "Flutterwave"]) ? (
@@ -1312,16 +1980,22 @@ export function PortalReportingClient() {
                   value={
                     mediaStats && (mediaStats as any).ok === true
                       ? ((mediaStats as any).itemsCount as number).toLocaleString()
-                      : "N/A"
+                      : "Stats syncing"
                   }
                   sub={
                     mediaStats && (mediaStats as any).ok === true
                       ? `${((mediaStats as any).foldersCount as number).toLocaleString()} folders`
-                      : ""
+                      : "Media stats have not loaded yet."
                   }
                   tone="slate"
                 />
               </div>
+            ) : null}
+
+            {visible("contentWorkflow", "mediaLibrary", ["Content workflow", "Need caption or notes", "Ready to schedule", "Manual posts", "YouTube prep"]) ? (
+              contentWorkflowSummary
+                ? <ContentWorkflowCard summary={contentWorkflowSummary} />
+                : <ContentWorkflowEmptyCard pathname={pathname} workspaceVariant={workspaceVariant} />
             ) : null}
 
             {visible("creditsRemaining", "billing", ["Credits remaining", "Top up", "Billing", "Credits"]) ? (
@@ -1727,7 +2401,7 @@ export function PortalReportingClient() {
                       goToLabel={serviceForWidget("successRate").name}
                     />
                   </div>
-                  <MiniCard label="Success rate" value={formatPct(derived.overallSuccessRate)} sub="AI + text-back" tone={toneForPortalWidget("successRate")} />
+                  <MiniCard label="Success rate" value={formatPct(derived.overallSuccessRate)} sub="AI + text-back" />
                 </div>
 
                 <div className="relative">
@@ -1743,7 +2417,7 @@ export function PortalReportingClient() {
                       goToLabel={serviceForWidget("failures").name}
                     />
                   </div>
-                  <MiniCard label="Failures" value={derived.totalFailures.toLocaleString()} sub="AI failed + texts failed" tone="pink" filled />
+                  <MiniCard label="Failures" value={derived.totalFailures.toLocaleString()} sub="AI failed + texts failed" />
                 </div>
 
                 <div className="relative">
@@ -1760,18 +2434,17 @@ export function PortalReportingClient() {
                     />
                   </div>
                   <MiniCard
-                    label="Credits runway"
+                    label="Estimated credit runway"
                     value={
                       typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
                         ? `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`
-                        : "N/A"
+                        : "Watching usage"
                     }
                     sub={
                       typeof derived.creditsPerDay === "number" && Number.isFinite(derived.creditsPerDay)
                         ? `~${Math.max(0, derived.creditsPerDay).toFixed(1)} credits/day (${rangeLabel.toLowerCase()})`
-                        : undefined
+                        : "Need more credit usage history to forecast runway."
                     }
-                    tone={toneForPortalWidget("creditsRunway")}
                   />
                 </div>
 
@@ -1788,7 +2461,15 @@ export function PortalReportingClient() {
                       goToLabel={serviceForWidget("leadsCaptured").name}
                     />
                   </div>
-                  <MiniCard label="Leads captured" value={data.kpis.leadsCreated.toLocaleString()} sub={`${data.kpis.contactsCreated.toLocaleString()} contacts created`} />
+                  <MiniCard
+                    label={workspaceVariant === "credit" ? "Tracked lead records" : "Tracked leads"}
+                    value={data.kpis.leadsCreated.toLocaleString()}
+                    sub={
+                      workspaceVariant === "credit"
+                        ? `${data.kpis.contactsCreated.toLocaleString()} contacts created in tracked records`
+                        : `${data.kpis.contactsCreated.toLocaleString()} contacts created`
+                    }
+                  />
                 </div>
               </div>
             );
@@ -1919,14 +2600,14 @@ export function PortalReportingClient() {
               ) : null}
 
               {visible("integrationStatus", "billing", ["Integration status", "Twilio", "SMS", "connected", "not connected"]) ? (
-                <div className="mt-4 rounded-2xl bg-[rgba(248,250,252,0.82)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
                 <div className="text-xs font-semibold text-zinc-600">Integration status</div>
                 <div className="mt-2 text-sm text-zinc-700">
                   {twilio?.configured ? (
                     <>
                       Twilio SMS: <span className="font-semibold text-emerald-700">connected</span>
                       <div className="mt-1 text-xs text-zinc-500">
-                        From: {twilio.fromNumberE164 ?? "N/A"}
+                        From: {twilio.fromNumberE164 ?? "No sender number yet"}
                       </div>
                     </>
                   ) : (
@@ -1944,7 +2625,7 @@ export function PortalReportingClient() {
                 if (!show) return null;
                 return (
                   <div className="mt-4 grid grid-cols-1 gap-3">
-                    <div className="rounded-2xl bg-[rgba(248,250,252,0.84)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-xs font-semibold text-zinc-600">Reliability</div>
                         <MenuButton
@@ -1959,19 +2640,19 @@ export function PortalReportingClient() {
                         />
                       </div>
                       <div className="mt-2 grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl bg-[rgba(219,234,254,0.86)] p-3">
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                           <div className="text-[11px] font-semibold text-zinc-600">AI success rate</div>
                           <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.aiSuccessRate)}</div>
                         </div>
-                        <div className="rounded-2xl bg-[rgba(243,232,255,0.88)] p-3">
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                           <div className="text-[11px] font-semibold text-zinc-600">Text success rate</div>
                           <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.textSuccessRate)}</div>
                         </div>
-                        <div className="rounded-2xl bg-[rgba(254,240,138,0.48)] p-3">
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                           <div className="text-[11px] font-semibold text-zinc-600">Missed call capture</div>
                           <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.missedCaptureRate)}</div>
                         </div>
-                        <div className="rounded-2xl bg-[rgba(220,252,231,0.9)] p-3">
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                           <div className="text-[11px] font-semibold text-zinc-600">Appointments booked</div>
                           <div className="mt-1 text-sm font-bold text-brand-ink">{data.kpis.bookingsCreated.toLocaleString()}</div>
                         </div>
@@ -2017,7 +2698,7 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="Missed-Call Text Back"
                     tone="pink"
-                    href={toCurrentPortalHref("/portal/app/services/missed-call-textback", pathname) || "/portal/app/services/missed-call-textback"}
+                    href={toCurrentPortalHref("/portal/app/services/ai-receptionist?tab=missed-call-textback", pathname) || "/portal/app/services/ai-receptionist?tab=missed-call-textback"}
                     menu={
                       <MenuButton
                         id="perfMissedCallTextBack"

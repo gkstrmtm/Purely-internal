@@ -125,9 +125,9 @@ function getServiceCardSummary(
 
   if (status.state === "coming_soon") {
     return {
-      accessLabel: "Coming soon",
+      accessLabel: "Rolling out",
       accessTone: "coming_soon" as const,
-      readinessLabel: "Preview the setup guide",
+      readinessLabel: "Review rollout guide",
       readinessState: "coming_soon" as const,
       showLock: false,
     };

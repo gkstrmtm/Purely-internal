@@ -16,7 +16,7 @@ function VerifyEmailInner() {
   const runVerification = useCallback(async () => {
     if (!token) {
       setStatus("error");
-      setMessage("Missing verification token.");
+      setMessage("This verification link is missing its token. Request a new email or return to sign in.");
       return;
     }
 

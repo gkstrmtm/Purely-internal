@@ -59,7 +59,7 @@ export async function resolvePortalMediaItemBytes(
   }).catch(() => null);
 
   if (!resp || !resp.ok) {
-    return { ok: false, error: "Failed to load media file", status: 502 };
+    return { ok: false, error: "Media file did not load. Retry here or choose another file.", status: 502 };
   }
 
   const contentLength = Number(resp.headers.get("content-length") || 0);

@@ -62,7 +62,7 @@ export function CreateContactTagDialog({
       await onCreated?.(created);
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create tag.");
+      toast.error(error instanceof Error ? error.message : "Tag creation did not finish. Retry here or choose a different tag name.");
     } finally {
       setBusy(false);
     }

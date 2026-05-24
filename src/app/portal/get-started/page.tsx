@@ -394,7 +394,7 @@ function PortalGetStartedInner() {
           : res.status === 400
             ? "Please double-check your details and try again."
             : res.status === 403
-              ? "Signup is currently unavailable. If you already have an account, sign in."
+              ? "Signup is not ready on this account yet. If you already have an account, sign in."
               : res.status >= 500
                 ? "Your account did not create yet. Try again here in a moment or sign in if you already have one."
                 : "Your account did not create. Try again here or sign in if you already have one.";

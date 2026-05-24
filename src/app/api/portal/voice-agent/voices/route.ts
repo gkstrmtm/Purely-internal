@@ -41,7 +41,7 @@ async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | nul
 function friendlyVoiceAgentError(status?: number): string {
   if (status === 401 || status === 403) return "Voice agent API key is invalid. Update it in Profile and try again.";
   if (status === 429) return "Voice agent is temporarily rate-limited. Please try again in a minute.";
-  return "Unable to load voices. Please try again.";
+  return "Voice options did not load. Retry here or review the API key in Profile.";
 }
 
 export async function GET() {

@@ -390,7 +390,7 @@ function ActionKindDropdown(props: {
 
       {open ? (
         <div className="absolute z-40 mt-2 w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-          <div className="max-h-[260px] overflow-auto p-1">
+          <div className="max-h-65 overflow-auto p-1">
             {props.options.map((o) => {
               const isSel = o.value === props.value;
               const disabled = Boolean(o.disabled);
@@ -2024,13 +2024,13 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     try {
       const res = await fetch("/api/portal/automations/settings", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!res?.ok) {
-        setError("Automations did not load. Retry here, open services, or ask Pura to help.");
+        setError("Automations are still syncing. Retry here, open services, or ask Pura to help.");
         return;
       }
 
       const data = (await res.json().catch(() => null)) as ApiPayload | null;
       if (!data || (data as any).error) {
-        setError((data as any)?.error || "Automations did not load. Retry here, open services, or ask Pura to help.");
+        setError((data as any)?.error || "Automations are still syncing. Retry here, open services, or ask Pura to help.");
         return;
       }
 
@@ -3138,7 +3138,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
   if (loading) {
     return (
-      <div className={mode === "editor" ? "flex min-h-[320px] items-center justify-center" : "p-6"}>
+      <div className={mode === "editor" ? "flex min-h-80 items-center justify-center" : "p-6"}>
         {mode === "editor" ? null : <PortalBackToOnboardingLink />}
         <div className="text-sm text-zinc-600">Loading…</div>
       </div>
@@ -3714,7 +3714,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
           <>
             <div className="fixed inset-0 z-30" onMouseDown={() => setOpenListMenu(null)} onTouchStart={() => setOpenListMenu(null)} />
             <div
-              className="fixed z-40 w-[220px]"
+              className="fixed z-40 w-55"
               style={{ left: openListMenu.left, top: openListMenu.top, maxHeight: openListMenu.maxHeight }}
               onMouseDown={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
@@ -3925,7 +3925,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   ref={inlineRenameInputRef}
                   value={inlineRenameValue}
                   onChange={(e) => setInlineRenameValue(e.target.value)}
-                  className="w-full max-w-[520px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                  className="w-full max-w-130 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
                   onBlur={() => commitInlineRename(selectedAutomation.id)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -3942,7 +3942,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               ) : (
                 <button
                   type="button"
-                  className="block max-w-[520px] truncate rounded-xl border border-zinc-200/0 px-2 py-1 text-left text-lg font-bold text-brand-ink hover:border-zinc-300 hover:bg-white focus-visible:border-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-200"
+                  className="block max-w-130 truncate rounded-xl border border-zinc-200/0 px-2 py-1 text-left text-lg font-bold text-brand-ink hover:border-zinc-300 hover:bg-white focus-visible:border-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-200"
                   onClick={() => {
                     if (!selectedAutomation) return;
                     startInlineRename(selectedAutomation.id);
@@ -4063,7 +4063,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
           }}
         >
           <LiquidGlassPopupSurface
-            className="relative w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-[2rem] p-4 shadow-xl"
+            className="relative w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-4xl p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
             overlayClassName="border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.76),rgba(255,255,255,0.42))] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[24px]"
             showTopGlow={false}
@@ -4111,7 +4111,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       {renameOpen && selectedAutomation ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]" onMouseDown={() => setRenameOpen(false)}>
           <LiquidGlassPopupSurface
-            className="relative w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-[2rem] p-4 shadow-xl"
+            className="relative w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-4xl p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
             overlayClassName="border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.76),rgba(255,255,255,0.42))] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[24px]"
             showTopGlow={false}
@@ -4249,7 +4249,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     </div>
                   ) : (
                     <div className="rounded-3xl border border-dashed border-white/60 bg-white/30 px-3 py-3 text-sm text-zinc-600">
-                      <div className="font-semibold text-zinc-900">No saved demo fields found for this form yet</div>
+                      <div className="font-semibold text-zinc-900">No demo fields ready for this form yet</div>
                       <div className="mt-1">Open the form editor to add questions first, then come back here to test the automation with realistic sample responses.</div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {testFormId ? (
@@ -4361,7 +4361,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     onKeyDown={(e) => {
                       if (e.key === "Escape") setTestOpen(false);
                     }}
-                    className="mt-1 min-h-[110px] w-full resize-y rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                    className="mt-1 min-h-27.5 w-full resize-y rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
                     placeholder={testTriggerMeta.bodyPlaceholder}
                   />
                 </div>
@@ -4532,7 +4532,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             <div className="mt-4 space-y-2">
               {automations.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No automations yet</div>
+                  <div className="font-semibold text-zinc-900">No automations built yet</div>
                   <div className="mt-1">Create the first automation to connect a trigger, actions, and follow-up logic in one workflow.</div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
@@ -4761,7 +4761,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               }}
               title="Select automation"
             >
-              <span className="block max-w-[360px] truncate">{selectedAutomation ? selectedAutomation.name : "Select automation"}</span>
+              <span className="block max-w-90 truncate">{selectedAutomation ? selectedAutomation.name : "Select automation"}</span>
             </button>
             <button
               type="button"
@@ -4886,7 +4886,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     ev.dataTransfer.effectAllowed = "copy";
                   }}
                   className={
-                    "min-w-[220px] rounded-2xl border border-zinc-200 px-4 py-3 " +
+                    "min-w-55 rounded-2xl border border-zinc-200 px-4 py-3 " +
                     (disabled ? "cursor-not-allowed bg-zinc-50 opacity-60" : "cursor-grab bg-zinc-50 active:cursor-grabbing")
                   }
                 >
@@ -4927,7 +4927,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   "relative w-full overflow-hidden",
                   mode === "editor"
                     ? "flex-1 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(244,244,245,0.92))]"
-                    : "mt-4 h-[660px] rounded-2xl border border-zinc-200 bg-white",
+                    : "mt-4 h-165 rounded-2xl border border-zinc-200 bg-white",
                 )}
                 style={{
                   backgroundImage: "radial-gradient(#0f172a12 1px, transparent 1px)",
@@ -5047,7 +5047,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                             type="button"
                             data-kind="handle"
                             title="Connect here"
-                            className="absolute left-[-9px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-zinc-200 bg-white shadow"
+                            className="absolute -left-2.25 top-1/2 h-4.5 w-4.5 -translate-y-1/2 rounded-full border border-zinc-200 bg-white shadow"
                             onPointerUp={() => completeConnect(n.id)}
                             onDoubleClick={(ev) => {
                               ev.stopPropagation();
@@ -5063,7 +5063,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                 type="button"
                                 data-kind="handle"
                                 title="Start TRUE connection"
-                                className="absolute right-[-9px] top-[35%] h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-violet-200 bg-white shadow"
+                                className="absolute -right-2.25 top-[35%] h-4.5 w-4.5 -translate-y-1/2 rounded-full border border-violet-200 bg-white shadow"
                                 onPointerDown={(ev) => {
                                   ev.stopPropagation();
                                   startConnect(n.id, "true");
@@ -5077,7 +5077,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                 type="button"
                                 data-kind="handle"
                                 title="Start FALSE connection"
-                                className="absolute right-[-9px] top-[65%] h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-violet-200 bg-white shadow"
+                                className="absolute -right-2.25 top-[65%] h-4.5 w-4.5 -translate-y-1/2 rounded-full border border-violet-200 bg-white shadow"
                                 onPointerDown={(ev) => {
                                   ev.stopPropagation();
                                   startConnect(n.id, "false");
@@ -5087,10 +5087,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                   disconnectOutgoingPort(n.id, "false");
                                 }}
                               />
-                              <div className="pointer-events-none absolute right-[-28px] top-[35%] -translate-y-1/2 text-[10px] font-semibold text-violet-700">
+                              <div className="pointer-events-none absolute -right-7 top-[35%] -translate-y-1/2 text-[10px] font-semibold text-violet-700">
                                 T
                               </div>
-                              <div className="pointer-events-none absolute right-[-28px] top-[65%] -translate-y-1/2 text-[10px] font-semibold text-violet-700">
+                              <div className="pointer-events-none absolute -right-7 top-[65%] -translate-y-1/2 text-[10px] font-semibold text-violet-700">
                                 F
                               </div>
                             </>
@@ -5099,7 +5099,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                               type="button"
                               data-kind="handle"
                               title="Start connection"
-                              className="absolute right-[-9px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 rounded-full border border-zinc-200 bg-white shadow"
+                              className="absolute -right-2.25 top-1/2 h-4.5 w-4.5 -translate-y-1/2 rounded-full border border-zinc-200 bg-white shadow"
                               onPointerDown={(ev) => {
                                 ev.stopPropagation();
                                 startConnect(n.id, "out");
@@ -5129,7 +5129,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   >
                     −
                   </button>
-                  <div className="min-w-[52px] text-center font-semibold">{Math.round(view.zoom * 100)}%</div>
+                  <div className="min-w-13 text-center font-semibold">{Math.round(view.zoom * 100)}%</div>
                   <button
                     type="button"
                     className={classNames(portalGlassButtonClass, "rounded-xl px-2 py-1 font-semibold text-zinc-800 hover:bg-white/80")}
@@ -5151,7 +5151,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 {mode === "editor" && !inspectorOpen ? (
                   <div
                     data-kind="ui"
-                    className="absolute left-0 top-0 z-30 h-full w-[360px] overflow-auto bg-white/82 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl"
+                    className="absolute left-0 top-0 z-30 h-full w-90 overflow-auto bg-white/82 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl"
                     onPointerDown={(ev) => ev.stopPropagation()}
                     onWheel={(ev) => ev.stopPropagation()}
                   >
@@ -5212,8 +5212,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     data-kind="ui"
                     className={
                       mode === "editor"
-                        ? "absolute left-0 top-0 z-30 h-full w-[360px] overflow-auto bg-white/82 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl"
-                        : "absolute left-3 top-3 z-30 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg backdrop-blur"
+                        ? "absolute left-0 top-0 z-30 h-full w-90 overflow-auto bg-white/82 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl"
+                        : "absolute left-3 top-3 z-30 w-90 max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg backdrop-blur"
                     }
                     onPointerDown={(ev) => ev.stopPropagation()}
                     onWheel={(ev) => ev.stopPropagation()}
@@ -5240,7 +5240,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   </div>
 
                   {!selectedNode ? null : (
-                    <div className="mt-3 max-h-[420px] overflow-auto pr-1">
+                    <div className="mt-3 max-h-105 overflow-auto pr-1">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-xs font-semibold text-zinc-600">Type</div>
                         <div className="text-xs font-semibold text-zinc-900">{selectedNode.type}</div>
@@ -5477,7 +5477,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                     />
                                     {!bookingCalendars.length ? (
                                       <div className="mt-1 text-[11px] text-zinc-600">
-                                        No calendars found yet. Create one in Booking → Calendars.
+                                        No calendars are ready yet. Create one in Booking → Calendars.
                                         <div className="mt-2 flex flex-wrap items-center gap-2">
                                           <Link
                                             href={`${appBase}/services/booking/settings`}
@@ -7085,7 +7085,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                               <div className="mt-1 space-y-2">
                                 <div className="text-xs font-semibold text-zinc-600">If</div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <div className="min-w-[240px] flex-1">
+                                  <div className="min-w-60 flex-1">
                                     <PortalListboxDropdown
                                       value={fieldDropdownValue as any}
                                       options={[
@@ -7121,7 +7121,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                   <input
                                     ref={conditionLeftRef}
                                     list="condition_field_keys"
-                                    className="min-w-[240px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    className="min-w-60 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                     placeholder="Field key (e.g. contact.email)"
                                     value={left}
                                     onChange={(e) => {
@@ -7219,7 +7219,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                     />
 
                                     {rightQuickOptions ? (
-                                      <div className="w-[180px]">
+                                      <div className="w-45">
                                         <PortalListboxDropdown
                                           value={((rightQuickOptions as any[]).some((o) => o.value === right) ? right : "__none__") as any}
                                           options={[

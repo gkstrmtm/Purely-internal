@@ -160,7 +160,7 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
   return (
     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
       <div className="text-xs font-semibold text-zinc-600">{label}</div>
-      <div className="mt-2 break-all font-mono text-xs text-zinc-800">{v ?? "N/A"}</div>
+      <div className="mt-2 break-all font-mono text-xs text-zinc-800">{v ?? "Not set yet"}</div>
       <div className="mt-3 flex items-center justify-end">
         <button
           type="button"
@@ -332,7 +332,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     if (!res?.ok) {
       const json = (await res?.json().catch(() => ({}))) as { error?: string };
       setMailbox(null);
-      setMailboxError(json.error ?? "Business email did not load. Retry here, open inbox, or ask Pura to help.");
+      setMailboxError(json.error ?? "Business email is still syncing. Retry here, open inbox, or ask Pura to help.");
       setMailboxLoading(false);
       return;
     }
@@ -343,7 +343,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       setMailboxLocalPart(json.mailbox?.localPart ?? "");
     } else {
       setMailbox(null);
-      setMailboxError((json as any)?.error ?? "Business email did not load. Retry here, open inbox, or ask Pura to help.");
+      setMailboxError((json as any)?.error ?? "Business email is still syncing. Retry here, open inbox, or ask Pura to help.");
     }
     setMailboxLoading(false);
   }, []);
@@ -543,7 +543,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       return;
     }
     const json = (await res.json().catch(() => ({}))) as { error?: string };
-    setError(json.error ?? "Profile details did not load. Retry here or ask Pura to help.");
+    setError(json.error ?? "Profile details are still syncing. Retry here or ask Pura to help.");
   }, []);
 
   useEffect(() => {
@@ -714,13 +714,13 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     if (!res?.ok) {
       const json = ((await res?.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
       setApiKeysState(null);
-      setApiKeysError(json && "error" in json ? json.error ?? "API keys did not load. Retry here, create a new key, or ask Pura to help." : "API keys did not load. Retry here, create a new key, or ask Pura to help.");
+      setApiKeysError(json && "error" in json ? json.error ?? "API keys are still syncing. Retry here, create a new key, or ask Pura to help." : "API keys are still syncing. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     const json = ((await res.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
     if (!json?.ok) {
       setApiKeysState(null);
-      setApiKeysError((json as any)?.error ?? "API keys did not load. Retry here, create a new key, or ask Pura to help.");
+      setApiKeysError((json as any)?.error ?? "API keys are still syncing. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     setApiKeysState(json);
@@ -1081,7 +1081,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const data = (await res.json().catch(() => null)) as TwilioApiPayload | null;
     if (!res.ok || !data?.ok) {
       setSavingTwilio(false);
-      setTwilioError(data?.error || "Failed to save Twilio.");
+      setTwilioError(data?.error || "Twilio settings did not save. Check the credentials and try again.");
       return;
     }
 
@@ -1112,7 +1112,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const data = (await res.json().catch(() => null)) as TwilioApiPayload | null;
     if (!res.ok || !data?.ok) {
       setSavingTwilio(false);
-      setTwilioError(data?.error || "Failed to clear Twilio.");
+      setTwilioError(data?.error || "Twilio settings did not clear. Retry this panel.");
       return;
     }
 
@@ -1693,7 +1693,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                         </div>
                       ) : (
                         <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No custom domains have been added yet</div>
+                          <div className="font-semibold text-zinc-900">No custom domains added yet</div>
                           <div className="mt-1">Add a domain here when you want booking pages, funnels, or hosted experiences to use your own brand.</div>
                           <div className="mt-3 flex flex-wrap items-center gap-2">
                             <button
@@ -1788,10 +1788,10 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                     Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span>
                                   </div>
                                   <div className="mt-1">
-                                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "N/A"}</span>
+                                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "No account linked yet"}</span>
                                   </div>
                                   <div className="mt-1">
-                                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "N/A"}</span>
+                                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "No sender number yet"}</span>
                                   </div>
                                 </div>
 
@@ -2019,15 +2019,15 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                               {salesProvider === "stripe" ? (
                                 <>
                                   <div className="mt-1">
-                                    Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "N/A" : "N/A"}</span>
+                                    Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "No key type yet" : "No key type yet"}</span>
                                   </div>
                                   <div className="mt-1">
-                                    Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "N/A" : "N/A"}</span>
+                                    Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "No account linked yet" : "No account linked yet"}</span>
                                   </div>
                                 </>
                               ) : (
                                 <div className="mt-1">
-                                  Details: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "N/A" : "N/A"}</span>
+                                  Details: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "No provider details yet" : "No provider details yet"}</span>
                                 </div>
                               )}
                             </div>
@@ -2490,7 +2490,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                         </div>
                             ) : apiKeysLoaded ? (
                               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                                <div className="font-semibold text-zinc-900">No scoped API keys yet</div>
+                                <div className="font-semibold text-zinc-900">No scoped API keys created yet</div>
                                 <div className="mt-1">Create a scoped key when another app, workflow, or teammate only needs limited portal access.</div>
                                 <div className="mt-3 flex flex-wrap items-center gap-2">
                                   <button

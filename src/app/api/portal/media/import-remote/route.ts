@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { canImportRemoteMediaUrl } from "@/lib/funnelBuilderAttachmentPolicy";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { safeFilename } from "@/lib/portalMedia";
 
@@ -48,10 +49,10 @@ export async function POST(req: Request) {
 
   const ownerId = auth.session.user.id;
 
-  const u = new URL(parsed.data.url);
-  if (u.protocol !== "http:" && u.protocol !== "https:") {
+  if (!canImportRemoteMediaUrl(req, parsed.data.url)) {
     return NextResponse.json({ ok: false, error: "Invalid URL" }, { status: 400 });
   }
+  const u = new URL(parsed.data.url);
 
   const resp = await fetch(u.toString(), {
     headers: { "user-agent": "purelyautomation/portal-media-import" },

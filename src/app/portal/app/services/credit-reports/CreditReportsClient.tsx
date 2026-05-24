@@ -391,7 +391,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         await Promise.all([loadReports(), loadContacts("")]);
       } catch (e: any) {
         if (cancelled) return;
-        setError(e?.message ? String(e.message) : "Credit reports did not load. Retry here, pull a report, or ask Pura to help.");
+        setError(e?.message ? String(e.message) : "Credit reports are still syncing. Retry here, pull a report, or ask Pura to help.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -413,7 +413,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         await loadReport(selectedReportId);
       } catch (e: any) {
         if (cancelled) return;
-        setError(e?.message ? String(e.message) : "That credit report did not load. Retry here, open reports, or ask Pura to help.");
+        setError(e?.message ? String(e.message) : "That credit report is still syncing. Retry here, open reports, or ask Pura to help.");
       }
     })();
     return () => {
@@ -720,8 +720,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       e?.message
                         ? String(e.message)
                         : mode === "detail"
-                          ? "That credit report did not load. Retry here, open reports, or ask Pura to help."
-                          : "Credit reports did not load. Retry here, pull a report, or ask Pura to help.",
+                          ? "That credit report is still syncing. Retry here, open reports, or ask Pura to help."
+                          : "Credit reports are still syncing. Retry here, pull a report, or ask Pura to help.",
                     );
                   } finally {
                     if (mode !== "detail") setLoading(false);

@@ -497,7 +497,7 @@ export const PortalBookingAvailabilityClient = forwardRef<PortalBookingAvailabil
                               }
                         }
                       >
-                        {active ? "Available" : "Unavailable"}
+                        {active ? "Available" : "Blocked"}
                       </button>
                     </div>
                   );
@@ -532,7 +532,7 @@ export const PortalBookingAvailabilityClient = forwardRef<PortalBookingAvailabil
                         weekday: "short",
                         month: "short",
                         day: "numeric",
-                      })} at ${minutesToLabel(mins)} - ${active ? "available" : "unavailable"}`;
+                      })} at ${minutesToLabel(mins)} - ${active ? "available" : "blocked"}`;
                       return (
                         <button
                           key={k}

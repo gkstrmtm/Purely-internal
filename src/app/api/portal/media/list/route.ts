@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { isLikelyImageMimeType } from "@/lib/portalMedia";
+import { getPortalMediaGrowthProfiles } from "@/lib/portalMediaGrowth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -75,6 +76,11 @@ export async function GET(req: Request) {
     }),
   ]);
 
+  const growthProfiles = await getPortalMediaGrowthProfiles(
+    ownerId,
+    items.map((it: any) => String(it.id)),
+  ).catch(() => new Map());
+
   return NextResponse.json({
     ok: true,
     folder: folder
@@ -114,6 +120,7 @@ export async function GET(req: Request) {
       fileSize: it.fileSize,
       tag: it.tag,
       createdAt: it.createdAt.toISOString(),
+      growthProfile: growthProfiles.get(String(it.id)) ?? null,
       ...mediaItemUrls(it),
     })),
   });

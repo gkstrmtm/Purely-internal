@@ -58,7 +58,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ contactId: str
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
 
   const ok = await addContactTagAssignment({ ownerId, contactId: contactId.data, tagId: parsed.data.tagId });
-  if (!ok) return NextResponse.json({ ok: false, error: "Failed to add tag" }, { status: 500 });
+  if (!ok) {
+    return NextResponse.json({ ok: false, error: "That tag did not attach to the contact. Retry here or review the selected tags again." }, { status: 500 });
+  }
 
   // Best-effort: fire tag-added automations.
   try {
@@ -109,7 +111,9 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ contactId: s
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
 
   const ok = await removeContactTagAssignment({ ownerId, contactId: contactId.data, tagId: parsed.data.tagId });
-  if (!ok) return NextResponse.json({ ok: false, error: "Failed to remove tag" }, { status: 500 });
+  if (!ok) {
+    return NextResponse.json({ ok: false, error: "That tag did not come off the contact. Retry here or review the selected tags again." }, { status: 500 });
+  }
 
   const tags = await listContactTagsForContact(ownerId, contactId.data);
   return NextResponse.json({ ok: true, tags });

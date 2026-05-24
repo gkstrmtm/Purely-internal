@@ -317,7 +317,7 @@ function renderMarkdownish(text: string): React.ReactNode {
 
 function shortSha(sha: string | null | undefined) {
   const s = (sha ?? "").trim();
-  if (!s) return "unknown";
+  if (!s) return "";
   return s.length > 10 ? s.slice(0, 10) : s;
 }
 
@@ -790,7 +790,7 @@ export function PortalFloatingTools() {
 
   const versionLabel = useMemo(() => {
     const sha = shortSha(version?.buildSha);
-    return `v ${sha}`;
+    return sha ? `v ${sha}` : "Version syncing";
   }, [version?.buildSha]);
 
   const feedbackServiceSlug = useMemo(() => inferSuggestedSetupServiceSlug(pathname), [pathname]);
@@ -1044,7 +1044,7 @@ export function PortalFloatingTools() {
     setReportOpen(false);
     setSending(false);
 
-    setNote(json.emailed ? "Feedback sent. Thanks!" : "Feedback saved (email not configured).");
+    setNote(json.emailed ? "Feedback sent. Thanks!" : "Feedback saved. Email delivery is not linked yet.");
     window.setTimeout(() => setNote(null), 3500);
   }
 
@@ -1072,7 +1072,7 @@ export function PortalFloatingTools() {
 
       const createdJson = (created ? ((await created.json().catch(() => null)) as { ok?: boolean; thread?: { id?: string } | null; error?: string } | null) : null) ?? null;
       if (!created?.ok || !createdJson?.ok || !createdJson.thread?.id) {
-        setNote(String(createdJson?.error || "Support chat is unavailable.").trim() || null);
+        setNote(String(createdJson?.error || "Support chat could not start yet. Retry in a moment.").trim() || null);
         setChatInput(text);
         setChatSending(false);
         scheduleChatScrollToBottom(true);
@@ -1108,7 +1108,7 @@ export function PortalFloatingTools() {
         const cleaned = current.filter((message) => message.id !== optimisticUserId && message.id !== optimisticAssistantId);
         return cleaned;
       });
-      setNote("Support chat is unavailable.");
+      setNote("Support chat could not reply yet. Retry in a moment.");
       setChatInput(text);
       setChatSending(false);
       scheduleChatScrollToBottom(true);

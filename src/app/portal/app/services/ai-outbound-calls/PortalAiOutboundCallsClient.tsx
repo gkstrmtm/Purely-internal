@@ -158,6 +158,28 @@ type VoiceLibraryVoice = {
   description?: string;
 };
 
+function formatStatusBadgeLabel(status: string | null | undefined) {
+  const key = String(status || "").trim().toUpperCase();
+  if (!key || key === "UNKNOWN") return "Status syncing";
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function formatSourceDetailLabel(source: string | null | undefined) {
+  const key = String(source || "").trim().toUpperCase();
+  if (!key || key === "UNKNOWN") return "Source syncing";
+  if (key === "MANUAL") return "Manual";
+  if (key === "TAG") return "Audience";
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 const DEFAULT_VOICE_PREVIEW_TEXT = "Hi! This is a voice preview.";
 
 type ApiGetVoiceLibraryVoicesResponse =
@@ -713,7 +735,7 @@ function sanitizeClientErrorText(error?: string | null) {
     return "Message delivery failed for this demo row.";
   }
   if (/^invalid\s+`/i.test(raw) || /__turbopack|prisma\./i.test(raw)) {
-    return "AI Outbound did not load. Retry here or ask Pura for another route in.";
+    return "AI Outbound is still syncing. Retry here or ask Pura for another route in.";
   }
   const brace = raw.indexOf("{");
   const bracket = raw.indexOf("[");
@@ -722,7 +744,7 @@ function sanitizeClientErrorText(error?: string | null) {
   const idx = [brace, bracket, stackMarker, tick].filter((n) => n >= 0).sort((a, b) => a - b)[0];
   const withoutJson = idx !== undefined ? raw.slice(0, idx).trim() : raw;
   const singleLine = withoutJson.replace(/\s+/g, " ").trim();
-  if (!singleLine) return "AI Outbound did not load. Retry here or ask Pura for another route in.";
+  if (!singleLine) return "AI Outbound is still syncing. Retry here or ask Pura for another route in.";
   if (singleLine.length > 240) return `${singleLine.slice(0, 239)}…`;
   return singleLine;
 }
@@ -1467,8 +1489,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
               <div className="px-1 py-2 text-sm text-zinc-500">Loading…</div>
             ) : campaigns.length === 0 ? (
               <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No campaigns yet</div>
-                <div className="mt-1">Create your first campaign to start configuring calls, messages, and testing from one place.</div>
+                <div className="font-semibold text-zinc-900">No outbound campaigns yet</div>
+                <div className="mt-1">Create the first campaign to start configuring calls, messages, enrollments, and testing from one place.</div>
                 <div className="mt-3 flex flex-col gap-2">
                   <button
                     type="button"
@@ -2090,7 +2112,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         }
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Those message details did not load. Refresh details from this panel or ask Pura to help.");
+      toast.error(error instanceof Error ? error.message : "Those message details are still syncing. Refresh details from this panel or ask Pura to help.");
     } finally {
       setMessageDetailLoading(false);
     }
@@ -2200,7 +2222,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         const res = await fetch(`/api/portal/ai-outbound-calls/manual-calls/${encodeURIComponent(id)}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
         const json = (await res?.json?.().catch(() => null)) as ApiGetManualCallResponse | null;
         if (!res || !res.ok || !json || (json as any).ok !== true || !(json as any).manualCall) {
-          throw new Error((json as any)?.error || "Those call details did not load. Refresh details from this panel or ask Pura to help.");
+          throw new Error((json as any)?.error || "Those call details are still syncing. Refresh details from this panel or ask Pura to help.");
         }
         setCallDetail(makeCallDetailFromManualCall((json as any).manualCall as ManualCall));
       } else {
@@ -2210,13 +2232,13 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         ).catch(() => null as any);
         const json = (await res?.json?.().catch(() => null)) as ApiGetCallActivityDetailResponse | null;
         if (!res || !res.ok || !json || (json as any).ok !== true || !(json as any).detail) {
-          throw new Error((json as any)?.error || "Those call details did not load. Refresh details from this panel or ask Pura to help.");
+          throw new Error((json as any)?.error || "Those call details are still syncing. Refresh details from this panel or ask Pura to help.");
         }
         setCallDetail({ ...((json as any).detail as CallActivityDetail), kind: "enrollment" });
       }
     } catch (e) {
       if (!row) {
-        toast.error(e instanceof Error ? e.message : "Those call details did not load. Refresh details from this panel or ask Pura to help.");
+        toast.error(e instanceof Error ? e.message : "Those call details are still syncing. Refresh details from this panel or ask Pura to help.");
       }
     } finally {
       setCallDetailLoading(false);
@@ -2593,7 +2615,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const campaignsJson = (await campaignRes.json().catch(() => null)) as ApiGetCampaignsResponse | null;
       if (!campaignRes.ok || !campaignsJson || (campaignsJson as any).ok !== true) {
-        throw new Error((campaignsJson as any)?.error || "AI Outbound did not load. Retry here or ask Pura for another route in.");
+        throw new Error((campaignsJson as any)?.error || "AI Outbound is still syncing. Retry here or ask Pura for another route in.");
       }
 
       if (bookingCalendarsRes?.ok) {
@@ -2683,7 +2705,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       didLoad = true;
       void loadTags();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "AI Outbound did not load. Retry here or ask Pura for another route in.");
+      setError(e instanceof Error ? e.message : "AI Outbound is still syncing. Retry here or ask Pura for another route in.");
     } finally {
       if (didLoad) hasLoadedOnceRef.current = true;
       setLoading(false);
@@ -3770,7 +3792,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     if (!hasKnowledgeBaseContent(kb)) {
       return (
         <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/60 px-4 py-4 text-sm text-zinc-600">
-          <div className="font-semibold text-zinc-900">No knowledge base configured yet</div>
+          <div className="font-semibold text-zinc-900">No knowledge base ready yet</div>
           <div className="mt-1">Add notes, upload a file, or sync once you have the first context ready so this campaign stops guessing.</div>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <button
@@ -4068,8 +4090,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 </div>
               ) : (
                 <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No custom call outcome rules yet</div>
-                  <div className="mt-1">Use the builder above to describe what happened on the call, then attach at least one tag so the campaign can sort contacts automatically.</div>
+                  <div className="font-semibold text-zinc-900">No call outcome rules saved yet</div>
+                  <div className="mt-1">Use the builder above to capture what happened on the call, then attach at least one tag so the campaign can sort contacts automatically.</div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -4364,8 +4386,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 </div>
               ) : (
                 <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No custom messaging outcome rules yet</div>
-                  <div className="mt-1">Use the builder above to describe the reply pattern you care about, then attach at least one tag so message threads route into the right follow-up flow.</div>
+                  <div className="font-semibold text-zinc-900">No messaging outcome rules saved yet</div>
+                  <div className="mt-1">Use the builder above to capture the reply pattern you care about, then attach at least one tag so message threads route into the right follow-up flow.</div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -4438,7 +4460,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         {error ? (
           <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             <div className="font-semibold text-red-900">AI Outbound needs attention</div>
-            <div className="mt-1">{sanitizeClientErrorText(error) || (campaigns.length === 0 ? "AI Outbound did not load. Retry here, create a campaign, or ask Pura for another route in." : "AI Outbound did not load. Retry here or ask Pura for another route in.")}</div>
+            <div className="mt-1">{sanitizeClientErrorText(error) || (campaigns.length === 0 ? "AI Outbound is still syncing. Retry here, create a campaign, or ask Pura for another route in." : "AI Outbound is still syncing. Retry here or ask Pura for another route in.")}</div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -4483,7 +4505,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                     <div className="text-sm text-zinc-500">Loading…</div>
                   ) : campaigns.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm text-zinc-600">
-                      <div className="font-semibold text-zinc-900">No campaigns yet</div>
+                      <div className="font-semibold text-zinc-900">No outbound campaigns yet</div>
                       <div className="mt-1">Create the first campaign to unlock calls, messages, testing, and setup for this workspace.</div>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <button
@@ -4813,8 +4835,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       if (!filteredMessagesActivityRows.length) {
                         return (
                           <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                            <div className="font-semibold text-zinc-900">No message activity yet</div>
-                            <div className="mt-1">Send a test or review the messaging setup so outbound threads start appearing here.</div>
+                            <div className="font-semibold text-zinc-900">No outbound message activity yet</div>
+                            <div className="mt-1">Send a test or review the messaging setup so outbound threads and reply handling start appearing here.</div>
                             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                               <button
                                 type="button"
@@ -4852,7 +4874,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 (e.contact?.name && String(e.contact.name).trim()) ||
                                 (e.contact?.phone && String(e.contact.phone).trim()) ||
                                 (e.contact?.email && String(e.contact.email).trim()) ||
-                                "Unknown contact";
+                                "No contact label yet";
                               const when = e.updatedAtIso || e.createdAtIso;
                               const err = sanitizeClientErrorText(e.lastError || e.replyLastError);
                               const src = String(e.source || "TAG").toUpperCase();
@@ -4875,7 +4897,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   <div className="text-sm text-zinc-600">{formatWhen(when)}</div>
                                   <div>
                                     <span className={"inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold " + badgeClass(e.status).replace(/border-[^\s]+/g, "").trim()}>
-                                      {String(e.status || "UNKNOWN").toUpperCase()}
+                                      {formatStatusBadgeLabel(e.status)}
                                     </span>
                                   </div>
                                   <div className="flex justify-end" data-messages-activity-menu-root="true">
@@ -4983,7 +5005,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                               (row.contact?.name && String(row.contact.name).trim()) ||
                               (row.contact?.phone && String(row.contact.phone).trim()) ||
                               (row.contact?.email && String(row.contact.email).trim()) ||
-                              "Unknown contact";
+                              "No contact label yet";
                             const when = row.completedAtIso || row.updatedAtIso || row.createdAtIso;
                             const err = sanitizeClientErrorText(row.lastError);
                             const transcriptPreview = compactPreviewText(row.transcriptText, 132);
@@ -5002,7 +5024,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   <div className="text-sm text-zinc-600">{formatWhen(when)}</div>
                                   <div>
                                     <span className={"inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold " + badgeClass(row.status).replace(/border-[^\s]+/g, "").trim()}>
-                                      {String(row.status || "UNKNOWN").toUpperCase()}
+                                      {formatStatusBadgeLabel(row.status)}
                                     </span>
                                   </div>
                                   <div className="flex justify-end" data-calls-activity-menu-root="true">
@@ -5026,8 +5048,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       </div>
                     ) : (
                       <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                        <div className="font-semibold text-zinc-900">No call activity yet</div>
-                        <div className="mt-1">Run a test call or review the calls setup so new enrollments and outcomes start showing up here.</div>
+                        <div className="font-semibold text-zinc-900">No outbound call activity yet</div>
+                        <div className="mt-1">Run a test call or review the calls setup so new enrollments, outcomes, and transcripts start showing up here.</div>
                         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                           <button
                             type="button"
@@ -5090,7 +5112,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         </div>
                       ) : (
                         <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No calls agent yet</div>
+                          <div className="font-semibold text-zinc-900">No calls agent ready yet</div>
                           <div className="mt-1">Sync the calls agent first, then come back here to test real voice behavior for this campaign.</div>
                           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                             <button
@@ -5339,7 +5361,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             <div className="mt-3 grid grid-cols-1 gap-2 pr-1">
                               {voiceTools.length === 0 ? (
                                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-[11px] text-zinc-600">
-                                  <div className="font-semibold text-zinc-900">No tools ready yet</div>
+                                  <div className="font-semibold text-zinc-900">No call tools loaded yet</div>
                                   <div className="mt-1">
                                     {voiceToolsApiKeyConfigured
                                       ? "Sync the calls agent after saving your settings to load the tools that belong to this campaign."
@@ -5846,7 +5868,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                     <div className="mt-1 text-xs text-zinc-600">{formatWhen(manualCall.updatedAtIso || manualCall.createdAtIso)}</div>
                   </div>
                   <span className={"rounded-full px-2 py-0.5 text-[11px] font-semibold " + activityPillClass(manualCall.status)}>
-                    {String(manualCall.status || "UNKNOWN").toUpperCase()}
+                    {formatStatusBadgeLabel(manualCall.status)}
                   </span>
                 </div>
                 {manualCall.lastError ? (
@@ -5970,7 +5992,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       const name = (c.name || "").trim();
                       const email = (c.email || "").trim();
                       const phone = (c.phone || "").trim();
-                      const primary = name || phone || email || "Unknown";
+                      const primary = name || phone || email || "No contact label yet";
                       const secondary = [name ? null : phone || null, email || null].filter(Boolean).join(" • ");
                       return (
                         <button
@@ -6016,7 +6038,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   <div className="mt-3 rounded-3xl border border-white/60 bg-white/45 px-3 py-3">
                     <div className="text-xs font-semibold text-zinc-700">Selected</div>
                     <div className="mt-1 text-sm font-semibold text-zinc-900">
-                      {(manualEnrollSelected.name || manualEnrollSelected.phone || manualEnrollSelected.email || "Unknown").trim()}
+                      {(manualEnrollSelected.name || manualEnrollSelected.phone || manualEnrollSelected.email || "No contact label yet").trim()}
                     </div>
                     <div className="mt-1 text-xs text-zinc-600">
                       {[manualEnrollSelected.phone, manualEnrollSelected.email].filter(Boolean).join(" • ") || manualEnrollSelected.id}
@@ -6161,14 +6183,14 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         {callDetail.kind !== "manual" ? (
-                          <button type="button" onClick={() => openContactDetails(callDetail.contact.id)} className="text-left text-lg font-semibold text-zinc-900 hover:text-(--color-brand-blue)">{callDetail.contact.name || callDetail.contact.phone || callDetail.contact.email || "Unknown contact"}</button>
+                          <button type="button" onClick={() => openContactDetails(callDetail.contact.id)} className="text-left text-lg font-semibold text-zinc-900 hover:text-(--color-brand-blue)">{callDetail.contact.name || callDetail.contact.phone || callDetail.contact.email || "No contact label yet"}</button>
                         ) : (
-                          <div className="text-lg font-semibold text-zinc-900">{callDetail.contact.name || callDetail.contact.phone || callDetail.contact.email || "Unknown contact"}</div>
+                          <div className="text-lg font-semibold text-zinc-900">{callDetail.contact.name || callDetail.contact.phone || callDetail.contact.email || "No contact label yet"}</div>
                         )}
-                        <div className="mt-1 text-sm text-zinc-600">{[callDetail.contact.phone, callDetail.contact.email].filter(Boolean).join(" • ") || "No phone or email on file"}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{[callDetail.contact.phone, callDetail.contact.email].filter(Boolean).join(" • ") || "No phone or email saved yet"}</div>
                         {callDetail.kind !== "manual" ? <div className="mt-2"><ContactTagsEditor contactId={callDetail.contact.id} tags={callDetail.contactTags} compact onChange={(next) => setCallDetail((prev) => prev ? { ...prev, contactTags: next } : prev)} /></div> : null}
                       </div>
-                      <span className={"inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold " + badgeClass(callDetail.status).replace(/border-[^\s]+/g, "").trim()}>{String(callDetail.status || "UNKNOWN").toUpperCase()}</span>
+                      <span className={"inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold " + badgeClass(callDetail.status).replace(/border-[^\s]+/g, "").trim()}>{formatStatusBadgeLabel(callDetail.status)}</span>
                     </div>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2 text-sm text-zinc-600">
                       <div><div className="text-[11px] font-semibold text-zinc-500">Date</div><div className="mt-1">{formatWhen(callDetail.completedAtIso || callDetail.updatedAtIso || callDetail.createdAtIso)}</div></div>
@@ -6317,18 +6339,18 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     {messageDetail.contact?.id ? (
-                      <button type="button" onClick={() => openContactDetails(messageDetail.contact?.id)} className="text-left text-lg font-semibold text-zinc-900 hover:text-(--color-brand-blue)">{messageDetail.contact?.name || messageDetail.contact?.phone || messageDetail.contact?.email || "Unknown contact"}</button>
+                      <button type="button" onClick={() => openContactDetails(messageDetail.contact?.id)} className="text-left text-lg font-semibold text-zinc-900 hover:text-(--color-brand-blue)">{messageDetail.contact?.name || messageDetail.contact?.phone || messageDetail.contact?.email || "No contact label yet"}</button>
                     ) : (
-                      <div className="text-lg font-semibold text-zinc-900">{messageDetail.contact?.name || messageDetail.contact?.phone || messageDetail.contact?.email || "Unknown contact"}</div>
+                      <div className="text-lg font-semibold text-zinc-900">{messageDetail.contact?.name || messageDetail.contact?.phone || messageDetail.contact?.email || "No contact label yet"}</div>
                     )}
-                    <div className="mt-1 text-sm text-zinc-600">{[messageDetail.contact?.phone, messageDetail.contact?.email].filter(Boolean).join(" • ") || "No phone or email on file"}</div>
+                    <div className="mt-1 text-sm text-zinc-600">{[messageDetail.contact?.phone, messageDetail.contact?.email].filter(Boolean).join(" • ") || "No phone or email saved yet"}</div>
                     {messageDetail.contact?.id ? <div className="mt-2"><ContactTagsEditor contactId={messageDetail.contact.id} tags={messageDetailTags} compact borderlessChips onChange={setMessageDetailTags} /></div> : null}
                   </div>
-                  <span className={"inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold " + badgeClass(messageDetail.status).replace(/border-[^\s]+/g, "").trim()}>{String(messageDetail.status || "UNKNOWN").toUpperCase()}</span>
+                  <span className={"inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold " + badgeClass(messageDetail.status).replace(/border-[^\s]+/g, "").trim()}>{formatStatusBadgeLabel(messageDetail.status)}</span>
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 text-sm text-zinc-600">
                   <div><div className="text-[11px] font-semibold text-zinc-500">Date</div><div className="mt-1">{formatWhen(messageDetail.updatedAtIso || messageDetail.createdAtIso)}</div></div>
-                  <div><div className="text-[11px] font-semibold text-zinc-500">Source</div><div className="mt-1">{String(messageDetail.source || "UNKNOWN").toUpperCase()}</div></div>
+                  <div><div className="text-[11px] font-semibold text-zinc-500">Source</div><div className="mt-1">{formatSourceDetailLabel(messageDetail.source)}</div></div>
                   <div><div className="text-[11px] font-semibold text-zinc-500">Attempts</div><div className="mt-1">{messageDetail.attemptCount}</div></div>
                   <div><div className="text-[11px] font-semibold text-zinc-500">Reply attempts</div><div className="mt-1">{messageDetail.replyAttemptCount}</div></div>
                   {messageDetail.threadId ? <div className="sm:col-span-2"><div className="text-[11px] font-semibold text-zinc-500">Thread</div><div className="mt-1 break-all font-mono text-xs text-zinc-700">{messageDetail.threadId}</div></div> : null}
@@ -6381,7 +6403,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   </div>
                 ) : (
                   <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white/70 px-4 py-4 text-sm text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No messages yet</div>
+                    <div className="font-semibold text-zinc-900">No thread messages yet</div>
                     <div className="mt-1">No messages are attached to this row yet. If this outreach just ran, check back in a moment or review the messaging setup before sending the next test.</div>
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                       <button

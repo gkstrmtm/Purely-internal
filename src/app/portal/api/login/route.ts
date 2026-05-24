@@ -346,7 +346,7 @@ export async function POST(req: Request) {
       }
     }
     if (isPrismaPoolTimeoutError(error)) {
-      return NextResponse.json({ error: "Login is temporarily unavailable. Please try again." }, { status: 503 });
+      return NextResponse.json({ error: "Login needs a retry right now. Retry here in a moment or reset your password if you need account help." }, { status: 503 });
     }
     const message = error instanceof Error ? error.message : "Unexpected login error";
     return NextResponse.json({ error: message }, { status: 500 });

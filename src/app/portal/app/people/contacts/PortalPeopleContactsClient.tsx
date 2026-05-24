@@ -25,7 +25,7 @@ async function readFileAsDataUrl(file: File): Promise<string> {
   const f = file;
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.onerror = () => reject(new Error("That file is still syncing. Try another file."));
     reader.onload = () => resolve(String(reader.result || ""));
     reader.readAsDataURL(f);
   });
@@ -642,7 +642,7 @@ export function PortalPeopleContactsClient() {
 
         return true;
       } catch (e: any) {
-        const msg = String(e?.message || "Failed to load");
+        const msg = String(e?.message || "Contacts are still syncing. Retry here or open People again.");
         // Treat load failures as empty state for end-users.
         setData({
           ok: true,
@@ -909,7 +909,7 @@ export function PortalPeopleContactsClient() {
       const res = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, { cache: "no-store" });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) {
-        throw new Error(String(json?.error || "Contact details did not load. Retry here, go back to contacts, or ask Pura to help."));
+        throw new Error(String(json?.error || "Contact details are still syncing. Retry here, go back to contacts, or ask Pura to help."));
       }
       const payload = json as ContactDetailPayload;
       setDetail(payload.contact);
@@ -926,7 +926,7 @@ export function PortalPeopleContactsClient() {
         customVariables: customVariablesFromRows(nextRows),
       });
     } catch (e: any) {
-      const message = String(e?.message || "Contact details did not load. Retry here, go back to contacts, or ask Pura to help.");
+      const message = String(e?.message || "Contact details are still syncing. Retry here, go back to contacts, or ask Pura to help.");
       setDetailError(message);
       toast.error(message);
     } finally {
@@ -1473,7 +1473,7 @@ export function PortalPeopleContactsClient() {
       setLeadsCursorStack([null]);
       void load({ contactsCursor: null, leadsCursor: null });
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to delete contacts"));
+      toast.error(String(e?.message || "Those contacts did not delete. Retry here or review the selected contacts again."));
     } finally {
       setDeletingContact(false);
     }
@@ -1558,7 +1558,7 @@ export function PortalPeopleContactsClient() {
       toast.success(`Updated ${okCount} contact(s)`);
       void load({ contactsCursor, leadsCursor });
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to update contacts"));
+      toast.error(String(e?.message || "Those contacts did not update. Retry here or review the selected contacts again."));
     } finally {
       setBulkBusy(false);
     }
@@ -2002,14 +2002,14 @@ export function PortalPeopleContactsClient() {
                           >
                             <td className="px-3 py-3 min-w-0">
                               <div className="min-w-0">
-                                <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
+                                <div className="font-semibold text-zinc-900 truncate">{l.businessName || "No business name yet"}</div>
                               </div>
                             </td>
                             <td className="px-3 py-3 min-w-0">
-                              <div className="truncate">{l.email || "N/A"}</div>
+                              <div className="truncate">{l.email || "No email yet"}</div>
                             </td>
                             <td className="px-3 py-3 min-w-0">
-                              <div className="truncate">{l.phone || "N/A"}</div>
+                              <div className="truncate">{l.phone || "No phone yet"}</div>
                             </td>
                           </tr>
                         ))
@@ -2039,7 +2039,7 @@ export function PortalPeopleContactsClient() {
                             </td>
                             <td className="px-3 py-3 min-w-0">
                               <div className="min-w-0">
-                                <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
+                                <div className="font-semibold text-zinc-900 truncate">{c.name || "No name yet"}</div>
                                 {c.tags?.length ? (
                                   <div className="mt-1 flex max-w-full flex-wrap gap-1 overflow-hidden">
                                     {c.tags.slice(0, 3).map((t) => (
@@ -2060,10 +2060,10 @@ export function PortalPeopleContactsClient() {
                               </div>
                             </td>
                             <td className="px-3 py-3 min-w-0">
-                              <div className="truncate">{c.email || "N/A"}</div>
+                              <div className="truncate">{c.email || "No email yet"}</div>
                             </td>
                             <td className="px-3 py-3 min-w-0">
-                              <div className="truncate">{c.phone || "N/A"}</div>
+                              <div className="truncate">{c.phone || "No phone yet"}</div>
                             </td>
                           </tr>
                         ))
@@ -2086,7 +2086,7 @@ export function PortalPeopleContactsClient() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-base font-semibold text-zinc-900">
-                    Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "N/A"})
+                    Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "total syncing"})
                     {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
                   </div>
                   <div className="mt-1 text-sm text-zinc-600">Manage and open contact details.</div>
@@ -2425,7 +2425,7 @@ export function PortalPeopleContactsClient() {
                           </td>
                           <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
                             <div className="min-w-0">
-                              <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
+                              <div className="font-semibold text-zinc-900 truncate">{c.name || "No name yet"}</div>
                               {c.tags?.length ? (
                                 <div className="mt-1 flex max-w-full flex-wrap gap-1 overflow-hidden">
                                   {c.tags.slice(0, 3).map((t) => (
@@ -2446,10 +2446,10 @@ export function PortalPeopleContactsClient() {
                             </div>
                           </td>
                           <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                            <div className="truncate">{c.email || "N/A"}</div>
+                            <div className="truncate">{c.email || "No email yet"}</div>
                           </td>
                           <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                            <div className="truncate">{c.phone || "N/A"}</div>
+                            <div className="truncate">{c.phone || "No phone yet"}</div>
                           </td>
                         </tr>
                       ))
@@ -2458,7 +2458,7 @@ export function PortalPeopleContactsClient() {
                         <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={4}>
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
-                              <div className="font-semibold text-zinc-900">No contacts yet</div>
+                              <div className="font-semibold text-zinc-900">No contacts saved yet</div>
                               <div className="mt-1 text-xs text-zinc-500">Add one manually or import a CSV so this table has real people to work with.</div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
@@ -2541,7 +2541,7 @@ export function PortalPeopleContactsClient() {
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">
-                Unlinked leads ({data.unlinkedLeads.length} of {typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : "N/A"})
+                Unlinked leads ({data.unlinkedLeads.length} of {typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : "total syncing"})
                 {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredLeads.length}</span> : null}
               </div>
               <div className="text-sm text-zinc-600">Review inbound leads that aren’t linked yet.</div>
@@ -2610,14 +2610,14 @@ export function PortalPeopleContactsClient() {
                       >
                         <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
                           <div className="min-w-0">
-                            <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
+                            <div className="font-semibold text-zinc-900 truncate">{l.businessName || "No business name yet"}</div>
                           </div>
                         </td>
                         <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                          <div className="truncate">{l.email || "N/A"}</div>
+                          <div className="truncate">{l.email || "No email yet"}</div>
                         </td>
                         <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                          <div className="truncate">{l.phone || "N/A"}</div>
+                          <div className="truncate">{l.phone || "No phone yet"}</div>
                         </td>
                       </tr>
                     ))
@@ -2829,7 +2829,7 @@ export function PortalPeopleContactsClient() {
                                   setManualSignature(pngDataUrl);
                                   toast.success("Signature image uploaded");
                                 } catch (err: any) {
-                                  toast.error(String(err?.message || "Failed to import image"));
+                                  toast.error(String(err?.message || "That image did not import. Retry here or choose a different file."));
                                 }
                               })();
                             }}
@@ -2885,7 +2885,7 @@ export function PortalPeopleContactsClient() {
                         ))
                       ) : (
                         <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No tags yet</div>
+                          <div className="font-semibold text-zinc-900">No contact tags yet</div>
                           <div className="mt-1">Create a tag now so this contact can be segmented for follow-up, newsletters, and filtering.</div>
                           <button
                             type="button"
@@ -3097,7 +3097,9 @@ export function PortalPeopleContactsClient() {
                             }),
                           });
                           const json = (await res.json().catch(() => ({}))) as any;
-                          if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to add contact"));
+                          if (!res.ok || !json?.ok) {
+                            throw new Error(String(json?.error || "That contact did not add. Review the details and try again."));
+                          }
                           toast.success("Contact added");
                           setImportOpen(false);
 
@@ -3107,7 +3109,7 @@ export function PortalPeopleContactsClient() {
                           setLeadsCursorStack([null]);
                           void load({ contactsCursor: null, leadsCursor: null });
                         } catch (err: any) {
-                          setManualError(String(err?.message || "Failed to add contact"));
+                          setManualError(String(err?.message || "That contact did not add. Review the details and try again."));
                         } finally {
                           setManualBusy(false);
                         }
@@ -3263,10 +3265,10 @@ export function PortalPeopleContactsClient() {
 
                           return (
                             <tr key={idx} className="border-t border-zinc-200">
-                              <td className="px-3 py-2 max-w-45 truncate">{name || "n/a"}</td>
-                              <td className="px-3 py-2 max-w-45 truncate">{importMapping.email ? cell(importMapping.email) : "n/a"}</td>
-                              <td className="px-3 py-2 max-w-40 truncate">{importMapping.phone ? cell(importMapping.phone) : "n/a"}</td>
-                              <td className="px-3 py-2 max-w-45 truncate">{tagsText || "n/a"}</td>
+                              <td className="px-3 py-2 max-w-45 truncate">{name || "No name yet"}</td>
+                              <td className="px-3 py-2 max-w-45 truncate">{importMapping.email ? cell(importMapping.email) : "No email yet"}</td>
+                              <td className="px-3 py-2 max-w-40 truncate">{importMapping.phone ? cell(importMapping.phone) : "No phone yet"}</td>
+                              <td className="px-3 py-2 max-w-45 truncate">{tagsText || "No tags yet"}</td>
                             </tr>
                           );
                         })}
@@ -3556,7 +3558,7 @@ export function PortalPeopleContactsClient() {
                     placeholder="Full name"
                   />
                 ) : (
-                  <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "N/A"}</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "No name yet"}</div>
                 )}
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Email</div>
                 {editingContact ? (
@@ -3567,7 +3569,7 @@ export function PortalPeopleContactsClient() {
                     placeholder="email@company.com"
                   />
                 ) : (
-                  <div className="mt-1 text-sm text-zinc-800">{detail?.email ?? "N/A"}</div>
+                  <div className="mt-1 text-sm text-zinc-800">{detail?.email ?? "No email yet"}</div>
                 )}
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Phone</div>
                 {editingContact ? (
@@ -3578,7 +3580,7 @@ export function PortalPeopleContactsClient() {
                     placeholder="+15551234567"
                   />
                 ) : (
-                  <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "N/A"}</div>
+                  <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "No phone yet"}</div>
                 )}
 
                 {isCreditApp ? (
@@ -3595,7 +3597,7 @@ export function PortalPeopleContactsClient() {
                             placeholder="Business name"
                           />
                         ) : (
-                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.businessName || "N/A"}</div>
+                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.businessName || "Not provided yet"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
                           Template: <span className="font-mono break-all">{`{contact.custom.business_name}`}</span>
@@ -3617,7 +3619,7 @@ export function PortalPeopleContactsClient() {
                             placeholder="1234"
                           />
                         ) : (
-                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.ssnLastFour || "N/A"}</div>
+                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.ssnLastFour || "Not provided yet"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
                           Template: <span className="font-mono break-all">{`{contact.custom.ssn_last_four}`}</span>
@@ -3634,7 +3636,7 @@ export function PortalPeopleContactsClient() {
                             autoComplete="bday"
                           />
                         ) : (
-                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.birthDate || "N/A"}</div>
+                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.birthDate || "Not provided yet"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
                           Template: <span className="font-mono break-all">{`{contact.custom.birth_date}`}</span>
@@ -3650,7 +3652,7 @@ export function PortalPeopleContactsClient() {
                             placeholder="Street, city, state, ZIP"
                           />
                         ) : (
-                          <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">{creditDetailValues.address || "N/A"}</div>
+                          <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">{creditDetailValues.address || "Not provided yet"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
                           Template: <span className="font-mono break-all">{`{contact.custom.address}`}</span>
@@ -3675,7 +3677,7 @@ export function PortalPeopleContactsClient() {
                                     setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "signature", pngDataUrl));
                                     toast.success("Signature image uploaded");
                                   } catch (err: any) {
-                                    toast.error(String(err?.message || "Failed to import image"));
+                                    toast.error(String(err?.message || "That image did not import. Retry here or choose a different file."));
                                   }
                                 })();
                               }}
@@ -3709,7 +3711,7 @@ export function PortalPeopleContactsClient() {
                           </div>
                         ) : (
                           <div className="mt-1">
-                            <SignatureDisplay value={creditDetailValues.signature} emptyLabel="N/A" />
+                            <SignatureDisplay value={creditDetailValues.signature} emptyLabel="Not signed yet" />
                           </div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
@@ -3939,7 +3941,7 @@ export function PortalPeopleContactsClient() {
                 ) : null}
 
                 <div className="mt-3 text-xs text-zinc-500">
-                  Created: {detail?.createdAtIso ? new Date(detail.createdAtIso).toLocaleString() : "N/A"}
+                  Created: {detail?.createdAtIso ? new Date(detail.createdAtIso).toLocaleString() : "Timestamp syncing"}
                   {detail?.updatedAtIso ? ` • Updated: ${new Date(detail.updatedAtIso).toLocaleString()}` : ""}
                 </div>
               </div>

@@ -467,7 +467,7 @@ export function PortalAiReceptionistClient() {
 
     if (opts.action === "save") return "These AI Receptionist settings did not save. Retry here or keep editing them.";
     if (opts.action === "regenerate") return "That webhook token did not regenerate. Retry here or keep editing the settings.";
-    return "AI Receptionist did not load. Retry here, open services, or ask Pura to help.";
+    return "AI Receptionist is still syncing. Retry here, open services, or ask Pura to help.";
   }, []);
 
   const readJsonError = useCallback(async (res: Response) => {
@@ -1180,7 +1180,7 @@ export function PortalAiReceptionistClient() {
 
   function CallDetailsContent({ call, variant }: { call: EventRow; variant: "desktop" | "mobile" }) {
     const notes = deriveClientNotesFromEvent(call);
-    const nameLine = (call.contactName || "").trim() || "Unknown caller";
+    const nameLine = (call.contactName || "").trim() || "No caller name yet";
     const phoneLine = (call.contactPhone || "").trim() || call.from;
     const dt = `${formatDate(call.createdAtIso)} ${formatTimeOfDay(call.createdAtIso)}`.trim();
     return (
@@ -1272,7 +1272,7 @@ export function PortalAiReceptionistClient() {
             if (!src) {
               return (
                 <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No recording available</div>
+                  <div className="font-semibold text-zinc-900">No recording ready yet</div>
                   <div className="mt-1">This call does not have a recording attached yet. If it just finished, refresh activity or review the phone setup before testing again.</div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
@@ -1311,7 +1311,7 @@ export function PortalAiReceptionistClient() {
             </div>
           ) : (
             <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No transcript yet</div>
+              <div className="font-semibold text-zinc-900">Transcript still processing</div>
               <div className="mt-1">It can take a minute to appear after the call ends. If this was a fresh call, refresh the call list or review the voice settings if it never shows up.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
@@ -1340,7 +1340,12 @@ export function PortalAiReceptionistClient() {
     const sid = String(confirmDeleteCallSid || "").trim();
     if (!sid) return null;
     const match = events.find((e) => String(e.callSid || "").trim() === sid) || null;
-    return { callSid: sid, label: match ? `${String(match.from || "Unknown").trim()} → ${String(match.to || "").trim() || ""}`.trim() : "" };
+    return {
+      callSid: sid,
+      label: match
+        ? `${String(match.from || "Caller number syncing").trim()} → ${String(match.to || "").trim() || ""}`.trim()
+        : "",
+    };
   }, [confirmDeleteCallSid, events]);
 
   const setSidebarOverride = useSetPortalSidebarOverride();
@@ -2208,7 +2213,7 @@ export function PortalAiReceptionistClient() {
                     if (!kb) {
                       return (
                         <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No knowledge base configured yet</div>
+                          <div className="font-semibold text-zinc-900">No knowledge base ready yet</div>
                           <div className="mt-1">Add notes above, upload a document, or sync once the first business context is ready so the voice agent has something real to use.</div>
                           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                             <button
@@ -2576,7 +2581,7 @@ export function PortalAiReceptionistClient() {
                         if (!kb) {
                           return (
                             <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                              <div className="font-semibold text-zinc-900">No knowledge base configured yet</div>
+                              <div className="font-semibold text-zinc-900">No knowledge base ready yet</div>
                               <div className="mt-1">Add notes above, upload a file, or sync once the SMS agent has enough business context to answer confidently.</div>
                               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                                 <button
@@ -2857,7 +2862,7 @@ export function PortalAiReceptionistClient() {
 
                       const json = (await res?.json?.().catch(() => null)) as any;
                       if (!res || !res.ok || !json || json.ok !== true) {
-                        throw new Error(json?.error || "That reply preview did not load. Try again here or keep editing the test message.");
+                        throw new Error(json?.error || "That reply preview is still syncing. Try again here or keep editing the test message.");
                       }
 
                       setSmsTestWouldReply(Boolean(json.wouldReply));
@@ -2867,7 +2872,7 @@ export function PortalAiReceptionistClient() {
                       if (abortController.signal.aborted) {
                         return;
                       }
-                      toast.error(e instanceof Error ? e.message : "That reply preview did not load. Try again here or keep editing the test message.");
+                      toast.error(e instanceof Error ? e.message : "That reply preview is still syncing. Try again here or keep editing the test message.");
                     } finally {
                       if (smsTestAbortRef.current === abortController) {
                         smsTestAbortRef.current = null;
@@ -3000,8 +3005,8 @@ export function PortalAiReceptionistClient() {
 
           {!selectedCall ? (
             <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No calls yet</div>
-              <div className="mt-1">Once the receptionist is connected and a caller reaches the number, call logs and transcripts will show here.</div>
+              <div className="font-semibold text-zinc-900">No receptionist calls yet</div>
+              <div className="mt-1">Once the receptionist is connected and a caller reaches the number, call logs, recordings, and transcripts will show here.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"

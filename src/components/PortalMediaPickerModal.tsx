@@ -90,7 +90,7 @@ export function PortalMediaPickerModal({
     if (!res.ok || !json || json.ok !== true) {
       setLoading(false);
       setItems([]);
-      setError(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load media");
+      setError(typeof (json as any)?.error === "string" ? (json as any).error : "Media did not load. Retry here or open media library.");
       return;
     }
 

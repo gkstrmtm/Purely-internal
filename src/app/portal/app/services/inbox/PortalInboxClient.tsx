@@ -190,6 +190,16 @@ function formatTimeOnly(iso: string) {
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
+function formatCallEventStatusLabel(status: string | null | undefined) {
+  const key = String(status || "").trim().toUpperCase();
+  if (!key || key === "UNKNOWN") return "Status syncing";
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function normalizeTranscriptSpeaker(raw: string): TranscriptTurn["speaker"] {
   const key = String(raw || "").trim().toLowerCase();
   if (["agent", "assistant", "rep", "sales", "caller", "bot", "ai"].includes(key)) return "agent";
@@ -282,7 +292,7 @@ function mailSubjectOrNo(subject: string | null) {
 
 function displayNameFromAddress(addrRaw: string) {
   const addr = String(addrRaw ?? "").trim();
-  if (!addr) return "Unknown";
+  if (!addr) return "No sender label";
   const at = addr.indexOf("@");
   if (at > 0) return addr.slice(0, at);
   return addr;
@@ -1187,8 +1197,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         const apiError = json && json.ok === false ? json.error : null;
         setError(
           apiError || (nextTab === "sms"
-            ? "Your text message threads did not load. Retry here, open integrations, or ask Pura to help."
-            : "Your email threads did not load. Retry here, open integrations, or ask Pura to help."),
+            ? "Your text message threads are still syncing. Retry here, open integrations, or ask Pura to help."
+            : "Your email threads are still syncing. Retry here, open integrations, or ask Pura to help."),
         );
         return;
       }
@@ -1262,8 +1272,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     }
     } catch {
       setError(nextTab === "sms"
-        ? "Your text message threads did not load. Retry here, open integrations, or ask Pura to help."
-        : "Your email threads did not load. Retry here, open integrations, or ask Pura to help.");
+        ? "Your text message threads are still syncing. Retry here, open integrations, or ask Pura to help."
+        : "Your email threads are still syncing. Retry here, open integrations, or ask Pura to help.");
     } finally {
       if (append) {
         setLoadingMoreThreads(false);
@@ -1305,7 +1315,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         return;
       }
       const apiError = json && json.ok === false ? json.error : null;
-      setError(apiError || "This conversation did not load. Retry here, reopen another thread, or open integrations.");
+      setError(apiError || "This conversation is still syncing. Retry here, reopen another thread, or open integrations.");
       return;
     }
 
@@ -2001,7 +2011,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               </div>
             ) : (
               <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-xs text-zinc-600">
-                <div className="font-semibold text-zinc-900">No conversations yet</div>
+                <div className="font-semibold text-zinc-900">No inbox conversations yet</div>
                 <div className="mt-1 text-[11px] text-zinc-500">Start the first thread now, or finish inbox setup so inbound replies can start landing here automatically.</div>
                 <div className="mt-3 flex flex-col gap-2">
                   <button
@@ -2077,7 +2087,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     if (!scheduledMessages.length && !smsTimelineItems.length) {
       return (
         <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-600">
-          <div className="font-semibold text-zinc-900">No messages yet</div>
+          <div className="font-semibold text-zinc-900">No SMS messages yet</div>
           <div className="mt-1">Start a new SMS thread to test your messaging flow or begin a real conversation.</div>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <button
@@ -2155,7 +2165,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-violet-700">
                     <span>{callEvent.sourceLabel}</span>
                     <span>•</span>
-                    <span>{String(callEvent.status || "UNKNOWN").replace(/_/g, " ")}</span>
+                    <span>{formatCallEventStatusLabel(callEvent.status)}</span>
                     {duration ? (
                       <>
                         <span>•</span>
@@ -2752,7 +2762,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             </div>
           ) : (
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No conversations yet</div>
+              <div className="font-semibold text-zinc-900">No inbox conversations yet</div>
               <div className="mt-1 text-xs text-zinc-500">Send the first message or finish your inbox integrations so new inbound threads show up here automatically.</div>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                 <button
@@ -2950,7 +2960,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No emails yet</div>
+                    <div className="font-semibold text-zinc-900">No email messages yet</div>
                     <div className="mt-1">
                       {activeThread ? "This thread is ready for the first message." : "Open the composer to start a new email conversation from here."}
                     </div>
@@ -3439,7 +3449,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       <AppModal
         open={Boolean(selectedCallEvent)}
         title={selectedCallEvent?.campaignName || "AI outbound call"}
-        description={selectedCallEvent ? `${selectedCallEvent.sourceLabel} · ${String(selectedCallEvent.status || "UNKNOWN").replace(/_/g, " ")}` : undefined}
+        description={selectedCallEvent ? `${selectedCallEvent.sourceLabel} · ${formatCallEventStatusLabel(selectedCallEvent.status)}` : undefined}
         zIndex={12110}
         onClose={() => setSelectedCallEvent(null)}
         widthClassName="w-[min(780px,calc(100vw-32px))]"

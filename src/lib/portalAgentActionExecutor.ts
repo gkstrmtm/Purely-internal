@@ -14267,7 +14267,7 @@ async function runDirectAction(opts: {
           json: {
             ok: false,
             configured: true,
-            error: "Failed to load billing summary",
+            error: "Billing summary did not load. Retry here or open billing home.",
             details: e instanceof Error ? e.message : "Unknown error",
           },
         };
@@ -16906,7 +16906,7 @@ async function runDirectAction(opts: {
       const fileName = `dispute-letter-${safeContact || "contact"}-${letter.id.slice(0, 8)}.pdf`;
 
       const media = await mirrorUploadToMediaLibrary({ ownerId, fileName, mimeType: "application/pdf", bytes: pdfBytes });
-      if (!media) return { status: 500, json: { ok: false, error: "Failed to save PDF" } };
+  if (!media) return { status: 500, json: { ok: false, error: "The PDF did not save. Retry here or open letters again." } };
 
       await prisma.creditDisputeLetter.updateMany({
         where: { id: letterId, ownerId },
@@ -18263,7 +18263,9 @@ async function runDirectAction(opts: {
       if (!tagId) return { status: 400, json: { ok: false, error: "Invalid input" } };
 
       const ok = await addContactTagAssignment({ ownerId, contactId, tagId });
-      if (!ok) return { status: 500, json: { ok: false, error: "Failed to add tag" } };
+      if (!ok) {
+        return { status: 500, json: { ok: false, error: "That tag did not attach to the contact. Retry here or review the selected tags again." } };
+      }
 
       try {
         await runOwnerAutomationsForEvent({ ownerId, triggerKind: "tag_added", contact: { id: contactId }, event: { tagId } });
@@ -18297,7 +18299,9 @@ async function runDirectAction(opts: {
       if (!tagId) return { status: 400, json: { ok: false, error: "Invalid input" } };
 
       const ok = await removeContactTagAssignment({ ownerId, contactId, tagId });
-      if (!ok) return { status: 500, json: { ok: false, error: "Failed to remove tag" } };
+      if (!ok) {
+        return { status: 500, json: { ok: false, error: "That tag did not come off the contact. Retry here or review the selected tags again." } };
+      }
 
       const tags = await listContactTagsForContact(ownerId, contactId);
       return { status: 200, json: { ok: true, contactId, tags } };
@@ -18364,7 +18368,7 @@ async function runDirectAction(opts: {
           },
         };
       } catch {
-        return { status: 500, json: { ok: false, error: "Unable to load suggested setup" } };
+        return { status: 500, json: { ok: false, error: "Suggested setup did not load. Retry here or open Profile to review the basics." } };
       }
     }
 
@@ -18452,7 +18456,9 @@ async function runDirectAction(opts: {
       const color = typeof (args as any)?.color === "string" ? String((args as any).color).trim().slice(0, 16) : null;
 
       const created = await createOwnerContactTag({ ownerId, name, color: color || null }).catch(() => null);
-      if (!created) return { status: 500, json: { ok: false, error: "Failed to create tag" } };
+      if (!created) {
+        return { status: 500, json: { ok: false, error: "Tag creation did not finish. Retry here or choose a different tag name." } };
+      }
 
       return { status: 200, json: { ok: true, tag: created } };
     }
@@ -24003,7 +24009,7 @@ async function runDirectAction(opts: {
       const friendlyVoiceAgentError = (status?: number): string => {
         if (status === 401 || status === 403) return "Voice agent API key is invalid. Update it in Profile and try again.";
         if (status === 429) return "Voice agent is temporarily rate-limited. Please try again in a minute.";
-        return "Unable to load voices. Please try again.";
+        return "Voice options did not load. Retry here or review the API key in Profile.";
       };
 
       const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
@@ -24666,7 +24672,7 @@ async function runDirectAction(opts: {
       const permissionsJson = normalizePortalPermissions((args as any)?.permissions, role);
 
       const invite = await createPortalAccountInvite({ ownerId, email, role, permissionsJson }).catch(() => null);
-      if (!invite) return { status: 500, json: { ok: false, error: "Failed to create invite" } };
+      if (!invite) return { status: 500, json: { ok: false, error: "Invite did not send. Check the email and try again." } };
 
       const base =
         process.env.NODE_ENV === "production"

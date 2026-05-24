@@ -148,7 +148,7 @@ export function ContactTagsEditor(props: Props) {
     if (res?.ok && json?.ok === true && Array.isArray(json.tags)) {
       return json.tags as ContactTag[];
     }
-    throw new Error(String(json?.error || "Failed to update tags."));
+    throw new Error(String(json?.error || "Contact tags did not update. Retry here or review the selected tags again."));
   }
 
   async function saveDraftTags() {
@@ -169,7 +169,7 @@ export function ContactTagsEditor(props: Props) {
       onChange?.(nextTags);
       setOpen(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save tags.");
+      toast.error(error instanceof Error ? error.message : "Contact tags did not save. Retry here or review the selected tags again.");
     } finally {
       setSaving(false);
     }
@@ -308,7 +308,7 @@ export function ContactTagsEditor(props: Props) {
 
                   const json = (await res?.json().catch(() => null)) as any;
                   if (!res?.ok || !json?.ok || !json.tag?.id) {
-                    throw new Error(String(json?.error || "Failed to create tag."));
+                    throw new Error(String(json?.error || "Tag creation did not finish. Retry here or choose a different tag name."));
                   }
                   return json.tag as ContactTag;
                 }}

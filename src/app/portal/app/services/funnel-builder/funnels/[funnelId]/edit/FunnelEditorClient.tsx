@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
+import Image from "next/image";
 
 import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
@@ -15,7 +16,6 @@ import {
   type CreditFunnelBlock,
   type CreditFunnelEditorTextTarget,
   type PricingGridItem,
-  type TestimonialGridItem,
 } from "@/lib/creditFunnelBlocks";
 import { deriveBusinessProfileTemplateVars } from "@/lib/businessProfileTemplateVars";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
@@ -161,6 +161,10 @@ type PricingSpeechRecognitionLike = {
 
 type PricingSpeechRecognitionCtor = new () => PricingSpeechRecognitionLike;
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 function getPricingSpeechRecognitionCtor(source: Window & typeof globalThis): PricingSpeechRecognitionCtor | null {
   const scoped = source as Window & typeof globalThis & {
     SpeechRecognition?: PricingSpeechRecognitionCtor;
@@ -228,6 +232,8 @@ type SelectedEditTarget = {
 };
 
 const AI_CONTEXT_MEDIA_LIMIT = 12;
+const MAX_MEDIA_LIBRARY_BYTES = 4 * 1024 * 1024;
+const MAX_UPLOADS_BYTES = 250 * 1024 * 1024;
 
 const EMPTY_AI_DESIGN_CONTEXT: AiDesignContextDraft = {
   designBrief: "",
@@ -313,7 +319,7 @@ function normalizeFunnelEditorError(action: string, error: unknown, status?: num
     return "The page source did not update. Try again here or keep editing the page.";
   }
   if (action.includes("load funnel") || action.includes("load pages") || action.includes("load threads")) {
-    return "This funnel workspace did not load. Retry here, open funnels, or ask Pura to help.";
+    return "This funnel workspace is still syncing. Retry here, open funnels, or ask Pura to help.";
   }
   if (action.includes("create page")) return "This page did not create. Try again here or keep editing the funnel.";
   if (action.includes("save page")) return "This page did not save. Try again here or keep editing it.";
@@ -1038,16 +1044,10 @@ function flattenBlocksForDiff(blocks: CreditFunnelBlock[]) {
       if (!block || typeof block !== "object") continue;
       const props: any = block.props || {};
       const label = (() => {
-        if (block.type === "heading") return `Heading: ${String(props.text || "").trim().slice(0, 48) || "Untitled"}`;
-        if (block.type === "paragraph") return `Text: ${String(props.text || "").trim().slice(0, 48) || "Paragraph"}`;
-        if (block.type === "button") return `Button: ${String(props.text || "").trim().slice(0, 48) || "Button"}`;
-        if (block.type === "section") return `Section${props.anchorLabel ? `: ${String(props.anchorLabel).slice(0, 36)}` : ""}`;
-        if (block.type === "columns") return "Columns";
-        if (block.type === "customCode") return "Custom code";
-        if (block.type === "formEmbed") return `Form embed: ${String(props.formSlug || "").slice(0, 36)}`;
-        if (block.type === "calendarEmbed") return `Calendar: ${String(props.calendarId || "").slice(0, 36)}`;
-        if (block.type === "image") return `Image${props.alt ? `: ${String(props.alt).slice(0, 36)}` : ""}`;
-        if (block.type === "video") return `Video${props.name ? `: ${String(props.name).slice(0, 36)}` : ""}`;
+        if (block.type === "heading") return String(props.text || "Heading").trim() || "Heading";
+        if (block.type === "paragraph") return String(props.text || "Paragraph").trim() || "Paragraph";
+        if (block.type === "button") return String(props.text || "Button").trim() || "Button";
+        if (block.type === "section") return String(props.anchorLabel || props.anchorId || "Section").trim() || "Section";
         if (block.type === "headerNav") return "Header navigation";
         return block.type;
       })();
@@ -1074,8 +1074,7 @@ function flattenBlocksForDiff(blocks: CreditFunnelBlock[]) {
       order += 1;
 
       if (block.type === "section") {
-        const keys = ["children", "leftChildren", "rightChildren"] as const;
-        for (const key of keys) {
+        for (const key of ["children", "leftChildren", "rightChildren"] as const) {
           const nested = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
           visit(nested);
         }
@@ -2222,8 +2221,6 @@ function AnimatedAssistantMessageText({
     return () => {
       if (timeoutId !== null) window.clearTimeout(timeoutId);
     };
-  // tokens is derived from normalizedContent; both changing at once would
-  // reset visibleCount, which is correct behavior.
   }, [animate, tokens, onComplete]);
 
   const isComplete = visibleCount >= tokens.length;
@@ -3571,7 +3568,7 @@ async function convertPreviewImageDataUrlToPngDataUrl(
   const maxWidth = Math.max(120, Math.min(2400, Number(options?.maxWidth || 1600) || 1600));
   const maxHeight = Math.max(120, Math.min(3200, Number(options?.maxHeight || 1800) || 1800));
 
-  const img = new Image();
+  const img = new window.Image();
   img.src = dataUrl;
   await new Promise<void>((resolve, reject) => {
     img.onload = () => resolve();
@@ -4336,85 +4333,6 @@ function migrateLegacyAnchorBlocksIntoSections(blocks: CreditFunnelBlock[]): Cre
   return changed ? next : blocks;
 }
 
-function normalizeHexInput(value: string) {
-  const v = value.trim();
-  if (!v) return "";
-  if (v.startsWith("#")) return v;
-  return "#" + v;
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function rgbToHex(r: number, g: number, b: number) {
-  const to = (x: number) => clamp(Math.round(x), 0, 255).toString(16).padStart(2, "0");
-  return `#${to(r)}${to(g)}${to(b)}`;
-}
-
-function parseCssColor(value: string | undefined | null): { hex: string; alpha: number } {
-  const v = String(value || "").trim();
-  if (!v) return { hex: "#000000", alpha: 1 };
-
-  if (v.toLowerCase() === "transparent") return { hex: "#ffffff", alpha: 0 };
-  if (isHexColor(v)) return { hex: v, alpha: 1 };
-
-  const rgba = v.match(/^rgba\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1|1\.0)\)\s*$/i);
-  if (rgba) {
-    const r = clamp(Number(rgba[1]), 0, 255);
-    const g = clamp(Number(rgba[2]), 0, 255);
-    const b = clamp(Number(rgba[3]), 0, 255);
-    const a = clamp(Number(rgba[4]), 0, 1);
-    return { hex: rgbToHex(r, g, b), alpha: a };
-  }
-
-  const rgb = v.match(/^rgb\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\)\s*$/i);
-  if (rgb) {
-    const r = clamp(Number(rgb[1]), 0, 255);
-    const g = clamp(Number(rgb[2]), 0, 255);
-    const b = clamp(Number(rgb[3]), 0, 255);
-    return { hex: rgbToHex(r, g, b), alpha: 1 };
-  }
-
-  return { hex: "#000000", alpha: 1 };
-}
-
-function maybeHexFromCssColor(raw: string | undefined | null): string | null {
-  const v = String(raw || "").trim();
-  if (!v) return null;
-
-  const lower = v.toLowerCase();
-  if (
-    lower === "transparent" ||
-    lower === "inherit" ||
-    lower === "initial" ||
-    lower === "unset" ||
-    lower === "currentcolor"
-  ) {
-    return null;
-  }
-
-  if (v.startsWith("#")) {
-    const normalized = normalizeHexInput(v);
-    return isHexColor(normalized) ? normalized : null;
-  }
-
-  if (lower.startsWith("rgb(")) {
-    const rgb = v.match(/^rgb\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\)\s*$/i);
-    if (!rgb) return null;
-    const parsed = parseCssColor(v);
-    return isHexColor(parsed.hex) ? parsed.hex : null;
-  }
-
-  if (lower.startsWith("rgba(")) {
-    const rgba = v.match(/^rgba\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1|1\.0)\)\s*$/i);
-    if (!rgba) return null;
-    const parsed = parseCssColor(v);
-    return isHexColor(parsed.hex) ? parsed.hex : null;
-  }
-
-  return null;
-}
 function compactStyle(style: BlockStyle | undefined): BlockStyle | undefined {
   if (!style) return undefined;
   const next: any = { ...style };
@@ -4512,8 +4430,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return () => {
       cancelled = true;
     };
-    // Intentionally omit `load` from deps to avoid re-creating it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funnelId, funnel, pages]);
     type StripeProductLite = {
       id: string;
@@ -7365,12 +7281,9 @@ export function FunnelEditorClient({
   };
   const [stripeProducts, setStripeProducts] = useState<StripeProductLite[]>([]);
   const [stripeProductsBusy, setStripeProductsBusy] = useState(false);
-  const [stripeProductsError, setStripeProductsError] = useState<string | null>(null);
+  const [, setStripeProductsError] = useState<string | null>(null);
   const [newOfferLabel, setNewOfferLabel] = useState("");
   const [newOfferProductId, setNewOfferProductId] = useState("");
-  const [newStripeProductName, setNewStripeProductName] = useState("");
-  const [newStripeProductPriceCents, setNewStripeProductPriceCents] = useState<number>(4900);
-  const [newStripeProductCurrency, setNewStripeProductCurrency] = useState("usd");
 
   const coerceStripeProductLite = useCallback((value: unknown): StripeProductLite | null => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -7428,7 +7341,7 @@ export function FunnelEditorClient({
       if (!res.ok || !json || json.ok !== true) {
         throw new Error(
           (json && typeof json.error === "string" && json.error)
-            || "Stripe products did not load. Retry this panel or create a new product below.",
+            || "Stripe products are still syncing. Retry this panel or create a new product below.",
         );
       }
       const items = Array.isArray(json.products) ? (json.products as any[]) : [];
@@ -7437,67 +7350,12 @@ export function FunnelEditorClient({
     } catch (e) {
       const msg = e && typeof e === "object" && "message" in e
         ? String((e as any).message)
-        : "Stripe products did not load. Retry this panel or create a new product below.";
-      setStripeProductsError(msg || "Stripe products did not load. Retry this panel or create a new product below.");
+        : "Stripe products are still syncing. Retry this panel or create a new product below.";
+      setStripeProductsError(msg || "Stripe products are still syncing. Retry this panel or create a new product below.");
     } finally {
       setStripeProductsBusy(false);
     }
   }, [coerceStripeProductLite, stripeProductsBusy]);
-
-  const createStripeProduct = useCallback(async () => {
-    const name = String(newStripeProductName || "").trim();
-    const currency = String(newStripeProductCurrency || "usd").trim().toLowerCase() || "usd";
-    const unitAmount = Math.max(0, Math.floor(Number(newStripeProductPriceCents) || 0));
-
-    if (!name) {
-      toast.error("Enter a Stripe product name first");
-      return null;
-    }
-    if (unitAmount < 50) {
-      toast.error("Stripe product price must be at least 50 cents");
-      return null;
-    }
-
-    setStripeProductsBusy(true);
-    setStripeProductsError(null);
-    try {
-      const res = await fetch("/api/portal/funnel-builder/sales/products", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, unitAmount, currency }),
-      });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) {
-        throw new Error(
-          (json && typeof json.error === "string" && json.error)
-            || "That Stripe product did not save. Review the details here, then save it again.",
-        );
-      }
-      const created = coerceStripeProductLite(json.product);
-      if (!created) throw new Error("Stripe product was created, but the response was incomplete");
-
-      setStripeProducts((prev) => {
-        const rest = prev.filter((item) => item.id !== created.id);
-        return [created, ...rest];
-      });
-      setNewOfferProductId(created.id);
-      if (!String(newOfferLabel || "").trim()) setNewOfferLabel(created.name);
-      setNewStripeProductName("");
-      setNewStripeProductPriceCents(4900);
-      setNewStripeProductCurrency("usd");
-      toast.success("Stripe product created");
-      return created;
-    } catch (e) {
-      const message = e && typeof e === "object" && "message" in e
-        ? String((e as any).message)
-        : "That Stripe product did not save. Review the details here, then save it again.";
-      setStripeProductsError(message || "That Stripe product did not save. Review the details here, then save it again.");
-      toast.error(message || "That Stripe product did not save. Review the details here, then save it again.");
-      return null;
-    } finally {
-      setStripeProductsBusy(false);
-    }
-  }, [coerceStripeProductLite, newOfferLabel, newStripeProductCurrency, newStripeProductName, newStripeProductPriceCents, toast]);
 
   const [funnel, setFunnel] = useState<Funnel | null>(initialFunnel);
   const [pages, setPages] = useState<Page[] | null>(initialPages);
@@ -7569,9 +7427,6 @@ export function FunnelEditorClient({
   const [funnelBookingError, setFunnelBookingError] = useState<string | null>(null);
   const [funnelBriefDirty, setFunnelBriefDirty] = useState(false);
 
-  const [uploadingImageBlockId, setUploadingImageBlockId] = useState<string | null>(null);
-  const [uploadingHeaderLogoBlockId, setUploadingHeaderLogoBlockId] = useState<string | null>(null);
-
   const [aiContextOpen, setAiContextOpen] = useState(false);
   const [aiContextKeys, setAiContextKeys] = useState<string[]>([]);
   void setAiContextKeys; // kept for API compatibility
@@ -7587,6 +7442,7 @@ export function FunnelEditorClient({
   const aiContextUploadInputRef = useRef<HTMLInputElement | null>(null);
   const aiContextMediaHydratingRef = useRef(false);
   const aiDesignContextHydratingRef = useRef(false);
+  const assistantContextRef = useRef<AssistantContextSummary | null>(null);
   const pageHealthToastKeyRef = useRef<Record<string, string>>({});
   const savedFunnelSeoKeyRef = useRef(serializeFunnelSeoDraft(null));
 
@@ -7736,7 +7592,6 @@ export function FunnelEditorClient({
 
   const [imageCropTarget, setImageCropTarget] = useState<null | { blockId: string; src: string }>(null);
 
-  const [videoSettingsBlockId, setVideoSettingsBlockId] = useState<string | null>(null);
   const [chatRailMode, setChatRailMode] = useState<"chat" | "threads">("chat");
 
   const [pageFaviconPickerOpen, setPageFaviconPickerOpen] = useState(false);
@@ -7774,8 +7629,7 @@ export function FunnelEditorClient({
   // sees anything - eliminating the right-side column jump on load.
   useEffect(() => {
     if (layoutBootSettled && !layoutFadeIn) setLayoutFadeIn(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layoutBootSettled]);
+  }, [layoutBootSettled, layoutFadeIn]);
 
   const queueChatRailWidth = useCallback((nextWidth: number) => {
     chatRailResizePendingWidthRef.current = nextWidth;
@@ -7951,21 +7805,6 @@ export function FunnelEditorClient({
     if (!selectedThreadId) return;
     setDraftThreadPageId(null);
   }, [selectedThreadId]);
-
-  const openThreadFromRail = useCallback(
-    (thread: FunnelThread) => {
-      setDraftThreadPageId(null);
-      setThreadSelectionMode("manual");
-      if (thread.pageId && thread.pageId !== selectedPageId) {
-        requestPageSelection(thread.pageId, { nextThreadId: thread.id });
-        setChatRailMode("chat");
-        return;
-      }
-      setSelectedThreadId(thread.id);
-      setChatRailMode("chat");
-    },
-    [requestPageSelection, selectedPageId],
-  );
 
   const bookingCalendarEditorIdRef = useRef<string | null>(null);
 
@@ -8712,8 +8551,6 @@ export function FunnelEditorClient({
   // NOTE: While the DB schema supports larger rows, many serverless hosts (incl. Vercel)
   // impose a relatively small request-body limit for function invocations. In practice,
   // uploads above a few MB may never reach our handler.
-  const MAX_MEDIA_LIBRARY_BYTES = 4 * 1024 * 1024; // ~4MB per file (direct-to-API)
-  const MAX_UPLOADS_BYTES = 250 * 1024 * 1024; // 250MB per file (disk-backed)
 
   const uploadToMediaLibrary = useCallback(async (files: FileList | File[], opts?: { maxFiles?: number }) => {
     const maxFiles = Math.max(1, Math.min(20, Math.floor(opts?.maxFiles ?? 20)));
@@ -9175,12 +9012,6 @@ export function FunnelEditorClient({
     if (funnel?.bookingCalendarId) return "funnel";
     return "placeholder";
   }, [funnel?.bookingCalendarId, selectedCalendarBlockPinnedCalendarId]);
-  const selectedCommerceOffer = useMemo(() => {
-    if (!selectedBlock || (selectedBlock.type !== "salesCheckoutButton" && selectedBlock.type !== "addToCartButton")) {
-      return null;
-    }
-    return resolveFunnelOffer(availableFunnelOffers, (selectedBlock.props as any)?.offerId);
-  }, [availableFunnelOffers, selectedBlock]);
   const selectedPricingBlock = useMemo(
     () => (selectedBlock?.type === "pricingGrid" ? selectedBlock : null),
     [selectedBlock],
@@ -9803,7 +9634,7 @@ export function FunnelEditorClient({
         scope: "block",
       },
     };
-  }, [availableFunnelOffers, focusedPricingGridCard, funnel?.bookingCalendarId, selectedBlock, selectedCalendarBlockResolvedCalendarTitle, selectedCalendarBlockRouteKind, selectedTextTarget]);
+  }, [availableFunnelOffers, focusedPricingGridCard, selectedBlock, selectedCalendarBlockResolvedCalendarTitle, selectedCalendarBlockRouteKind, selectedTextTarget]);
   const assistantSelectedEditTarget = pagePreviewEditSelectionActive ? selectedEditTarget : null;
   const selectionSidebarTarget = selectedPage && pageCanvasView === "preview" && previewMode === "edit"
     ? selectedEditTarget
@@ -9971,12 +9802,7 @@ export function FunnelEditorClient({
     }
 
     return pageCustomCodeBlocks.find((block) => isMeaningfulCustomCodeBlock(block)) || pageCustomCodeBlocks[0] || null;
-  }, [aiSidebarCustomCodeBlockId, pageCustomCodeBlocks, selectedBlock]);
-
-  const selectedOrCanonicalCustomCodeBlock = useMemo(() => {
-    if (selectedBlock?.type === "customCode") return selectedBlock;
-    return canonicalCustomCodeBlock;
-  }, [canonicalCustomCodeBlock, selectedBlock]);
+  }, [aiSidebarCustomCodeBlockId, pageCustomCodeBlocks]);
 
   useEffect(() => {
     if (!selectedPage?.id || !pageUiStateStorageKey) return;
@@ -10421,31 +10247,6 @@ export function FunnelEditorClient({
     () => previewRenderableBlocks.some((block) => block.type !== "page"),
     [previewRenderableBlocks],
   );
-  const aiSurfaceLabel = useMemo(() => {
-    if (selectedPage?.editorMode === "BLOCKS") {
-      if (builderSurfaceMode === "whole-page") return pageCanvasView === "source" ? "page source" : "page surface";
-      return "page edit surface";
-    }
-    return pageCanvasView === "source" ? "page source" : "page surface";
-  }, [builderSurfaceMode, pageCanvasView, selectedPage?.editorMode]);
-  const aiScopeSummary = useMemo(() => {
-    if (!selectedPage) return "Pura is idle until you select a page.";
-    if (selectedPage.editorMode === "BLOCKS" && builderSurfaceMode === "blocks") {
-      if (selectedBlock) return `Pura is using the current page plus the selected ${describeBuilderBlockNoun(selectedBlock)}.`;
-      return "Pura is using the current page surface and its live section tree.";
-    }
-    return "Pura is using the current page draft source for this page only.";
-  }, [builderSurfaceMode, selectedBlock, selectedPage]);
-  const aiScopeDetails = useMemo(
-    () => [
-      `Surface: ${aiSurfaceLabel}`,
-      `Page route: ${selectedPageRouteLabel}`,
-      pageTransactionReadiness.transactionReady ? "Transaction path: booking or payment is already wired" : "Transaction path: booking/payment still needs wiring",
-      aiReferenceCount ? `Attached references: ${aiReferenceCount}` : "Attached references: none",
-    ],
-    [aiReferenceCount, aiSurfaceLabel, pageTransactionReadiness.transactionReady, selectedPageRouteLabel],
-  );
-
   const storedPageSourceHtml = useMemo(() => getFunnelPageCurrentHtml(selectedPage), [selectedPage]);
   const currentPagePublishedHtml = useMemo(() => getFunnelPagePublishedHtml(selectedPage), [selectedPage]);
   const currentPageDraftIsNewerThanLive = useMemo(() => isFunnelPageDraftNewerThanLive(selectedPage), [selectedPage]);
@@ -10566,7 +10367,7 @@ export function FunnelEditorClient({
     if (selectedPageGraph.sourceMode === "custom-html") return storedPageSourceHtml;
     if (generatedBlockWholePageHtml) return generatedBlockWholePageHtml;
     return storedPageSourceHtml;
-  }, [generatedBlockWholePageHtml, selectedPage, selectedPageDirty, selectedPageGraph.sourceMode, storedPageSourceHtml]);
+  }, [generatedBlockWholePageHtml, selectedPage, selectedPageGraph.sourceMode, storedPageSourceHtml]);
   const normalizedCommittedPageSourceHtml = useMemo(
     () => stripDiffMarkers(committedPageSourceHtml),
     [committedPageSourceHtml],
@@ -10733,7 +10534,7 @@ export function FunnelEditorClient({
     void loadStripeProducts();
   }, [loadStripeProducts, pageHasStripeProductButtons, selectedBlock, stripeProducts.length, stripeProductsBusy]);
 
-  const newId = () => {
+  const newId = useCallback(() => {
     try {
       const maybeCrypto = globalThis.crypto as Crypto | undefined;
       const id = typeof maybeCrypto?.randomUUID === "function" ? maybeCrypto.randomUUID() : "";
@@ -10742,7 +10543,7 @@ export function FunnelEditorClient({
       // ignore
     }
     return `b_${Math.random().toString(36).slice(2)}_${Date.now()}`;
-  };
+  }, []);
 
   const setSelectedPageLocal = useCallback((patch: Partial<Page>) => {
     if (!selectedPage) return;
@@ -10840,11 +10641,11 @@ export function FunnelEditorClient({
     const formsJson = formsRes ? ((await formsRes.json().catch(() => null)) as any) : null;
     const analyticsJson = analyticsRes ? ((await analyticsRes.json().catch(() => null)) as any) : null;
     if (!fRes.ok || !fJson || fJson.ok !== true)
-      throw new Error(fJson?.error || "This funnel workspace did not load. Retry here, open funnels, or ask Pura to help.");
+      throw new Error(fJson?.error || "This funnel workspace is still syncing. Retry here, open funnels, or ask Pura to help.");
     if (!pRes.ok || !pJson || pJson.ok !== true)
-      throw new Error(pJson?.error || "This funnel workspace did not load. Retry here, open funnels, or ask Pura to help.");
+      throw new Error(pJson?.error || "This funnel workspace is still syncing. Retry here, open funnels, or ask Pura to help.");
     if (!tRes.ok || !tJson || tJson.ok !== true)
-      throw new Error(tJson?.error || "This funnel workspace did not load. Retry here, open funnels, or ask Pura to help.");
+      throw new Error(tJson?.error || "This funnel workspace is still syncing. Retry here, open funnels, or ask Pura to help.");
 
     const cachedDraft = readFunnelEditorDraftCache(funnelId);
     const liveDirtyPages = (pagesRef.current || []).filter((page) => dirtyPageIdsRef.current[page.id]);
@@ -11926,7 +11727,7 @@ export function FunnelEditorClient({
     }
   };
 
-  const convertCurrentPageToBlocks = async () => {
+  const convertCurrentPageToBlocks = useCallback(async () => {
     if (!selectedPage || selectedPage.editorMode !== "CUSTOM_HTML") return;
 
     const currentHtml = getFunnelPageCurrentHtml(selectedPage);
@@ -11990,7 +11791,7 @@ export function FunnelEditorClient({
     } finally {
       setBusy(false);
     }
-  };
+  }, [funnelId, load, pushUndoSnapshot, selectedPage, toast]);
 
   const setEditorMode = async (mode: "BLOCKS" | "CUSTOM_HTML") => {
     if (!selectedPage) return;
@@ -12202,7 +12003,7 @@ export function FunnelEditorClient({
     }
   };
 
-  function requestPageSelection(nextPageId: string | null, options?: { nextThreadId?: string | null }) {
+  const requestPageSelection = useCallback((nextPageId: string | null, options?: { nextThreadId?: string | null }) => {
     const decision = getFunnelEditorPageSelectionDecision({
       busy,
       savingPage,
@@ -12233,7 +12034,22 @@ export function FunnelEditorClient({
     setThreadSelectionMode("auto");
     setSelectedThreadId(pageThread?.id || null);
     setDraftThreadPageId(decision.nextPageId && !pageThread ? decision.nextPageId : null);
-  }
+  }, [busy, savingPage, selectedPage, selectedPageDirty, selectedPageId, sourceHasPendingChanges, threads]);
+
+  const openThreadFromRail = useCallback(
+    (thread: FunnelThread) => {
+      setDraftThreadPageId(null);
+      setThreadSelectionMode("manual");
+      if (thread.pageId && thread.pageId !== selectedPageId) {
+        requestPageSelection(thread.pageId, { nextThreadId: thread.id });
+        setChatRailMode("chat");
+        return;
+      }
+      setSelectedThreadId(thread.id);
+      setChatRailMode("chat");
+    },
+    [requestPageSelection, selectedPageId],
+  );
 
   const executeEditorBackNavigation = useCallback(() => {
     router.replace(`${basePath}/app/services/funnel-builder`, { scroll: false });
@@ -12294,14 +12110,14 @@ export function FunnelEditorClient({
     executeEditorBackNavigation();
   };
 
-  const upsertBlock = (block: CreditFunnelBlock) => {
+  const upsertBlock = useCallback((block: CreditFunnelBlock) => {
     if (!selectedPage) return;
     const nextEditable = replaceBlockInTree(editableBlocks, block);
     setSelectedPageLocal({
       editorMode: "BLOCKS",
       blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
     });
-  };
+  }, [editableBlocks, pageSettingsBlock, replaceBlockInTree, selectedPage, setSelectedPageLocal]);
 
   const openBookingCalendarEditor = useCallback((calendarId: string | null | undefined) => {
     const nextCalendarId = typeof calendarId === "string" ? calendarId.trim() : "";
@@ -12600,80 +12416,6 @@ export function FunnelEditorClient({
     setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: [nextPage, ...editableBlocks] });
   };
 
-  const updateSelectedColumnsColumnStyle = (columnIndex: number, patch: Partial<BlockStyle>) => {
-    if (!selectedBlock || selectedBlock.type !== "columns") return;
-    const cols = Array.isArray((selectedBlock.props as any).columns) ? ((selectedBlock.props as any).columns as any[]) : [];
-    if (columnIndex < 0 || columnIndex >= cols.length) return;
-    const nextCols = cols.map((c, idx) => {
-      if (idx !== columnIndex) return c;
-      const prevStyle = c && typeof c === "object" ? (c as any).style : undefined;
-      return { ...(c || {}), style: applyStylePatch(prevStyle, patch) };
-    });
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        columns: nextCols,
-      } as any,
-    });
-  };
-
-  const updateSelectedSectionSideStyle = (side: "leftStyle" | "rightStyle", patch: Partial<BlockStyle>) => {
-    if (!selectedBlock || selectedBlock.type !== "section") return;
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        [side]: applyStylePatch((selectedBlock.props as any)[side], patch),
-      } as any,
-    });
-  };
-
-  const updateSelectedTestimonialGridItem = (itemIndex: number, patch: Partial<TestimonialGridItem>) => {
-    if (!selectedBlock || selectedBlock.type !== "testimonialGrid") return;
-    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
-    if (itemIndex < 0 || itemIndex >= items.length) return;
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        items: items.map((item, index) => (index === itemIndex ? { ...item, ...patch } : item)),
-      },
-    });
-  };
-
-  const addSelectedTestimonialGridItem = () => {
-    if (!selectedBlock || selectedBlock.type !== "testimonialGrid") return;
-    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        items: [
-          ...items,
-          {
-            quote: "Add a concise client quote here.",
-            name: "Customer name",
-            role: "Customer role",
-          },
-        ],
-      },
-    });
-  };
-
-  const removeSelectedTestimonialGridItem = (itemIndex: number) => {
-    if (!selectedBlock || selectedBlock.type !== "testimonialGrid") return;
-    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
-    if (items.length <= 1) return;
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        items: items.filter((_, index) => index !== itemIndex),
-      },
-    });
-  };
-
   const updateSelectedPricingGridItem = (itemIndex: number, patch: Partial<PricingGridItem>) => {
     if (!selectedBlock || selectedBlock.type !== "pricingGrid") return;
     const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
@@ -12726,24 +12468,6 @@ export function FunnelEditorClient({
           : item.description,
       ctaText: !currentCtaText && offer?.priceId ? "Buy now" : item.ctaText,
       ctaHref: offer?.priceId ? undefined : item.ctaHref,
-    });
-  };
-
-  const bindSelectedCommerceButtonOffer = (offerIdRaw: string) => {
-    if (!selectedBlock || (selectedBlock.type !== "salesCheckoutButton" && selectedBlock.type !== "addToCartButton")) return;
-    const offer = resolveFunnelOffer(availableFunnelOffers, offerIdRaw);
-    const nextOfferId = offer?.id || undefined;
-    const currentProductName = String((selectedBlock.props as any)?.productName || "").trim();
-    const currentProductDescription = String((selectedBlock.props as any)?.productDescription || "").trim();
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        offerId: nextOfferId,
-        priceId: offer?.priceId || String((selectedBlock.props as any)?.priceId || "").trim(),
-        productName: currentProductName || offer?.productName || undefined,
-        productDescription: currentProductDescription || offer?.productDescription || undefined,
-      },
     });
   };
 
@@ -14546,7 +14270,7 @@ export function FunnelEditorClient({
     }
   };
 
-  const runAiChat = async (
+  const runAiChat = useCallback(async (
     prompt: string,
     opts?: {
       persistAssistantOnly?: boolean;
@@ -14590,7 +14314,7 @@ export function FunnelEditorClient({
             sectionPlanItems,
             designContext: sanitizedAiDesignContext,
             contextMedia: effectiveAiContextMedia,
-            assistantContext,
+            assistantContext: assistantContextRef.current,
             selectedRegion: selectedHtmlRegion
               ? {
                   key: selectedHtmlRegion.key,
@@ -14650,7 +14374,7 @@ export function FunnelEditorClient({
       setAiWorkFocus(null);
       setBusy(false);
     }
-  };
+  }, [assistantSelectedEditTarget, committedPageSourceHtml, effectiveAiContextMedia, ensurePageChatMirror, funnelId, htmlRegionScopes, persistThreadMessages, sanitizedAiDesignContext, selectedHtmlRegion, selectedPage, selectedThread, selectedThreadMessages]);
 
   const runPricingEditorAssist = useCallback(async (promptOverride?: string) => {
     if (!selectedPricingBlock || selectedPricingItems.length === 0) return;
@@ -14804,7 +14528,7 @@ export function FunnelEditorClient({
     setChatRailMode("chat");
     setChatRailOpen(true);
     await runAiChat(prompt, { workLabel: "AI is drafting the pricing ladder" });
-  }, [businessProfileSummary, funnel?.brief, pageConversionFocus, pageIntentProfile, pricingAssistPackageDescriptors, pricingAssistPackageNotes, pricingAssistRefinementPrompt, pricingEditorComparisonNotes, pricingEditorPrompt, runAiChat, selectedPricingBlock, selectedPricingItems]);
+  }, [availableFunnelOffers, businessProfileSummary, funnel?.brief, pageConversionFocus, pageIntentProfile, pricingAssistPackageDescriptors, pricingAssistPackageNotes, pricingAssistRefinementPrompt, pricingEditorComparisonNotes, pricingEditorPrompt, runAiChat, selectedPricingBlock, selectedPricingItems]);
 
   const restoreLastAiRun = async () => {
     if (!selectedPage || !lastAiRun || lastAiRun.pageId !== selectedPage.id) return;
@@ -15162,9 +14886,9 @@ export function FunnelEditorClient({
     ? selectedPageExecutionSummary?.metaPixelReady
       ? "Tracking live"
       : "Pixel missing"
-    : "Event store unavailable";
+    : "Event store syncing";
   const trackingRuntimeHelperLabel = !selectedPageExecutionSummary?.trackingReady
-    ? "Live verification is unavailable right now."
+    ? "Live verification is still syncing right now."
     : selectedPageExecutionSummary?.metaPixelReady
       ? "Page events and this Pixel ID are both active."
       : effectiveMetaPixelId
@@ -15242,7 +14966,7 @@ export function FunnelEditorClient({
         ? "Needs route"
         : "Not linked";
     const tracking = !selectedPageExecutionSummary?.trackingReady
-      ? "Unavailable"
+      ? "Syncing"
       : selectedPageExecutionSummary?.metaPixelReady
         ? "Live + pixel"
         : effectiveMetaPixelId
@@ -15291,6 +15015,9 @@ export function FunnelEditorClient({
     sourceEditMode,
     workflowView.workflowStatusLabel,
   ]);
+  useEffect(() => {
+    assistantContextRef.current = assistantContext;
+  }, [assistantContext]);
   const sidebarTitle = wholePageModeActive && !wholePageUsesBuilderSidebar
       ? "Page context"
       : wholePageUsesBuilderSidebar || blocksSurfaceActive || builderTopLevelPanel === "settings"
@@ -15473,7 +15200,7 @@ export function FunnelEditorClient({
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-zinc-200 bg-white">
                 {selectedPage?.seo?.faviconUrl ? (
-                  <img src={selectedPage.seo.faviconUrl} alt="Tab icon" className="h-full w-full object-cover" />
+                  <Image src={selectedPage.seo.faviconUrl} alt="Tab icon" width={40} height={40} className="h-full w-full object-cover" />
                 ) : (
                   <span className="text-xs font-semibold text-zinc-400">Icon</span>
                 )}
@@ -15637,7 +15364,7 @@ export function FunnelEditorClient({
       <div className="grid gap-2 sm:grid-cols-2">
         <div className={sidebarSupportItemClassName}>
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Account pixel ID</div>
-          <div className="mt-1 text-sm font-semibold text-zinc-900">{workspaceDefaultMetaPixelId || "Not configured"}</div>
+          <div className="mt-1 text-sm font-semibold text-zinc-900">{workspaceDefaultMetaPixelId || "No pixel ID yet"}</div>
           <Link
             href={`${basePath}/app/services/funnel-builder`}
             className="mt-2 inline-flex text-xs font-semibold text-zinc-700 hover:text-zinc-900"
@@ -15716,7 +15443,7 @@ export function FunnelEditorClient({
               {!funnelAnalytics
                 ? "Analytics are loading."
                 : !funnelAnalytics.trackingReady
-                  ? "Event store unavailable"
+                  ? "Event store syncing"
                   : funnelAnalytics.totalSessions
                     ? `${funnelAnalytics.totalSessions} tracked session${funnelAnalytics.totalSessions === 1 ? "" : "s"} and ${funnelAnalytics.totalEvents} event${funnelAnalytics.totalEvents === 1 ? "" : "s"} in the last ${funnelAnalytics.windowDays} days`
                     : `No tracked sessions in the last ${funnelAnalytics.windowDays} days`}
@@ -18758,11 +18485,12 @@ export function FunnelEditorClient({
                   >
                     <div className="aspect-4/3 border-b border-zinc-200 bg-zinc-100">
                       {image ? (
-                        <img
+                        <Image
                           src={m.url}
                           alt={label}
+                          width={640}
+                          height={480}
                           className="h-full w-full object-cover"
-                          loading="lazy"
                         />
                       ) : (
                         <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-zinc-500">
@@ -18795,7 +18523,7 @@ export function FunnelEditorClient({
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500">
-              <div className="font-semibold text-zinc-900">No references attached yet</div>
+              <div className="font-semibold text-zinc-900">No references attached to this prompt yet</div>
               <div className="mt-1">Upload files or pick existing assets from your media library so Pura can use them while planning and editing.</div>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                 <button

@@ -110,7 +110,7 @@ function formatDisputeLetterListTitle(subject: string) {
   const round = isFollowUp ? 2 : 1;
 
   const safeRecipient = recipient || "Recipient";
-  const safeContact = contactName && !/^contact$/i.test(contactName) ? contactName : "Unknown";
+  const safeContact = contactName && !/^contact$/i.test(contactName) ? contactName : "No contact name yet";
   return `Round ${round} - ${safeContact} - ${safeRecipient}`.trim();
 }
 
@@ -723,7 +723,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     setWorking("generate");
     setError(null);
     try {
-      const contactLabel = selectedContact?.name || contacts.find((entry) => entry.id === contactId)?.name || "Unknown";
+      const contactLabel = selectedContact?.name || contacts.find((entry) => entry.id === contactId)?.name || "No contact name yet";
       const baseRecipient = recipientName.trim() || "Recipient";
       const subjectLine = `Round ${roundNumber} - ${contactLabel} - ${baseRecipient}`.trim();
       const data = await fetchJson<{ ok: true; letter: LetterFull; pdf?: { downloadUrl?: string | null } }>("/api/portal/credit/disputes", {

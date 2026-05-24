@@ -382,7 +382,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         setCreditsRemaining(snapshot.credits);
 
         if (!loaded) {
-          setError("This post did not load. Retry here or open blogs.");
+          setError("This post is still syncing. Retry here or open blogs.");
           if (firstLoad) setPost(null);
           return;
         }
@@ -402,7 +402,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: Post; error?: string };
 
       if (!res.ok || !json.ok || !json.post) {
-        setError(json.error ?? "This post did not load. Retry here or open blogs.");
+        setError(json.error ?? "This post is still syncing. Retry here or open blogs.");
         if (firstLoad) setPost(null);
         return;
       }
@@ -1173,7 +1173,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
       {billingCta ? (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Not enough credits. <a className="font-semibold underline" href={billingCta}>Top off your credits here</a>.
+          Not enough credits. <Link className="font-semibold underline" href={billingCta}>Top off your credits here</Link>.
         </div>
       ) : null}
 

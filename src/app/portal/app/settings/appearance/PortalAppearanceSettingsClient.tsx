@@ -129,7 +129,7 @@ export function PortalAppearanceSettingsClient() {
     const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
     if (!res?.ok || !json?.user) {
-      const message = json?.error || "Appearance settings did not load. Retry here, open profile, or ask Pura to help.";
+      const message = json?.error || "Appearance settings are still syncing. Retry here, open profile, or ask Pura to help.";
       setLoadError(message);
       toastRef.current.error(message);
       setLoading(false);

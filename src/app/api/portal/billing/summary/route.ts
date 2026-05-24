@@ -195,7 +195,7 @@ export async function GET() {
       {
         ok: false,
         configured: true,
-        error: "Failed to load billing summary",
+        error: "Billing summary did not load. Retry here or open billing home.",
         details: e instanceof Error ? e.message : "Unknown error",
       },
       { status: 200 },

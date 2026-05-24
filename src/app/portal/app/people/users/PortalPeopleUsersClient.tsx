@@ -207,10 +207,10 @@ export function PortalPeopleUsersClient() {
     try {
       const res = await fetch("/api/portal/people/users", { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Users and invites did not load. Retry here, start a new invite, or ask Pura to help.");
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Users and invites are still syncing. Retry here, start a new invite, or ask Pura to help.");
       setData(json as UsersPayload);
     } catch (e: any) {
-      const message = String(e?.message || "Users and invites did not load. Retry here, start a new invite, or ask Pura to help.");
+      const message = String(e?.message || "Users and invites are still syncing. Retry here, start a new invite, or ask Pura to help.");
       toast.error(message);
       setLoadError(message);
     } finally {
@@ -336,7 +336,9 @@ export function PortalPeopleUsersClient() {
         body: JSON.stringify({ email, role: inviteRole, permissions: invitePermissions }),
       });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to invite");
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Invite did not send. Check the email and try again.");
+      }
 
       setInviteEmail("");
       setInviteRole("MEMBER");
@@ -363,7 +365,7 @@ export function PortalPeopleUsersClient() {
 
       await load();
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to invite"));
+      toast.error(String(e?.message || "Invite did not send. Check the email and try again."));
     } finally {
       setInviting(false);
     }
@@ -430,7 +432,7 @@ export function PortalPeopleUsersClient() {
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">Members</div>
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Your role: {data.myRole ?? "N/A"}
+                Your role: {data.myRole ?? "Role syncing"}
               </div>
             </div>
 
@@ -454,7 +456,7 @@ export function PortalPeopleUsersClient() {
                       onClick={() => openMemberEditor(m)}
                     >
                       <td className="px-3 py-2 sm:px-4 sm:py-3">
-                        <div className="font-semibold text-zinc-900">{m.user?.name || "N/A"}</div>
+                        <div className="font-semibold text-zinc-900">{m.user?.name || "No name yet"}</div>
                         <div className="text-xs text-zinc-500">{m.user?.email || ""}</div>
                       </td>
                       <td className="px-3 py-2 sm:px-4 sm:py-3">
@@ -740,7 +742,7 @@ export function PortalPeopleUsersClient() {
                       <td className="px-3 py-4 text-sm text-zinc-600" colSpan={4}>
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div>
-                            <div className="font-semibold text-zinc-900">No invites yet</div>
+                            <div className="font-semibold text-zinc-900">No teammate invites yet</div>
                             <div className="mt-1 text-sm text-zinc-600">Invite a teammate so this workspace can route work without sharing one login.</div>
                           </div>
                           {canInvite ? (

@@ -590,17 +590,17 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
           setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
         } else {
-          setError(json.error ?? "Follow-up did not load. Retry here, open booking settings, or ask Pura to help.");
+          setError(json.error ?? "Follow-up is still syncing. Retry here, open booking settings, or ask Pura to help.");
         }
       } else if (settingsRes.timedOut) {
         setError("Follow-up took too long to load. Retry here, open booking settings, or ask Pura to help.");
       } else {
-        setError(settingsRes.body?.error ?? "Follow-up did not load. Retry here, open booking settings, or ask Pura to help.");
+        setError(settingsRes.body?.error ?? "Follow-up is still syncing. Retry here, open booking settings, or ask Pura to help.");
       }
 
       didLoad = true;
     } catch {
-      setError("Follow-up did not load. Retry here, open booking settings, or ask Pura to help.");
+      setError("Follow-up is still syncing. Retry here, open booking settings, or ask Pura to help.");
     } finally {
       if (mountedRef.current) {
         if (didLoad) hasLoadedOnceRef.current = true;
@@ -630,7 +630,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         throw new Error(
           typeof json?.error === "string"
             ? json.error
-            : "Contact tags did not load. Refresh this page or create the tag again from this step.",
+            : "Contact tags are still syncing. Refresh this page or create the tag again from this step.",
         );
       }
       const next = (json.tags as any[])
@@ -645,7 +645,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     } catch {
       setOwnerTags([]);
       if (!opts?.suppressErrorToast) {
-        toast.error("Contact tags did not load. Refresh this page or create the tag again from this step.");
+        toast.error("Contact tags are still syncing. Refresh this page or create the tag again from this step.");
       }
     } finally {
       setTagsLoading(false);
@@ -1208,7 +1208,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           ))
                         ) : (
                           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                            <div className="font-semibold text-zinc-900">No saved templates yet</div>
+                            <div className="font-semibold text-zinc-900">No follow-up templates saved yet</div>
                             <div className="mt-1">Load a built-in template first, then save your own version once the timing and copy feel right.</div>
                             <div className="mt-3 flex flex-wrap items-center gap-2">
                               <button
@@ -1307,7 +1307,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     if (!email) return;
                     const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
                     if (!emailLike.test(email)) {
-                      toast.error("Invalid email");
+                      toast.error("Enter a valid email address before adding it.");
                       return;
                     }
                     const s = steps.find((x) => x.id === stepId);
@@ -1331,7 +1331,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     const phone = (stepPhoneDrafts[stepId] ?? "").trim();
                     if (!phone) return;
                     if (!/^[0-9+()\- .]*$/.test(phone) || phone.replace(/\D/g, "").length < 10) {
-                      toast.error("Invalid phone");
+                      toast.error("Enter a valid phone number before adding it.");
                       return;
                     }
                     const s = steps.find((x) => x.id === stepId);
@@ -1938,7 +1938,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           })
                         ) : (
                           <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                            <div className="font-semibold text-zinc-900">No steps yet</div>
+                            <div className="font-semibold text-zinc-900">No follow-up steps yet</div>
                             <div className="mt-1">Start with one email or SMS step, or load a template so this chain is ready faster.</div>
                             <div className="mt-3 flex flex-wrap items-center gap-2">
                               <button
@@ -2027,7 +2027,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                       </div>
                     ) : (
                       <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                        <div className="font-semibold text-zinc-900">No calendars configured yet</div>
+                        <div className="font-semibold text-zinc-900">No calendars ready yet</div>
                         <div className="mt-1">Follow-up rules can run against specific booking calendars once at least one calendar exists.</div>
                         <div className="mt-3 flex flex-wrap items-center gap-2">
                           <Link
@@ -2191,7 +2191,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                 })
               ) : (
                 <div className="px-4 py-6 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No follow-ups queued yet</div>
+                  <div className="font-semibold text-zinc-900">No follow-ups queued yet for this workflow</div>
                   <div className="mt-1">Once an appointment qualifies for this automation, upcoming and recently sent follow-ups show here.</div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button

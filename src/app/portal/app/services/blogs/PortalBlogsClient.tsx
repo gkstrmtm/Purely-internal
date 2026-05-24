@@ -612,14 +612,14 @@ export function PortalBlogsClient({
       };
 
       if (!meRes.ok) {
-        setError((meJson as { error?: string })?.error ?? "This blog workspace did not load. Retry here, open blog setup, or ask Pura.");
+        setError((meJson as { error?: string })?.error ?? "This blog workspace is still syncing. Retry here, open blog setup, or ask Pura.");
         return;
       }
 
       setMe(meJson as Me);
 
       if (!siteRes.ok) {
-        setError(siteJson.error ?? "Blog setup did not load. Retry here, open blog setup, or ask Pura.");
+        setError(siteJson.error ?? "Blog setup is still syncing. Retry here, open blog setup, or ask Pura.");
       }
 
       const s = siteJson.site ?? null;
@@ -1346,15 +1346,15 @@ export function PortalBlogsClient({
                 <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
                     <div className="text-xs font-semibold text-zinc-600">Total credits</div>
-                    <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
+                    <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "Syncing balance" : credits.toLocaleString()}</div>
                   </div>
                   <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
                     <div className="text-xs font-semibold text-zinc-600">Blog credits used</div>
                     <div className="mt-2 text-2xl font-bold text-brand-ink">
-                      {blogCreditsUsed30d === null ? "N/A" : blogCreditsUsed30d.toLocaleString()}
+                      {blogCreditsUsed30d === null ? "Watching usage" : blogCreditsUsed30d.toLocaleString()}
                     </div>
                     <div className="mt-1 text-xs text-zinc-500">
-                      Last 30 days · {blogGenerations30d === null ? "N/A" : blogGenerations30d} generation{blogGenerations30d === 1 ? "" : "s"}
+                      Last 30 days · {blogGenerations30d === null ? "No generations yet" : `${blogGenerations30d} generation${blogGenerations30d === 1 ? "" : "s"}`}
                     </div>
                   </div>
                 </div>
@@ -1406,7 +1406,7 @@ export function PortalBlogsClient({
                           <td className="px-4 py-4 text-zinc-600" colSpan={4}>
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <div>
-                                <div className="font-semibold text-zinc-900">No posts yet</div>
+                                <div className="font-semibold text-zinc-900">No blog posts yet</div>
                                 <div className="mt-1 text-sm text-zinc-600">Create the first draft when you’re ready, or open the page editor if you want the blog shell polished first.</div>
                               </div>
                               <div className="flex flex-wrap items-center gap-2">
@@ -1450,7 +1450,7 @@ export function PortalBlogsClient({
                               {excerptPreview ? (
                                 <div className="line-clamp-3 text-xs text-zinc-600">{excerptPreview}</div>
                               ) : (
-                                <div className="text-xs text-zinc-400">No excerpt yet</div>
+                                <div className="text-xs text-zinc-400">Excerpt not written yet</div>
                               )}
                             </div>
                           </td>
@@ -1787,9 +1787,9 @@ export function PortalBlogsClient({
 
             {automation ? (
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-                <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "N/A"}</div>
-                <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "N/A"}</div>
-                <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "N/A"}</div>
+                <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "Not generated yet"}</div>
+                <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "Not scheduled yet"}</div>
+                <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "No recent run yet"}</div>
                 <div className="mt-1 text-zinc-500">Scheduler checks about hourly. If Next due is in the past, a new post should appear within about an hour when the heartbeat is healthy.</div>
               </div>
             ) : null}
@@ -1944,7 +1944,7 @@ export function PortalBlogsClient({
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">Domain</label>
                   <div className="mt-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                    <div className="truncate">{normalizedSelectedDomain || "No custom domain yet"}</div>
+                    <div className="truncate">{normalizedSelectedDomain || "Default domain in use"}</div>
                   </div>
 
                   <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">

@@ -127,6 +127,7 @@
 - 2026-05-22: Cleared the remaining obvious non-funnel portal one-offs, then did one more safe funnel-editor pass for read-aloud, offer-build, and copy-action toasts; `npx tsc --noEmit` stayed clean after each pass.
 - 2026-05-22: Hardened the next safe funnel builder/editor batch for speech-recognition helpers, dictation start failures, page-assistant replies, favicon upload fallback, file-upload URL fallback, page-path save, Stripe product panel errors, foundation fallback messaging, and page/SEO/booking/tracking save messaging; one patch briefly spliced into the wrong editor block, was repaired immediately, and the follow-up `npx tsc --noEmit` returned clean.
 - 2026-05-22: Captured live funnel-editor proof after the latest copy hardening with `tmp/portal-qa/capture_funnel_editor_loaded.mjs` and a focused error-state proof via `tmp/portal-qa/capture_funnel_editor_copy_proof.mjs`; artifacts now live under `tmp/portal-qa/funnel-editor-shots/` and `tmp/portal-qa/funnel-editor-copy-proof/`.
+- 2026-05-23: Hardened a residual low-risk portal recovery-copy cluster across account switching, users/invites, Twilio settings, login reset-option loading, and dashboard reporting diagnostics; pending focused diagnostics and residual string sweep.
 
 ## Audit snapshot
 

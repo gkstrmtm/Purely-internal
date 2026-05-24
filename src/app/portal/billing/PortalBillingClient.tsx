@@ -456,7 +456,7 @@ export function PortalBillingClient({
       const res = await fetch("/api/portal/billing/billing-info", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as BillingInfoResponse;
       if (!res.ok) {
-        const message = (json as any)?.error ? String((json as any).error) : "Billing info did not load. Retry here, open billing home, or ask Pura to help.";
+        const message = (json as any)?.error ? String((json as any).error) : "Billing info is still syncing. Retry here, open billing home, or ask Pura to help.";
         toast.error(message);
         setBillingInfo({ ok: false, error: message });
         return;
@@ -670,7 +670,7 @@ export function PortalBillingClient({
       if (!billingOverviewMountedRef.current) return;
       if (!billingRes.ok) {
         const body = await billingRes.json().catch(() => ({}));
-        setError(body?.error ?? "Billing details did not load. Retry here or ask Pura to help.");
+        setError(body?.error ?? "Billing details are still syncing. Retry here or ask Pura to help.");
         setLoading(false);
         return;
       }
@@ -1136,7 +1136,7 @@ export function PortalBillingClient({
   const spentThisMonthText =
     summary && summary.configured && "spentThisMonthCents" in summary && typeof summary.spentThisMonthCents === "number"
       ? formatMoney(summary.spentThisMonthCents, (summary as any).spentThisMonthCurrency || summaryCurrency)
-      : "N/A";
+      : "Watching usage";
 
   const serviceStatuses = services && "ok" in services && services.ok ? services.statuses : null;
 
@@ -1185,10 +1185,10 @@ export function PortalBillingClient({
 
   const upgradeHref = creditsFirstForMobileApp ? `${portalBase}/app/billing/upgrade?pa_mobileapp=1` : `${portalBase}/app/billing/upgrade`;
 
-  const monthlyText = creditsOnly ? "Upgrade" : status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
+  const monthlyText = creditsOnly ? "Upgrade" : status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "Pricing setup pending";
 
   const creditsCanceled = creditsOnly && creditsLifecycle?.state === "canceled";
-  const summaryLoadError = summary && "ok" in summary && summary.ok === false ? summary.error ?? "Subscription summary did not load. Retry here or ask Pura to help." : null;
+  const summaryLoadError = summary && "ok" in summary && summary.ok === false ? summary.error ?? "Subscription summary is still syncing. Retry here or ask Pura to help." : null;
 
   const sub = summary && "ok" in summary && summary.ok === true && summary.configured ? summary.subscription : undefined;
   const hasActiveSub = creditsOnly ? false : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
@@ -1436,7 +1436,7 @@ export function PortalBillingClient({
                   <div className={["rounded-2xl p-4", portalGlassSectionClass].join(" ")}>
                     <div className="text-xs font-semibold text-zinc-500">Monthly</div>
                     <div className="mt-1 text-lg font-bold text-brand-ink">
-                      {typeof monthlyCents === "number" ? formatMoney(monthlyCents, currency) : "N/A"}
+                      {typeof monthlyCents === "number" ? formatMoney(monthlyCents, currency) : "Custom quote"}
                       <span className="text-sm font-semibold text-zinc-500">/mo</span>
                     </div>
                   </div>
@@ -1835,7 +1835,7 @@ export function PortalBillingClient({
             {subscriptions && "ok" in subscriptions && subscriptions.ok === false ? (
               <div className="mt-3 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                 <div className="font-semibold text-red-900">Subscriptions need attention</div>
-                <div className="mt-1">{subscriptions.error ?? "Subscriptions did not load. Retry here, open billing home, or ask Pura to help."}</div>
+                <div className="mt-1">{subscriptions.error ?? "Subscriptions are still syncing. Retry here, open billing home, or ask Pura to help."}</div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
@@ -1919,7 +1919,7 @@ export function PortalBillingClient({
               </div>
             ) : (
               <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No active subscriptions found</div>
+                <div className="font-semibold text-zinc-900">No subscription plan active yet</div>
                 <div className="mt-1">Open Services to choose what should be enabled next, or ask Pura to help map the right plan for this workspace.</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -1989,7 +1989,7 @@ export function PortalBillingClient({
               </div>
             ) : (
               <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No services active yet</div>
+                <div className="font-semibold text-zinc-900">No services unlocked yet</div>
                 <div className="mt-1">Nothing is currently enabled for this workspace. Open Services to activate products, or review plans if you want to set the billing path first.</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -2057,7 +2057,7 @@ export function PortalBillingClient({
           </div>
           <div className="text-right">
             <div className="text-xs text-zinc-500">Balance</div>
-            <div className="mt-1 text-2xl font-bold text-brand-ink">{credits ?? "N/A"}</div>
+            <div className="mt-1 text-2xl font-bold text-brand-ink">{credits ?? "Syncing balance"}</div>
           </div>
         </div>
 

@@ -1280,7 +1280,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         });
 
         if (!res.ok) {
-          throw new Error("Available accounts did not load. Retry here or open settings.");
+          throw new Error("Available accounts are still syncing. Retry here or open settings.");
         }
 
         const json = (await res.json().catch(() => null)) as { ok?: boolean; accounts?: AccessiblePortalAccount[] } | null;
@@ -1290,7 +1290,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       } catch (error) {
         if (options?.signal?.aborted) return;
         setAccessibleAccounts([]);
-        setAccountsLoadError(error instanceof Error && error.name === "AbortError" ? null : "Available accounts did not load. Retry here or open settings.");
+        setAccountsLoadError(error instanceof Error && error.name === "AbortError" ? null : "Available accounts are still syncing. Retry here or open settings.");
       } finally {
         if (!options?.signal?.aborted) {
           setAccountsLoading(false);
@@ -1414,12 +1414,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         });
         const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
         if (!res.ok || !json?.ok) {
-          throw new Error(String(json?.error || "Failed to switch account"));
+          throw new Error(String(json?.error || "Account switch did not finish. Retry from the account menu."));
         }
 
         router.refresh();
       } catch (error) {
-        toast?.error(error instanceof Error ? error.message : "Failed to switch account");
+        toast?.error(error instanceof Error ? error.message : "Account switch did not finish. Retry from the account menu.");
         setSwitchingOwnerId(null);
       }
     },
@@ -2822,8 +2822,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             </div>
                           ) : (
                             <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
-                              <div className="font-semibold text-zinc-900">No shortcuts pinned yet</div>
-                              <div className="mt-1 leading-6">Pick services above to build your quick-access list, or open Services to choose what should live in the sidebar.</div>
+                              <div className="font-semibold text-zinc-900">No quick shortcuts pinned yet</div>
+                              <div className="mt-1 leading-6">Pick services above to build a quick-access list, or open Services to choose what should live in the sidebar.</div>
                               <PortalNavLink
                                 href={`${basePath}/app/services`}
                                 className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
@@ -3332,8 +3332,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         </div>
                       ) : (
                         <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No shortcuts pinned yet</div>
-                          <div className="mt-1 leading-6">Pin services above to build your quick-access list, or open Services to choose what should stay one click away.</div>
+                          <div className="font-semibold text-zinc-900">No quick shortcuts pinned yet</div>
+                          <div className="mt-1 leading-6">Pin services above to build a quick-access list, or open Services to choose what should stay one click away.</div>
                           <PortalNavLink
                             href={`${basePath}/app/services`}
                             className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
@@ -3788,7 +3788,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 {accountsLoading ? <div className="mt-3 text-xs text-zinc-500">Loading available accounts...</div> : null}
                 {accountsLoadError ? (
                   <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    <div className="font-semibold">Account switcher unavailable</div>
+                    <div className="font-semibold">Account switcher needs a retry</div>
                     <div className="mt-1 leading-5">{accountsLoadError}</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button
@@ -4122,7 +4122,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </div>
                   ) : (
                     <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-white/80">
-                      Media is not configured for this campaign.
+                      Media has not been attached to this campaign yet.
                     </div>
                   )}
                 </div>

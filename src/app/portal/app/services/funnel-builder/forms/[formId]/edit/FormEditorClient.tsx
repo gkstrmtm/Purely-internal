@@ -244,7 +244,7 @@ function normalizeFormEditorError(action: "load" | "save" | "delete", error: unk
   if (/invalid slug/.test(lowered)) return "Use only letters, numbers, and dashes for the hosted path.";
   if (/invalid name/.test(lowered)) return "Add a form name before saving.";
 
-  if (action === "load") return "This form did not load. Retry here, open forms, or ask Pura to help.";
+  if (action === "load") return "This form is still syncing. Retry here, open forms, or ask Pura to help.";
   if (action === "delete") return "This form did not delete. Retry here, open forms, or ask Pura to help.";
   return "This form did not save. Retry here, open forms, or ask Pura to help.";
 }
@@ -373,7 +373,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     setError(null);
     const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
     const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load form");
+    if (!res.ok || !json || json.ok !== true) {
+      throw new Error(json?.error || "This form is still syncing. Retry here, open forms, or ask Pura to help.");
+    }
     const f = json.form as Form;
     const nextFields = normalizeFields(f.schemaJson);
     const nextStyle = normalizeStyle(f.schemaJson);
@@ -425,8 +427,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     return () => {
       cancelled = true;
     };
-    // Intentionally omit `load` from deps to avoid re-creating it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, fields, load]);
 
   const save = async (opts?: { name?: string; slug?: string; status?: Form["status"] }) => {
@@ -463,7 +463,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         }),
       });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save");
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "This form did not save. Retry here, open forms, or ask Pura to help.");
+      }
       setForm(json.form as Form);
       lastSavedSigRef.current = JSON.stringify({
         name: String(json.form?.name || "").trim(),
@@ -485,7 +487,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     try {
       const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { method: "DELETE" });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to delete");
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "This form did not delete. Retry here, open forms, or ask Pura to help.");
+      }
       router.push(backHref, { scroll: false });
     } catch (e) {
       setError(normalizeFormEditorError("delete", e));
@@ -1258,7 +1262,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
               <div className="mt-6 space-y-4">
                 {(fields || []).length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-zinc-300 bg-white/80 p-6">
-                    <div className="text-sm font-semibold text-zinc-900">No questions yet</div>
+                    <div className="text-sm font-semibold text-zinc-900">No form questions yet</div>
                     <div className="mt-2 text-sm leading-6 text-zinc-600">
                       Start with the first question so this form can collect real responses. You can reorder, style, and fine-tune every field after it is added.
                     </div>

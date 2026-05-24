@@ -87,7 +87,7 @@ export async function POST(req: Request) {
   });
 
   if (!created) {
-    return NextResponse.json({ ok: false, error: "Failed to create tag" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Tag creation did not finish. Retry here or choose a different tag name." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true, tag: created });

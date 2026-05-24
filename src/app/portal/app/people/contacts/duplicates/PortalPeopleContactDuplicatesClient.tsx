@@ -60,11 +60,11 @@ export function PortalPeopleContactDuplicatesClient() {
     try {
       const res = await fetch("/api/portal/people/contacts/duplicates?limit=200", { cache: "no-store" });
       const body = await readJsonBody(res);
-      if (!res.ok || !body?.ok) throw new Error(body?.error || "Duplicate groups did not load. Retry here, open People, or ask Pura to help.");
+      if (!res.ok || !body?.ok) throw new Error(body?.error || "Duplicate groups are still syncing. Retry here, open People, or ask Pura to help.");
       setGroups(Array.isArray(body.groups) ? body.groups : []);
       setLastLoadedAt(Date.now());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Duplicate groups did not load. Retry here, open People, or ask Pura to help.");
+      setError(e instanceof Error ? e.message : "Duplicate groups are still syncing. Retry here, open People, or ask Pura to help.");
     } finally {
       setLoading(false);
     }

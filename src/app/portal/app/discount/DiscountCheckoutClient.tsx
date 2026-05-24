@@ -57,11 +57,11 @@ export function DiscountCheckoutClient(props: {
     const promoCode = String(props.promoCode || "").trim();
     const campaignId = String(props.campaignId || "").trim();
     if (!moduleKey) {
-      setError("Unknown service for discount.");
+      setError("Discount checkout is not set up for this service yet.");
       return;
     }
     if (!promoCode && !campaignId) {
-      setError("Missing discount details.");
+      setError("Add a promo code or campaign before starting checkout.");
       return;
     }
 

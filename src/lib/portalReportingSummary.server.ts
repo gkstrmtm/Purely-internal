@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { getCreditsState } from "@/lib/credits";
 import { listAiReceptionistEvents } from "@/lib/aiReceptionist";
+import { parsePortalFeedbackPayload } from "@/lib/betaFeedback";
+import { getExternalBookingHandoffSummaryForOwner, type ExternalBookingHandoffSummary } from "@/lib/externalBookingHandoffReporting";
 import { listMissedCallTextBackEvents } from "@/lib/missedCallTextBack";
 
 export type PortalReportingRangeKey = "today" | "7d" | "30d" | "90d" | "all";
@@ -51,18 +53,55 @@ function safeDate(value: unknown): Date | null {
   return d;
 }
 
-async function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race<T>([
-      work,
-      new Promise<T>((resolve) => {
-        timer = setTimeout(() => resolve(fallback), ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+function readPortalDiagnosticEvents(value: unknown): Array<{
+  kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure";
+  createdAtIso: string;
+  lastSeenAtIso: string;
+  count: number;
+  message: string;
+  path?: string;
+}> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const rec = value as Record<string, unknown>;
+  if (!Array.isArray(rec.events)) return [];
+  return rec.events.flatMap((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [] as Array<any>;
+    const item = raw as Record<string, unknown>;
+    const kind =
+      item.kind === "runtime_error" ||
+      item.kind === "unhandled_rejection" ||
+      item.kind === "resource_error" ||
+      item.kind === "action_failure"
+        ? item.kind
+        : null;
+    const createdAtIso = typeof item.createdAtIso === "string" ? item.createdAtIso.trim() : "";
+    const lastSeenAtIso = typeof item.lastSeenAtIso === "string" ? item.lastSeenAtIso.trim() : createdAtIso;
+    const message = typeof item.message === "string" ? item.message.trim().slice(0, 4000) : "";
+    const count = Number.isFinite(Number(item.count)) ? Math.max(1, Math.floor(Number(item.count))) : 1;
+    if (!kind || !createdAtIso || !message) return [] as Array<any>;
+    return [
+      {
+        kind,
+        createdAtIso,
+        lastSeenAtIso: lastSeenAtIso || createdAtIso,
+        count,
+        message,
+        ...(typeof item.path === "string" && item.path.trim() ? { path: item.path.trim().slice(0, 512) } : {}),
+      },
+    ];
+  });
+}
+
+function readBugReportList(value: unknown): Array<{ createdAtIso: string }> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const rec = value as Record<string, unknown>;
+  if (!Array.isArray(rec.reports)) return [];
+  return rec.reports.flatMap((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [] as Array<any>;
+    const item = raw as Record<string, unknown>;
+    const createdAtIso = typeof item.createdAtIso === "string" ? item.createdAtIso.trim() : "";
+    return createdAtIso ? [{ createdAtIso }] : [];
+  });
 }
 
 export type PortalReportingSummaryPayload = {
@@ -71,7 +110,33 @@ export type PortalReportingSummaryPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
+  externalBookingHandoff: ExternalBookingHandoffSummary;
   warnings?: string[];
+  attention: {
+    tasksOverdueNow: number;
+    inboxNeedsReplyNow: number;
+    creditReportsImported: number;
+    creditReportItemsPendingNow: number;
+    creditReportItemsNegativeNow: number;
+    creditDisputeDraftsNow: number;
+    creditDisputePdfsReadyNow: number;
+    creditDisputeMarkedMailedNow: number;
+    betaFeedbackPortalRecent: number;
+    betaFeedbackPortalUnresolvedNow: number;
+    betaFeedbackPortalHighSeverityNow: number;
+    betaFeedbackCreditRecent: number;
+    betaFeedbackCreditUnresolvedNow: number;
+    betaFeedbackCreditHighSeverityNow: number;
+  };
+  diagnostics: {
+    actionFailures: number;
+    runtimeErrors: number;
+    unhandledRejections: number;
+    resourceErrors: number;
+    manualBugReports: number;
+    topPaths: Array<{ path: string; count: number }>;
+    topMessages: Array<{ kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure"; message: string; count: number }>;
+  };
   kpis: {
     automationsRun: number;
     aiCalls: number;
@@ -131,11 +196,9 @@ export async function getPortalReportingSummaryForOwner(
 
   const warnings: string[] = [];
 
-  async function safe<T>(label: string, fn: () => Promise<T>, fallback: T, timeoutMs = 4000): Promise<T> {
+  async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {
     try {
-      const result = await withTimeout(fn(), timeoutMs, fallback);
-      if (result === fallback) warnings.push(`${label}:timeout`);
-      return result;
+      return await fn();
     } catch (err) {
       console.error(`/api/portal/reporting: ${label} failed`, err);
       warnings.push(label);
@@ -160,13 +223,22 @@ export async function getPortalReportingSummaryForOwner(
     nurtureEnrollmentsCompleted,
     newsletterAgg,
     tasksOpenNow,
+    tasksOverdueNow,
     tasksCompleted,
     inboxMessagesIn,
     inboxMessagesOut,
+    inboxNeedsReplyNow,
+    creditReportsImported,
+    creditReportItemsPendingNow,
+    creditReportItemsNegativeNow,
+    creditDisputeDraftsNow,
+    creditDisputePdfsReadyNow,
+    creditDisputeMarkedMailedNow,
+    diagnosticsSetups,
   ] = await Promise.all([
-    safe("credits", () => getCreditsState(ownerId), { balance: 0, autoTopUp: false }, 3000),
-    safe("aiEvents", () => listAiReceptionistEvents(ownerId, 200), [], 3000),
-    safe("missedCallEvents", () => listMissedCallTextBackEvents(ownerId, 200), [], 3000),
+    safe("credits", () => getCreditsState(ownerId), { balance: 0, autoTopUp: false }),
+    safe("aiEvents", () => listAiReceptionistEvents(ownerId, 200), []),
+    safe("missedCallEvents", () => listMissedCallTextBackEvents(ownerId, 200), []),
     safe(
       "leadScrapeRuns",
       () =>
@@ -185,9 +257,8 @@ export async function getPortalReportingSummaryForOwner(
           take: 200,
         }),
       [],
-      3000,
     ),
-    safe("bookingSite", () => prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true } }), null, 2500),
+    safe("bookingSite", () => prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true } }), null),
     safe(
       "reviewsAgg",
       () =>
@@ -197,16 +268,14 @@ export async function getPortalReportingSummaryForOwner(
           _avg: { rating: true },
         }),
       { _count: { id: 0 }, _avg: { rating: null } },
-      3000,
     ),
-    safe("leadsCount", () => prisma.portalLead.count({ where: { ownerId, createdAt: { gte: start } } }), 0, 2500),
-    safe("contactsCount", () => prisma.portalContact.count({ where: { ownerId, createdAt: { gte: start } } }), 0, 2500),
+    safe("leadsCount", () => prisma.portalLead.count({ where: { ownerId, createdAt: { gte: start } } }), 0),
+    safe("contactsCount", () => prisma.portalContact.count({ where: { ownerId, createdAt: { gte: start } } }), 0),
 
     safe(
       "aiOutboundQueuedNow",
       () => prisma.portalAiOutboundCallEnrollment.count({ where: { ownerId, status: "QUEUED" } }),
       0,
-      2500,
     ),
     safe(
       "aiOutboundCompleted",
@@ -215,7 +284,6 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, status: "COMPLETED", completedAt: { gte: start } },
         }),
       0,
-      2500,
     ),
     safe(
       "aiOutboundFailed",
@@ -224,16 +292,14 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, status: "FAILED", updatedAt: { gte: start } },
         }),
       0,
-      2500,
     ),
 
     safe(
       "nurtureEnrollmentsCreated",
       () => prisma.portalNurtureEnrollment.count({ where: { ownerId, createdAt: { gte: start } } }),
       0,
-      2500,
     ),
-    safe("nurtureEnrollmentsActiveNow", () => prisma.portalNurtureEnrollment.count({ where: { ownerId, status: "ACTIVE" } }), 0, 2500),
+    safe("nurtureEnrollmentsActiveNow", () => prisma.portalNurtureEnrollment.count({ where: { ownerId, status: "ACTIVE" } }), 0),
     safe(
       "nurtureEnrollmentsCompleted",
       () =>
@@ -241,7 +307,6 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, status: "COMPLETED", updatedAt: { gte: start } },
         }),
       0,
-      2500,
     ),
 
     safe(
@@ -253,15 +318,21 @@ export async function getPortalReportingSummaryForOwner(
           _sum: { sentCount: true, failedCount: true },
         }),
       { _count: { id: 0 }, _sum: { sentCount: 0, failedCount: 0 } },
-      3000,
     ),
 
-    safe("tasksOpenNow", () => prisma.portalTask.count({ where: { ownerId, status: "OPEN" } }), 0, 2500),
+    safe("tasksOpenNow", () => prisma.portalTask.count({ where: { ownerId, status: "OPEN" } }), 0),
+    safe(
+      "tasksOverdueNow",
+      () =>
+        prisma.portalTask.count({
+          where: { ownerId, status: "OPEN", dueAt: { lt: now } },
+        }),
+      0,
+    ),
     safe(
       "tasksCompleted",
       () => prisma.portalTask.count({ where: { ownerId, status: "DONE", updatedAt: { gte: start } } }),
       0,
-      2500,
     ),
 
     safe(
@@ -271,7 +342,6 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, direction: "IN", createdAt: { gte: start } },
         }),
       0,
-      2500,
     ),
     safe(
       "inboxMessagesOut",
@@ -280,9 +350,115 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, direction: "OUT", createdAt: { gte: start } },
         }),
       0,
-      2500,
+    ),
+    safe(
+      "inboxNeedsReplyNow",
+      () =>
+        prisma.portalInboxThread.count({
+          where: { ownerId, lastMessageDirection: "IN" },
+        }),
+      0,
+    ),
+    safe(
+      "creditReportsImported",
+      () =>
+        prisma.creditReport.count({
+          where: { ownerId, importedAt: { gte: start } },
+        }),
+      0,
+    ),
+    safe(
+      "creditReportItemsPendingNow",
+      () =>
+        prisma.creditReportItem.count({
+          where: { report: { ownerId }, auditTag: "PENDING" },
+        }),
+      0,
+    ),
+    safe(
+      "creditReportItemsNegativeNow",
+      () =>
+        prisma.creditReportItem.count({
+          where: { report: { ownerId }, auditTag: "NEGATIVE" },
+        }),
+      0,
+    ),
+    safe(
+      "creditDisputeDraftsNow",
+      () => prisma.creditDisputeLetter.count({ where: { ownerId, status: "DRAFT" } }),
+      0,
+    ),
+    safe(
+      "creditDisputePdfsReadyNow",
+      () => prisma.creditDisputeLetter.count({ where: { ownerId, status: "GENERATED" } }),
+      0,
+    ),
+    safe(
+      "creditDisputeMarkedMailedNow",
+      () => prisma.creditDisputeLetter.count({ where: { ownerId, status: "SENT" } }),
+      0,
+    ),
+    safe(
+      "diagnosticsSetups",
+      () =>
+        prisma.portalServiceSetup.findMany({
+          where: { ownerId, serviceSlug: { in: ["portal_diagnostics", "bug-reports"] } },
+          select: { serviceSlug: true, dataJson: true },
+        }),
+      [],
     ),
   ]);
+
+  const diagnosticSetupMap = new Map(
+    (diagnosticsSetups as Array<{ serviceSlug: string; dataJson: unknown }>).map((item) => [item.serviceSlug, item.dataJson]),
+  );
+  const feedbackItems = parsePortalFeedbackPayload(diagnosticSetupMap.get("bug-reports")).items;
+  const diagnosticsInRange = readPortalDiagnosticEvents(diagnosticSetupMap.get("portal_diagnostics")).filter((item) => {
+    const seenAt = safeDate(item.lastSeenAtIso || item.createdAtIso);
+    return seenAt ? seenAt >= start : false;
+  });
+  const bugReportsInRange = readBugReportList(diagnosticSetupMap.get("bug-reports")).filter((item) => {
+    const createdAt = safeDate(item.createdAtIso);
+    return createdAt ? createdAt >= start : false;
+  });
+  const unresolvedFeedbackStatuses = new Set(["new", "reviewing", "planned"]);
+  const highSeverityFeedback = new Set(["high", "critical"]);
+  const portalFeedbackItems = feedbackItems.filter((item) => item.portalVariant !== "credit");
+  const creditFeedbackItems = feedbackItems.filter((item) => item.portalVariant === "credit");
+  const portalFeedbackRecent = portalFeedbackItems.filter((item) => {
+    const createdAt = safeDate(item.createdAtIso);
+    return createdAt ? createdAt >= start : false;
+  });
+  const creditFeedbackRecent = creditFeedbackItems.filter((item) => {
+    const createdAt = safeDate(item.createdAtIso);
+    return createdAt ? createdAt >= start : false;
+  });
+  const portalFeedbackUnresolved = portalFeedbackItems.filter((item) => unresolvedFeedbackStatuses.has(item.triage.status));
+  const creditFeedbackUnresolved = creditFeedbackItems.filter((item) => unresolvedFeedbackStatuses.has(item.triage.status));
+  const portalFeedbackHighSeverity = portalFeedbackUnresolved.filter((item) => highSeverityFeedback.has(item.severity));
+  const creditFeedbackHighSeverity = creditFeedbackUnresolved.filter((item) => highSeverityFeedback.has(item.severity));
+
+  const diagnosticCounts = diagnosticsInRange.reduce(
+    (acc, item) => {
+      if (item.kind === "action_failure") acc.actionFailures += item.count;
+      if (item.kind === "runtime_error") acc.runtimeErrors += item.count;
+      if (item.kind === "unhandled_rejection") acc.unhandledRejections += item.count;
+      if (item.kind === "resource_error") acc.resourceErrors += item.count;
+      return acc;
+    },
+    { actionFailures: 0, runtimeErrors: 0, unhandledRejections: 0, resourceErrors: 0 },
+  );
+
+  const topPathCounts = new Map<string, number>();
+  const topMessageCounts = new Map<string, { kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure"; message: string; count: number }>();
+  for (const item of diagnosticsInRange) {
+    const path = String(item.path || "").trim();
+    if (path) topPathCounts.set(path, (topPathCounts.get(path) ?? 0) + item.count);
+    const key = `${item.kind}::${item.message}`;
+    const current = topMessageCounts.get(key);
+    if (current) current.count += item.count;
+    else topMessageCounts.set(key, { kind: item.kind, message: item.message, count: item.count });
+  }
 
   const [blogAgg, blogEvents] = await Promise.all([
     safe(
@@ -294,7 +470,6 @@ export async function getPortalReportingSummaryForOwner(
           _sum: { chargedCredits: true },
         }),
       { _count: { id: 0 }, _sum: { chargedCredits: 0 } } as any,
-      3000,
     ),
     safe(
       "blogGenerationEvents",
@@ -306,7 +481,6 @@ export async function getPortalReportingSummaryForOwner(
           take: 500,
         }),
       [],
-      3000,
     ),
   ]);
 
@@ -315,7 +489,6 @@ export async function getPortalReportingSummaryForOwner(
         "bookingCount",
         () => prisma.portalBooking.count({ where: { siteId: bookingSite.id, createdAt: { gte: start } } }),
         0,
-        3000,
       )
     : 0;
 
@@ -410,18 +583,12 @@ export async function getPortalReportingSummaryForOwner(
   }
 
   if (bookingSite) {
-    const bookings = await safe(
-      "bookingDaily",
-      () =>
-        prisma.portalBooking.findMany({
-          where: { siteId: bookingSite.id, createdAt: { gte: start } },
-          select: { createdAt: true },
-          take: 500,
-          orderBy: { createdAt: "desc" },
-        }),
-      [],
-      3000,
-    );
+    const bookings = await prisma.portalBooking.findMany({
+      where: { siteId: bookingSite.id, createdAt: { gte: start } },
+      select: { createdAt: true },
+      take: 500,
+      orderBy: { createdAt: "desc" },
+    });
     for (const b of bookings) {
       const key = dayKeyUtc(b.createdAt);
       const row = dailyMap.get(key);
@@ -440,7 +607,6 @@ export async function getPortalReportingSummaryForOwner(
         orderBy: { createdAt: "desc" },
       }),
     [],
-    3000,
   );
 
   for (const r of reviews as any[]) {
@@ -451,6 +617,40 @@ export async function getPortalReportingSummaryForOwner(
   }
 
   const daily = Array.from(dailyMap.values());
+  const externalBookingHandoff = await safe(
+    "externalBookingHandoff",
+    () => getExternalBookingHandoffSummaryForOwner(ownerId, { startAt: start }),
+    {
+      enabled: false,
+      handoffMode: "direct_book" as const,
+      providerKey: "unknown" as const,
+      providerLabel: "External booking page",
+      destinationHost: "",
+      confirmationState: "handoff_only" as const,
+      providerConfirmationAvailable: false,
+      providerConfirmationConnected: false,
+      totalHandoffs: 0,
+      directHandoffs: 0,
+      leadFirstCaptures: 0,
+      distinctCapturedContacts: 0,
+      confirmedViaRedirect: 0,
+      distinctConfirmedContacts: 0,
+      providerConfirmedBookings: 0,
+      distinctProviderConfirmedContacts: 0,
+      providerCanceledBookings: 0,
+      providerRescheduledBookings: 0,
+      latestHandoffAt: null,
+      latestConfirmedAt: null,
+      latestProviderConfirmedAt: null,
+      latestActivityAt: null,
+      providerBreakdown: [],
+      guidance: {
+        state: "disabled" as const,
+        title: "External booking handoff is off",
+        detail: "Turn the external booking link on and share the tracked booking handoff if you want Purely to record sends to the booking page.",
+      },
+    },
+  );
 
   return {
     ok: true,
@@ -458,7 +658,35 @@ export async function getPortalReportingSummaryForOwner(
     startIso: start.toISOString(),
     endIso: now.toISOString(),
     creditsRemaining: (credits as any).balance,
+    externalBookingHandoff,
     ...(warnings.length ? { warnings } : {}),
+    attention: {
+      tasksOverdueNow: tasksOverdueNow as number,
+      inboxNeedsReplyNow: inboxNeedsReplyNow as number,
+      creditReportsImported: creditReportsImported as number,
+      creditReportItemsPendingNow: creditReportItemsPendingNow as number,
+      creditReportItemsNegativeNow: creditReportItemsNegativeNow as number,
+      creditDisputeDraftsNow: creditDisputeDraftsNow as number,
+      creditDisputePdfsReadyNow: creditDisputePdfsReadyNow as number,
+      creditDisputeMarkedMailedNow: creditDisputeMarkedMailedNow as number,
+      betaFeedbackPortalRecent: portalFeedbackRecent.length,
+      betaFeedbackPortalUnresolvedNow: portalFeedbackUnresolved.length,
+      betaFeedbackPortalHighSeverityNow: portalFeedbackHighSeverity.length,
+      betaFeedbackCreditRecent: creditFeedbackRecent.length,
+      betaFeedbackCreditUnresolvedNow: creditFeedbackUnresolved.length,
+      betaFeedbackCreditHighSeverityNow: creditFeedbackHighSeverity.length,
+    },
+    diagnostics: {
+      ...diagnosticCounts,
+      manualBugReports: bugReportsInRange.length,
+      topPaths: Array.from(topPathCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([path, count]) => ({ path, count })),
+      topMessages: Array.from(topMessageCounts.values())
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5),
+    },
     kpis: {
       automationsRun,
       aiCalls: aiEvents.length,

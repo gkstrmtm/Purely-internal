@@ -24,6 +24,6 @@ export async function GET(req: Request) {
     return NextResponse.json(payload);
   } catch (error) {
     console.error("/api/portal/reporting GET failed", error);
-    return NextResponse.json({ ok: false, error: "Unable to load reporting" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Reporting did not load. Retry here or open reporting again." }, { status: 500 });
   }
 }

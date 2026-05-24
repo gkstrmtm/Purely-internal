@@ -97,14 +97,14 @@ export default function PortalLoginClient() {
       });
       const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; channels?: ResetChannel[] } | null;
       if (!res.ok || !json?.ok || !json.channels?.length) {
-        toast.error(json?.error || "No reset options found for that email.");
+        toast.error(json?.error || "We could not load reset options. Retry from sign in.");
         return;
       }
       setAvailableResetChannels(json.channels);
       setResetChannel(json.channels[0] || "email");
       setResetStage("request");
     } catch {
-      toast.error("Unable to continue right now.");
+      toast.error("Reset options did not load. Retry from sign in.");
     } finally {
       setResetLoading(false);
     }
@@ -124,7 +124,7 @@ export default function PortalLoginClient() {
       });
       const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
       if (!res.ok || !json?.ok) {
-        toast.error(json?.error || "Unable to send code right now.");
+        toast.error(json?.error || "Reset code did not send. Retry from sign in.");
         return;
       }
       setResetCode("");
@@ -135,7 +135,7 @@ export default function PortalLoginClient() {
       setResetStage("code");
       toast.success(`Code sent by ${resetChannel === "sms" ? "text" : "email"}.`);
     } catch {
-      toast.error("Unable to send code right now.");
+      toast.error("Reset code did not send. Retry from sign in.");
     } finally {
       setResetLoading(false);
     }

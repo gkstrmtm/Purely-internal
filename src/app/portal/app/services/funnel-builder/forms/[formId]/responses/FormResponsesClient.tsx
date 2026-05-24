@@ -188,7 +188,9 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
   const loadForm = useCallback(async () => {
     const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
     const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load form");
+    if (!res.ok || !json || json.ok !== true) {
+      throw new Error(json?.error || "This form is still syncing. Retry here, open the form editor, or ask Pura to help.");
+    }
     setForm(json.form as CreditForm);
   }, [formId]);
 
@@ -201,7 +203,9 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
 
       const res = await fetch(url.toString(), { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load submissions");
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "This page of responses is still syncing. Retry here, open the form editor, or ask Pura to help.");
+      }
 
       const page = Array.isArray(json.submissions) ? (json.submissions as Submission[]) : [];
       setSubmissions(page);
@@ -224,10 +228,12 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
           { cache: "no-store" },
         );
         const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load submission");
+        if (!res.ok || !json || json.ok !== true) {
+          throw new Error(json?.error || "Submission details are still syncing. Retry here, go back to responses, or ask Pura to help.");
+        }
         setSelectedSubmission(json as SubmissionDetailsResponse);
       } catch (e) {
-        setSelectedError(normalizeResponsesError(e, "Submission details did not load. Retry here, go back to responses, or ask Pura to help."));
+        setSelectedError(normalizeResponsesError(e, "Submission details are still syncing. Retry here, go back to responses, or ask Pura to help."));
       } finally {
         setSelectedBusy(false);
       }
@@ -244,7 +250,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
       setCursorStack([]);
       await loadSubmissions({ cursor: null });
     } catch (e) {
-      setError(normalizeResponsesError(e, "Form responses did not load. Retry here, open the form editor, or ask Pura to help."));
+      setError(normalizeResponsesError(e, "Form responses are still syncing. Retry here, open the form editor, or ask Pura to help."));
     } finally {
       setBusy(false);
     }
@@ -274,7 +280,9 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
 
         const res = await fetch(url.toString(), { cache: "no-store" });
         const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to export CSV");
+        if (!res.ok || !json || json.ok !== true) {
+          throw new Error(json?.error || "CSV export did not finish. Retry here or review responses in the table.");
+        }
 
         const pageItems = Array.isArray(json.submissions) ? (json.submissions as Submission[]) : [];
         all.push(...pageItems);
@@ -331,7 +339,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         await loadSubmissions({ cursor: null });
       } catch (e) {
         if (!mounted) return;
-        setError(normalizeResponsesError(e, "Form responses did not load. Retry here, open the form editor, or ask Pura to help."));
+        setError(normalizeResponsesError(e, "Form responses are still syncing. Retry here, open the form editor, or ask Pura to help."));
       } finally {
         if (mounted) setBusy(false);
       }
@@ -349,7 +357,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
       setCursorStack(next.stack);
       await loadSubmissions({ cursor: next.cursor });
     } catch (e) {
-      setError(normalizeResponsesError(e, "This page of responses did not load. Retry here, open the form editor, or ask Pura to help."));
+      setError(normalizeResponsesError(e, "This page of responses is still syncing. Retry here, open the form editor, or ask Pura to help."));
     } finally {
       setBusy(false);
     }
@@ -486,7 +494,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         {submissions.length === 0 ? (
           <div className="p-6">
             <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5">
-              <div className="text-sm font-semibold text-zinc-900">{busy ? "Loading submissions…" : "No submissions yet"}</div>
+              <div className="text-sm font-semibold text-zinc-900">{busy ? "Loading submissions…" : "No form submissions yet"}</div>
               <div className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
                 {busy
                   ? "We are pulling the latest responses now."

@@ -87,7 +87,7 @@ export function PortalMediaPickerModalCompact({
       if (!res.ok || !json || json.ok !== true) {
         setLoading(false);
         setItems([]);
-        setError(typeof (json as any)?.error === "string" ? (json as any).error : "Media did not load. Retry here or open media library.");
+        setError(typeof (json as any)?.error === "string" ? (json as any).error : "Media is still syncing. Retry here or open media library.");
         return;
       }
 

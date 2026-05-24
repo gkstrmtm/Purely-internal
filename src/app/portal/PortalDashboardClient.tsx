@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 
@@ -10,6 +10,9 @@ import { IconEdit } from "@/app/portal/PortalIcons";
 import { formatSavedTime } from "@/lib/formatSavedTime";
 import { buildDashboardLayout, type DashboardLayoutItem as SharedDashboardLayoutItem, type DashboardWidgetId } from "@/lib/portalDashboardLayout";
 import { reportPortalActionFailure } from "@/lib/portalDiagnostics.client";
+import type { GrowthReadinessPayload } from "@/lib/portalGrowthReadiness";
+import { buildGuidanceItems, guidanceStatusColors, guidanceStatusLabel, type GuidanceItem } from "@/lib/portalGuidance";
+import { moduleByKey } from "@/lib/portalModulesCatalog";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
@@ -49,6 +52,12 @@ const dashboardEditResetButtonClass =
 const dashboardSuggestionButtonClass =
   "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-colors duration-150 hover:bg-slate-600 disabled:opacity-60";
 
+const dashboardInfoCardClass =
+  "flex h-full min-h-[190px] flex-col rounded-3xl border border-zinc-200 bg-zinc-50 p-4";
+
+const dashboardServiceCardBaseClass =
+  "flex h-full min-h-[220px] flex-col rounded-3xl border p-4 shadow-sm transition-transform duration-150 hover:-translate-y-0.5";
+
 type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
 
 type MeResponse = {
@@ -74,6 +83,23 @@ type ReportingPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
+  externalBookingHandoff?: {
+    enabled: boolean;
+    providerConfirmationAvailable: boolean;
+    providerConfirmationConnected: boolean;
+    totalHandoffs: number;
+    directHandoffs: number;
+    leadFirstCaptures: number;
+    confirmedViaRedirect: number;
+    providerConfirmedBookings: number;
+    providerCanceledBookings: number;
+    providerRescheduledBookings: number;
+    guidance: {
+      state: "disabled" | "provider_not_connected" | "no_handoffs" | "handoffs_only" | "captured_leads" | "redirect_confirmed" | "provider_confirmed";
+      title: string;
+      detail: string;
+    };
+  };
   diagnostics: {
     actionFailures: number;
     runtimeErrors: number;
@@ -134,7 +160,82 @@ type ReportingPayload = {
 };
 
 type MediaStatsPayload =
-  | { ok: true; itemsCount: number; foldersCount: number }
+  | {
+      ok: true;
+      itemsCount: number;
+      foldersCount: number;
+      distributionContinuity?: {
+        plannedPosts: number;
+        approvedPosts: number;
+        readyToUseAssets: number;
+        unscheduledReadyAssets: number;
+        needsCaptionAssets: number;
+        notesNeededAssets: number;
+        needsApprovalAssets: number;
+        missingCtaAssets: number;
+        manuallyPostedAssets: number;
+        providerReadyAssets: number;
+        providerBlockedAssets: number;
+        providerFailedAssets: number;
+        youtubePreparedAssets: number;
+      };
+    }
+  | { ok: false; error?: string };
+
+type MediaDistributionContinuity = NonNullable<Extract<MediaStatsPayload, { ok: true }>['distributionContinuity']>;
+
+type DashboardServicesStatus =
+  | {
+      ok: true;
+      statuses: Record<
+        string,
+        {
+          state: "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled";
+          label: string;
+          access: {
+            state: string;
+            label: string;
+          };
+          readiness: {
+            state: "ready" | "needs_setup" | "needs_connection" | "empty" | "blocked";
+            label: string;
+            helper: string;
+            ctaLabel: string;
+            href: string | null;
+          };
+        }
+      >;
+    }
+  | {
+      ok: false;
+      error?: string;
+    };
+
+type ServiceCoverageState = "ready" | "needs_setup" | "provider_blocked" | "not_enabled" | "checking";
+
+type ServiceCoverageModule = {
+  key: ModuleKey;
+  name: string;
+  serviceSlug: string;
+  defaultHref: string;
+  enabled: boolean;
+  coverageState: ServiceCoverageState;
+  stateLabel: string;
+  badgeLabel: string;
+  helper: string;
+  ctaLabel: string | null;
+  ctaHref: string | null;
+};
+
+function formatNaturalList(items: string[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+type GrowthReadinessResponse =
+  | ({ ok: true } & GrowthReadinessPayload)
   | { ok: false; error?: string };
 
 type SalesIntegrationStatusPayload =
@@ -255,13 +356,131 @@ function AccentCard({
   );
 }
 
+function widgetEditDescription(id: DashboardWidgetId): string {
+  switch (id) {
+    case "services":
+      return "Service coverage summary, quick links, and live-plan status for the workspace.";
+    case "puraAttention":
+      return "Priority issues and the fastest path into Pura or the right service.";
+    case "activityPulse":
+      return "Recent activity signal so the dashboard feels active instead of static.";
+    case "dailyActivity":
+      return "Day-by-day reporting detail for recent workspace activity.";
+    case "billing":
+      return "Billing posture, credits, and payment-state context for this workspace.";
+    default:
+      return "Resize and place this widget where it best supports the resting dashboard.";
+  }
+}
+
+function DashboardEditPreviewCard({ id, title, active }: { id: DashboardWidgetId; title: string; active: boolean }) {
+  const shellClass = classNames(
+    "flex h-full flex-col justify-between rounded-3xl border border-dashed border-zinc-200 bg-zinc-50/80 p-4",
+    active && "border-brand-ink/25 bg-white shadow-sm",
+  );
+
+  const previewBody = (() => {
+    switch (id) {
+      case "services":
+        return (
+          <div className={shellClass}>
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-zinc-900">Layout preview</div>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Services</span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="rounded-2xl border border-zinc-200 bg-white p-3">
+                    <div className="h-3 w-20 rounded-full bg-zinc-200/90" />
+                    <div className="mt-2 h-2.5 w-16 rounded-full bg-zinc-100" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-xs text-zinc-600">Summary footer and quick links stay anchored at the bottom.</div>
+          </div>
+        );
+      case "activityPulse":
+      case "dailyActivity":
+        return (
+          <div className={shellClass}>
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Layout preview</div>
+              <div className="mt-2 text-sm leading-relaxed text-zinc-600">Resize this chart block without redrawing the full live reporting surface on every frame.</div>
+            </div>
+            <div className="mt-4 flex h-24 items-end gap-2">
+              {[28, 54, 38, 70, 46, 62, 34].map((height, index) => (
+                <div key={index} className="flex-1 rounded-t-2xl bg-zinc-300/80" style={{ height: `${height}%` }} />
+              ))}
+            </div>
+          </div>
+        );
+      case "puraAttention":
+        return (
+          <div className={shellClass}>
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Layout preview</div>
+              <div className="mt-3 space-y-2">
+                <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-3">
+                  <div className="h-3 w-28 rounded-full bg-rose-200" />
+                  <div className="mt-2 h-2.5 w-full rounded-full bg-white/80" />
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                  <div className="h-3 w-24 rounded-full bg-zinc-200" />
+                  <div className="mt-2 h-2.5 w-4/5 rounded-full bg-zinc-100" />
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 text-xs text-zinc-600">Attention items and routing actions keep their hierarchy once you drop the widget.</div>
+          </div>
+        );
+      case "billing":
+        return (
+          <div className={shellClass}>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="h-3 w-16 rounded-full bg-zinc-200" />
+                <div className="mt-3 h-6 w-20 rounded-full bg-zinc-100" />
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="h-3 w-14 rounded-full bg-zinc-200" />
+                <div className="mt-3 h-6 w-16 rounded-full bg-zinc-100" />
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-xs text-zinc-600">Billing actions and credit context return after resize ends.</div>
+          </div>
+        );
+      default:
+        return (
+          <div className={shellClass}>
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Layout preview</div>
+              <div className="mt-2 text-sm leading-relaxed text-zinc-600">{widgetEditDescription(id)}</div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1">Drag by handle</span>
+              <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1">Resize from corner</span>
+            </div>
+          </div>
+        );
+    }
+  })();
+
+  return (
+    <AccentCard title={title} widgetId={id} showHandle={true}>
+      {previewBody}
+    </AccentCard>
+  );
+}
+
 function compactNum(n: number) {
   const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
   return v.toLocaleString();
 }
 
 function formatPct(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Not enough data yet";
   return `${Math.round(value * 100)}%`;
 }
 
@@ -364,7 +583,7 @@ const PREVIEW_REPORTING: ReportingPayload = {
     resourceErrors: 3,
     manualBugReports: 2,
     topPaths: [{ path: "/portal/app/services/funnel-builder", count: 5 }],
-    topMessages: [{ kind: "action_failure", message: "Dashboard changes did not save. Retry here, open services, or ask Pura to help.", count: 2 }],
+    topMessages: [{ kind: "action_failure", message: "Unable to save dashboard", count: 2 }],
   },
   kpis: {
     automationsRun: 412,
@@ -409,44 +628,228 @@ const PREVIEW_REPORTING: ReportingPayload = {
   ],
 };
 
-const PREVIEW_MEDIA_STATS: MediaStatsPayload = { ok: true, itemsCount: 44, foldersCount: 3 };
+const PREVIEW_MEDIA_STATS: MediaStatsPayload = {
+  ok: true,
+  itemsCount: 44,
+  foldersCount: 3,
+  distributionContinuity: {
+    plannedPosts: 3,
+    approvedPosts: 2,
+    readyToUseAssets: 4,
+    unscheduledReadyAssets: 3,
+    needsCaptionAssets: 2,
+    notesNeededAssets: 1,
+    needsApprovalAssets: 1,
+    missingCtaAssets: 3,
+    manuallyPostedAssets: 5,
+    providerReadyAssets: 0,
+    providerBlockedAssets: 3,
+    providerFailedAssets: 0,
+    youtubePreparedAssets: 1,
+  },
+};
+
+function contentAssetsNeedingCopyOrNotes(continuity: MediaDistributionContinuity) {
+  return (continuity.needsCaptionAssets ?? 0) + (continuity.notesNeededAssets ?? 0);
+}
+
+function buildContentGuidanceItem(args: {
+  continuity: MediaDistributionContinuity;
+  isCreditWorkspace: boolean;
+  href: string;
+}): GuidanceItem | null {
+  const { continuity, isCreditWorkspace, href } = args;
+  const needsCopyOrNotes = contentAssetsNeedingCopyOrNotes(continuity);
+  const usableAssets = (continuity.unscheduledReadyAssets ?? 0) + (continuity.plannedPosts ?? 0) + (continuity.manuallyPostedAssets ?? 0);
+  const youtubePreparedAssets = continuity.youtubePreparedAssets ?? 0;
+
+  if ((continuity.unscheduledReadyAssets ?? 0) > 0) {
+    return {
+      id: 'content-ready-not-scheduled',
+      priority: 0,
+      category: 'growth',
+      status: 'opportunity',
+      title: isCreditWorkspace ? 'You have consultation support content ready but not scheduled' : 'You have content ready but not scheduled',
+      reason: isCreditWorkspace
+        ? `${continuity.unscheduledReadyAssets.toLocaleString()} asset${continuity.unscheduledReadyAssets === 1 ? '' : 's'} can support consultation demand, but ${continuity.unscheduledReadyAssets === 1 ? 'it is' : 'they are'} not on the calendar yet.`
+        : `${continuity.unscheduledReadyAssets.toLocaleString()} asset${continuity.unscheduledReadyAssets === 1 ? '' : 's'} can support business growth, but ${continuity.unscheduledReadyAssets === 1 ? 'it is' : 'they are'} not on the calendar yet.`,
+      nextActionLabel: 'Open content workflow',
+      href,
+    };
+  }
+
+  if ((continuity.plannedPosts ?? 0) > 0 && (continuity.manuallyPostedAssets ?? 0) === 0) {
+    return {
+      id: 'content-planned-not-posted',
+      priority: 0,
+      category: 'follow-up',
+      status: 'needs-attention',
+      title: isCreditWorkspace ? 'You planned consultation support content but have not marked anything posted' : 'You planned content but have not marked anything posted',
+      reason: `${continuity.plannedPosts.toLocaleString()} planned item${continuity.plannedPosts === 1 ? '' : 's'} ${continuity.plannedPosts === 1 ? 'is' : 'are'} stored here, but there is no manual post history yet.`,
+      nextActionLabel: 'Review schedule',
+      href,
+    };
+  }
+
+  if ((continuity.providerBlockedAssets ?? 0) > 0 && ((continuity.plannedPosts ?? 0) > 0 || usableAssets > 0 || youtubePreparedAssets > 0)) {
+    return {
+      id: 'content-provider-manual',
+      priority: 0,
+      category: 'setup',
+      status: 'blocked',
+      title: isCreditWorkspace ? 'You are preparing consultation support content, but publishing is still manual' : 'You are preparing content, but provider publishing is still manual',
+      reason: youtubePreparedAssets > 0
+        ? `${continuity.providerBlockedAssets.toLocaleString()} asset${continuity.providerBlockedAssets === 1 ? '' : 's'} still sit in a manual-only provider lane, including ${youtubePreparedAssets.toLocaleString()} future YouTube video ${youtubePreparedAssets === 1 ? 'plan' : 'plans'}.`
+        : `${continuity.providerBlockedAssets.toLocaleString()} asset${continuity.providerBlockedAssets === 1 ? '' : 's'} still sit in a manual-only provider lane, so the next live step stays inside Media Library planning and manual posting.`,
+      nextActionLabel: 'Open content workflow',
+      href,
+    };
+  }
+
+  if (usableAssets === 0) {
+    return {
+      id: 'content-build-more-usable',
+      priority: 0,
+      category: 'growth',
+      status: 'opportunity',
+      title: isCreditWorkspace ? 'Add more usable consultation support content before expecting demand lift' : 'Add more usable content before expecting traffic lift',
+      reason: needsCopyOrNotes > 0
+        ? `${needsCopyOrNotes.toLocaleString()} asset${needsCopyOrNotes === 1 ? '' : 's'} still need caption or planning notes before they can move into a usable queue.`
+        : 'Media Library does not yet show enough ready, planned, or manually posted content to expect a meaningful lift from consistency.',
+      nextActionLabel: 'Open content workflow',
+      href,
+    };
+  }
+
+  return null;
+}
+
+async function fetchWithRetry(input: string, init?: RequestInit, attempts = 2) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const res = await fetch(input, init).catch(() => null as any);
+    if (res && (res.ok || res.status < 500)) return res;
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+    }
+  }
+
+  return null as any;
+}
 
 export function PortalDashboardClient() {
   const pathname = usePathname() || "";
-  const router = useRouter();
   const toast = useToast();
   const uiPreview = usePortalUiPreview();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
   const [data, setData] = useState<MeResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
+  const [contentWorkflowStats, setContentWorkflowStats] = useState<MediaDistributionContinuity | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload["data"] | null>(null);
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationStatusPayload | null>(null);
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
   const [salesError, setSalesError] = useState<string | null>(null);
+  const [servicesStatus, setServicesStatus] = useState<DashboardServicesStatus | null>(null);
+  const [growthReadiness, setGrowthReadiness] = useState<GrowthReadinessResponse | null>(null);
+  const [dashboardGrowthLoading, setDashboardGrowthLoading] = useState(true);
+  const [dashboardGrowthError, setDashboardGrowthError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
 
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (uiPreview) {
+        setContentWorkflowStats(PREVIEW_MEDIA_STATS.ok ? (PREVIEW_MEDIA_STATS.distributionContinuity ?? null) : null);
+        return;
+      }
+
+      const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
+      const response = await fetchWithRetry("/api/portal/media/stats", {
+        cache: "no-store",
+        headers: { "x-portal-variant": requestPortalVariant },
+      });
+
+      if (!mounted) return;
+
+      if (!response?.ok) {
+        setContentWorkflowStats(null);
+        return;
+      }
+
+      const stats = (await response.json().catch(() => null)) as MediaStatsPayload | null;
+      setContentWorkflowStats(stats?.ok ? (stats.distributionContinuity ?? null) : null);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [pathname, uiPreview]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (uiPreview) {
+        setDashboardGrowthLoading(false);
+        setDashboardGrowthError(null);
+        setGrowthReadiness(null);
+        return;
+      }
+
+      const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
+      setDashboardGrowthLoading(true);
+      setDashboardGrowthError(null);
+
+      const growthRes = await fetchWithRetry("/api/portal/growth/readiness", {
+        cache: "no-store",
+        headers: { "x-portal-variant": requestPortalVariant },
+      });
+
+      if (!mounted) return;
+
+      if (growthRes?.ok) {
+        const growth = (await growthRes.json().catch(() => null)) as GrowthReadinessResponse | null;
+        if (growth) setGrowthReadiness(growth);
+        setDashboardGrowthError(null);
+      } else {
+        const growthBody = growthRes
+          ? ((await growthRes.json().catch(() => null)) as { error?: string } | null)
+          : null;
+        setDashboardGrowthError(growthBody?.error ?? "Unable to load growth readiness");
+      }
+
+      setDashboardGrowthLoading(false);
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [pathname, uiPreview]);
+
   const [editMode, setEditMode] = useState(false);
   const [savingLayout, setSavingLayout] = useState(false);
 
   const [editSnapshot, setEditSnapshot] = useState<ResponsiveLayouts | null>(null);
+  const [activeEditWidgetId, setActiveEditWidgetId] = useState<DashboardWidgetId | null>(null);
 
   const [layouts, setLayouts] = useState<ResponsiveLayouts>({} as ResponsiveLayouts);
 
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
 
-  function reloadDashboard() {
-    setError(null);
-    setSalesError(null);
-    setReloadTick((current) => current + 1);
-  }
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (editMode) root.setAttribute("data-pa-hide-floating-tools", "1");
+    else root.removeAttribute("data-pa-hide-floating-tools");
+    return () => {
+      root.removeAttribute("data-pa-hide-floating-tools");
+    };
+  }, [editMode]);
 
   useEffect(() => {
     const el = containerEl;
@@ -486,6 +889,7 @@ export function PortalDashboardClient() {
         setReporting(PREVIEW_REPORTING);
         setMediaStats(PREVIEW_MEDIA_STATS);
         setDashboard(PREVIEW_DASHBOARD_DATA);
+        setGrowthReadiness(null);
         const base: LayoutItem[] = PREVIEW_DASHBOARD_DATA.layout.map((l) => ({
           i: l.i,
           x: l.x,
@@ -518,28 +922,49 @@ export function PortalDashboardClient() {
 
       const requiredController = new AbortController();
       const requiredTimeout = window.setTimeout(() => requiredController.abort(), 60000);
+      const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
 
       const loadOptionalData = async () => {
         const optionalController = new AbortController();
         const optionalTimeout = window.setTimeout(() => optionalController.abort(), 15000);
 
         try {
-          const [repRes, statsRes] = await Promise.all([
-            fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
-            fetch("/api/portal/media/stats", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
+          const [repRes, statsRes, svcRes, growthRes] = await Promise.all([
+            fetchWithRetry("/api/portal/reporting?range=30d", {
+              cache: "no-store",
+              signal: optionalController.signal,
+              headers: { "x-portal-variant": requestPortalVariant },
+            }),
+            fetchWithRetry("/api/portal/media/stats", {
+              cache: "no-store",
+              signal: optionalController.signal,
+              headers: { "x-portal-variant": requestPortalVariant },
+            }),
+            fetchWithRetry("/api/portal/services/status", {
+              cache: "no-store",
+              signal: optionalController.signal,
+              headers: { "x-portal-variant": requestPortalVariant },
+            }),
+            fetchWithRetry("/api/portal/growth/readiness", {
+              cache: "no-store",
+              signal: optionalController.signal,
+              headers: { "x-portal-variant": requestPortalVariant },
+            }),
           ]);
 
           if (!mounted) return;
 
           if (repRes?.ok) {
             const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
-            if (rep?.ok) setReporting(rep);
+            if (rep?.ok) {
+              setReporting(rep);
+            }
           } else if (repRes) {
             reportPortalActionFailure({
               area: "dashboard",
               action: "load_reporting",
               status: repRes.status,
-              message: "Unable to load reporting",
+              message: "Reporting is still syncing from the dashboard. Open reporting and retry there.",
               source: "portal_dashboard",
             });
           }
@@ -548,20 +973,29 @@ export function PortalDashboardClient() {
             const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
             if (stats) setMediaStats(stats);
           }
+
+          if (svcRes?.ok) {
+            const svc = (await svcRes.json().catch(() => null)) as DashboardServicesStatus | null;
+            if (svc) setServicesStatus(svc);
+          }
+
+          if (growthRes?.ok) {
+            const growth = (await growthRes.json().catch(() => null)) as GrowthReadinessResponse | null;
+            if (growth) setGrowthReadiness(growth);
+          }
         } finally {
           window.clearTimeout(optionalTimeout);
         }
       };
 
       try {
-        const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
         const [meRes, dashRes] = await Promise.all([
-          fetch("/api/customer/me", {
+          fetchWithRetry("/api/portal/me", {
             cache: "no-store",
             signal: requiredController.signal,
             headers: { "x-pa-app": "portal", "x-portal-variant": requestPortalVariant },
           }),
-          fetch(`/api/portal/dashboard?scope=${dashboardScope}` , {
+          fetchWithRetry(`/api/portal/dashboard?scope=${dashboardScope}` , {
             cache: "no-store",
             signal: requiredController.signal,
             headers: { "x-portal-variant": requestPortalVariant },
@@ -570,9 +1004,14 @@ export function PortalDashboardClient() {
 
         if (!mounted) return;
 
+        if (!meRes || !dashRes) {
+          setError("Unable to load dashboard");
+          return;
+        }
+
         if (!meRes.ok) {
           const body = await meRes.json().catch(() => ({}));
-          const message = body?.error ?? "Dashboard data did not load. Retry here, open services, or ask Pura to help.";
+          const message = body?.error ?? "Unable to load dashboard";
           reportPortalActionFailure({ area: "dashboard", action: "load_me", status: meRes.status, message, source: "portal_dashboard" });
           setError(message);
           return;
@@ -582,7 +1021,7 @@ export function PortalDashboardClient() {
 
         if (!dashRes.ok) {
           const body = await dashRes.json().catch(() => ({}));
-          const message = body?.error ?? "Dashboard layout did not load. Retry here, open services, or ask Pura to help.";
+          const message = body?.error ?? "Unable to load dashboard layout";
           reportPortalActionFailure({ area: "dashboard", action: "load_layout", status: dashRes.status, message, source: "portal_dashboard" });
           setError(message);
           return;
@@ -612,8 +1051,8 @@ export function PortalDashboardClient() {
           reportPortalActionFailure({ area: "dashboard", action: "load", message: "Dashboard data is taking too long to load. Please wait a moment and try again.", source: "portal_dashboard", meta: { timedOut: true } });
           setError("Dashboard data is taking too long to load. Please wait a moment and try again.");
         } else {
-          reportPortalActionFailure({ area: "dashboard", action: "load", message: "Dashboard data did not load. Retry here, open services, or ask Pura to help.", source: "portal_dashboard" });
-          setError("Dashboard data did not load. Retry here, open services, or ask Pura to help.");
+          reportPortalActionFailure({ area: "dashboard", action: "load", message: "Unable to load dashboard", source: "portal_dashboard" });
+          setError("Unable to load dashboard");
         }
       } finally {
         window.clearTimeout(requiredTimeout);
@@ -623,28 +1062,166 @@ export function PortalDashboardClient() {
     return () => {
       mounted = false;
     };
-  }, [pathname, reloadTick, uiPreview]);
+  }, [pathname, uiPreview]);
 
-  const modules = useMemo(
-    () =>
-      [
-        { key: "blog" as const, name: "Blog Automation" },
-        { key: "booking" as const, name: "Booking Automation" },
-        { key: "crm" as const, name: "CRM / Follow-up" },
-        { key: "leadOutbound" as const, name: "AI Outbound" },
-      ].map((m) => ({ ...m, enabled: !!data?.entitlements?.[m.key] })),
-    [data],
-  );
+  const modules = useMemo((): ServiceCoverageModule[] => {
+    const billingReady = Boolean(data?.billing?.configured);
+    const statuses = servicesStatus && servicesStatus.ok ? servicesStatus.statuses : null;
+
+    return [
+      {
+        key: "blog" as const,
+        name: moduleByKey("blog").title,
+        serviceSlug: "blogs",
+        defaultHref: `${portalBase}/app/services/blogs`,
+        disabledHelper: billingReady
+          ? "Automated Blogs is optional. Turn it on in Billing when you want publishing active in this workspace."
+          : "Billing is not connected, so Automated Blogs is not enabled in this workspace yet.",
+      },
+      {
+        key: "booking" as const,
+        name: moduleByKey("booking").title,
+        serviceSlug: "booking",
+        defaultHref: `${portalBase}/app/services/booking`,
+        disabledHelper: billingReady
+          ? "Booking Automation is optional. It includes confirmations, reminders, and post-booking follow-up when you turn it on in Billing."
+          : "Billing is not connected, so Booking Automation and its follow-up workflow are not enabled in this workspace yet.",
+      },
+      {
+        key: "leadOutbound" as const,
+        name: moduleByKey("leadOutbound").title,
+        serviceSlug: "ai-outbound-calls",
+        defaultHref: `${portalBase}/app/services/ai-outbound-calls`,
+        disabledHelper: billingReady
+          ? "AI Outbound is optional. Turn it on in Billing when you want outbound calling and follow-up campaigns active here."
+          : "Billing is not connected, so AI Outbound is not enabled in this workspace yet.",
+      },
+    ].map((module) => {
+      const enabled = Boolean(data?.entitlements?.[module.key]);
+      const status = statuses?.[module.serviceSlug];
+
+      if (!enabled || status?.state === "locked" || status?.state === "paused" || status?.state === "canceled") {
+        return {
+          ...module,
+          enabled,
+          coverageState: "not_enabled",
+          stateLabel: billingReady ? "Not enabled in this workspace" : "Billing not connected",
+          badgeLabel: billingReady ? "Optional" : "Billing",
+          helper: module.disabledHelper,
+          ctaLabel: billingReady ? "Manage in Billing" : "Open Billing",
+          ctaHref: `${portalBase}/app/billing`,
+        };
+      }
+
+      if (!status) {
+        return {
+          ...module,
+          enabled,
+          coverageState: "checking",
+          stateLabel: "Checking setup",
+          badgeLabel: "Checking",
+          helper: "This service is unlocked. The dashboard is still checking whether it needs setup or is ready to use.",
+          ctaLabel: "Open service",
+          ctaHref: module.defaultHref,
+        };
+      }
+
+      if (status.readiness.state === "ready") {
+        return {
+          ...module,
+          enabled,
+          coverageState: "ready",
+          stateLabel: "Ready to use",
+          badgeLabel: "Ready",
+          helper: status.readiness.helper,
+          ctaLabel: status.readiness.ctaLabel,
+          ctaHref: status.readiness.href ?? module.defaultHref,
+        };
+      }
+
+      const providerBlocked = status.readiness.state === "needs_connection" || status.readiness.state === "blocked";
+      return {
+        ...module,
+        enabled,
+        coverageState: providerBlocked ? "provider_blocked" : "needs_setup",
+        stateLabel: providerBlocked ? "Provider blocker" : "Needs setup",
+        badgeLabel: providerBlocked ? "Blocked" : "Setup",
+        helper: status.readiness.helper,
+        ctaLabel: status.readiness.ctaLabel,
+        ctaHref: status.readiness.href ?? module.defaultHref,
+      };
+    });
+  }, [data, portalBase, servicesStatus]);
 
   const dashboardSuggestionIds = useMemo(() => {
     const current = new Set((dashboard?.widgets ?? []).map((widget) => widget.id));
     return (["puraAttention", "activityPulse", "successRate", "dailyActivity"] as DashboardWidgetId[]).filter((id) => !current.has(id));
   }, [dashboard]);
 
+  const contentGuidanceItem = useMemo((): GuidanceItem | null => {
+    const continuity = contentWorkflowStats || (mediaStats && mediaStats.ok ? mediaStats.distributionContinuity : null);
+    if (!continuity) return null;
+
+    return buildContentGuidanceItem({
+      continuity,
+      isCreditWorkspace: portalBase === "/credit",
+      href: `${portalBase}/app/services/media-library`,
+    });
+  }, [contentWorkflowStats, mediaStats, portalBase]);
+
+  const guidanceItems = useMemo((): GuidanceItem[] => {
+    if (!data) return [];
+    const isCredit = portalBase === "/credit";
+    const svcStatuses =
+      servicesStatus && servicesStatus.ok ? servicesStatus.statuses : {};
+    const built = buildGuidanceItems({
+      isCreditWorkspace: isCredit,
+      portalBase,
+      billingConfigured: Boolean(data.billing?.configured),
+      statuses: svcStatuses,
+      kpis: reporting?.kpis
+        ? {
+            leadsCreated: reporting.kpis.leadsCreated ?? 0,
+            contactsCreated: reporting.kpis.contactsCreated ?? 0,
+            bookingsCreated: reporting.kpis.bookingsCreated ?? 0,
+            aiCalls: reporting.kpis.aiCalls ?? 0,
+            textsSent: reporting.kpis.textsSent ?? 0,
+            missedCalls: reporting.kpis.missedCalls ?? 0,
+            nurtureEnrollmentsCreated: reporting.kpis.nurtureEnrollmentsCreated ?? 0,
+            newsletterSentCount: reporting.kpis.newsletterSentCount ?? 0,
+            reviewsCollected: reporting.kpis.reviewsCollected ?? 0,
+            blogGenerations: reporting.kpis.blogGenerations ?? 0,
+            tasksOpenNow: reporting.kpis.tasksOpenNow ?? 0,
+            inboxMessagesIn: reporting.kpis.inboxMessagesIn ?? 0,
+            inboxMessagesOut: reporting.kpis.inboxMessagesOut ?? 0,
+            externalBookingHandoff: reporting.externalBookingHandoff
+              ? {
+                  enabled: reporting.externalBookingHandoff.enabled,
+                  providerConfirmationAvailable: reporting.externalBookingHandoff.providerConfirmationAvailable ?? false,
+                  providerConfirmationConnected: reporting.externalBookingHandoff.providerConfirmationConnected ?? false,
+                  totalHandoffs: reporting.externalBookingHandoff.totalHandoffs ?? 0,
+                  directHandoffs: reporting.externalBookingHandoff.directHandoffs ?? 0,
+                  leadFirstCaptures: reporting.externalBookingHandoff.leadFirstCaptures ?? 0,
+                  confirmedViaRedirect: reporting.externalBookingHandoff.confirmedViaRedirect ?? 0,
+                  providerConfirmedBookings: reporting.externalBookingHandoff.providerConfirmedBookings ?? 0,
+                  providerCanceledBookings: reporting.externalBookingHandoff.providerCanceledBookings ?? 0,
+                  providerRescheduledBookings: reporting.externalBookingHandoff.providerRescheduledBookings ?? 0,
+                  guidance: reporting.externalBookingHandoff.guidance,
+                }
+              : null,
+          }
+        : null,
+    });
+
+    return built;
+  }, [data, portalBase, reporting, servicesStatus]);
+
   const hasStripeSalesWidget = useMemo(
     () => Boolean(dashboard?.widgets?.some((w) => w.id === "stripeSales")),
     [dashboard],
   );
+
+  const growthPayload = growthReadiness && growthReadiness.ok ? growthReadiness : null;
 
   useEffect(() => {
     if (uiPreview) {
@@ -671,8 +1248,8 @@ export function PortalDashboardClient() {
       if (!mounted) return;
 
       if (!statusRes?.ok) {
-        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: "Sales status did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.", status: statusRes?.status, source: "portal_dashboard" });
-        setSalesError("Sales status did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.");
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: "Unable to load sales status", status: statusRes?.status, source: "portal_dashboard" });
+        setSalesError("Unable to load sales status");
         return;
       }
 
@@ -682,8 +1259,8 @@ export function PortalDashboardClient() {
       if (!statusBody?.ok) {
         setSalesStatus(null);
         setSalesReport(null);
-        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: statusBody?.error ?? "Sales status did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.", source: "portal_dashboard" });
-        setSalesError(statusBody?.error ?? "Sales status did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.");
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: statusBody?.error ?? "Unable to load sales status", source: "portal_dashboard" });
+        setSalesError(statusBody?.error ?? "Unable to load sales status");
         return;
       }
 
@@ -703,8 +1280,8 @@ export function PortalDashboardClient() {
       if (!salesRes?.ok) {
         const errBody = (await salesRes?.json().catch(() => ({}))) as { error?: string };
         setSalesReport(null);
-        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: errBody?.error ?? "Sales totals did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.", status: salesRes?.status, source: "portal_dashboard" });
-        setSalesError(errBody?.error ?? "Sales totals did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.");
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: errBody?.error ?? "Unable to load sales", status: salesRes?.status, source: "portal_dashboard" });
+        setSalesError(errBody?.error ?? "Unable to load sales");
         return;
       }
 
@@ -713,8 +1290,8 @@ export function PortalDashboardClient() {
 
       if (!salesBody?.ok) {
         setSalesReport(null);
-        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: salesBody?.error ?? "Sales totals did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.", source: "portal_dashboard" });
-        setSalesError(salesBody?.error ?? "Sales totals did not load. Retry here, open the sales dashboard, review Stripe setup, or ask Pura to help.");
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: salesBody?.error ?? "Unable to load sales", source: "portal_dashboard" });
+        setSalesError(salesBody?.error ?? "Unable to load sales");
         return;
       }
 
@@ -728,7 +1305,7 @@ export function PortalDashboardClient() {
 
   async function manageBilling() {
     if (!data?.billing?.configured) {
-      router.push(`${portalBase}/app/billing`, { scroll: false });
+      window.location.href = `${portalBase}/app/billing`;
       return;
     }
     setError(null);
@@ -739,7 +1316,7 @@ export function PortalDashboardClient() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      const message = body?.error ?? "Billing portal did not open. Retry here, open services, or ask Pura to help.";
+      const message = body?.error ?? "Unable to open billing portal";
       reportPortalActionFailure({ area: "dashboard", action: "open_billing_portal", status: res.status, message, source: "portal_dashboard" });
       setError(message);
       return;
@@ -748,94 +1325,138 @@ export function PortalDashboardClient() {
     window.location.href = json.url;
   }
 
-  async function upgrade(module: ModuleKey) {
-    if (!data?.billing?.configured) {
-      router.push(`${portalBase}/app/billing`, { scroll: false });
-      return;
-    }
-    setError(null);
-    const res = await fetch("/api/billing/checkout-module", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ module, successPath: `${portalBase}/app`, cancelPath: `${portalBase}/app` }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const message = body?.error ?? "Checkout did not start. Retry here, open services, or ask Pura to help.";
-      reportPortalActionFailure({ area: "dashboard", action: `upgrade_${module}`, status: res.status, message, source: "portal_dashboard", meta: { module } });
-      setError(message);
-      return;
-    }
-    const json = (await res.json()) as { url: string };
-    window.location.href = json.url;
-  }
+  const loadingGrowthPayload = growthReadiness && growthReadiness.ok ? growthReadiness : null;
 
   if (loading) {
+    const isCreditLoading = portalBase === "/credit";
+    const loadingTopActions = loadingGrowthPayload?.topActions?.slice(0, 2) ?? [];
+    const loadingTopAction = loadingTopActions[0] ?? null;
     return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading…
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-sm font-semibold text-zinc-900">{isCreditLoading ? "Credit workspace" : "Your workspace"}</div>
+          <div className="mt-1 text-sm text-zinc-600">
+            {isCreditLoading
+              ? "Loading your credit dashboard — services, workflow status, and billing will appear here."
+              : "Loading your dashboard — services, activity, and billing will appear here."}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <a
+              href={`${portalBase}/app/services`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              View services
+            </a>
+            <a
+              href={`${portalBase}/app/billing`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              View billing
+            </a>
+            {!isCreditLoading ? (
+              <a
+                href={`${portalBase}/app/services/reporting`}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                View reporting
+              </a>
+            ) : null}
+          </div>
+        </div>
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                {loadingGrowthPayload
+                  ? loadingGrowthPayload.isLowActivityWorkspace
+                    ? isCreditLoading
+                      ? "Credit starter path"
+                      : "Starter path"
+                    : isCreditLoading
+                      ? "Credit workspace next actions"
+                      : "Do this next"
+                  : dashboardGrowthLoading
+                    ? "Checking next actions"
+                    : "Safe next routes"}
+              </div>
+              <div className="mt-1 text-sm text-zinc-600">
+                {loadingTopAction
+                  ? "These actions are already available from the stored workspace state while the rest of the dashboard finishes loading."
+                  : dashboardGrowthLoading
+                    ? "Loading growth guidance from the current workspace state."
+                    : "Growth guidance is still syncing, so this dashboard falls back to stable next routes instead of guessing at outcomes."}
+              </div>
+            </div>
+            <a
+              href={`${portalBase}/app/services`}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+            >
+              All services
+            </a>
+          </div>
+
+          {loadingTopAction ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {loadingTopActions.map((action, index) => (
+                <a
+                  key={action.id}
+                  href={action.href}
+                  className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5 hover:bg-zinc-50"
+                >
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    {index === 0 ? "Top action" : "Next step"}
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">{action.title}</div>
+                  <div className="mt-2 text-sm text-zinc-600">{action.detail}</div>
+                  {action.blocker ? <div className="mt-3 text-xs font-semibold text-amber-700">{action.blocker}</div> : null}
+                  <div className="mt-4 text-sm font-semibold text-brand-ink">{action.ctaLabel} →</div>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href={`${portalBase}/app/services`}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                View services
+              </a>
+              <a
+                href={`${portalBase}/app/services/reporting`}
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+              >
+                View reporting
+              </a>
+              {dashboardGrowthError ? (
+                <div className="inline-flex items-center rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-700">
+                  {dashboardGrowthError}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+        <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-500">
+          Dashboard data is loading. If this takes more than a few seconds, try refreshing the page.
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-        <div className="font-semibold text-red-900">Dashboard needs attention</div>
-        <div className="mt-2">{error}</div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={reloadDashboard}
-            className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-          >
-            Retry
-          </button>
-          <Link
-            href={`${portalBase}/app/services`}
-            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
-          >
-            Open services
-          </Link>
-          <Link
-            href={`${portalBase}/app/ai-chat?onboarding=1`}
-            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
-          >
-            Ask Pura
-          </Link>
-        </div>
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
+        {error}
       </div>
     );
   }
 
-  if (!data) {
-    return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        <div className="font-semibold text-zinc-900">Dashboard is not ready yet</div>
-        <div className="mt-2 max-w-2xl">
-          The workspace shell loaded, but the main dashboard data did not finish coming through. Retry here, or jump into Services while the dashboard catches up.
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={reloadDashboard}
-            className={dashboardPrimaryButtonClass}
-          >
-            Retry dashboard
-          </button>
-          <Link href={`${portalBase}/app/services`} className={dashboardSecondaryButtonClass}>
-            Open services
-          </Link>
-          <Link href={`${portalBase}/app/ai-chat?onboarding=1`} className={dashboardSecondaryButtonClass}>
-            Ask Pura
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  if (!data) return null;
 
   const me = data;
   const isCreditWorkspace = portalBase === "/credit";
+  const meMetrics = me.metrics ?? { hoursSavedThisWeek: 0, hoursSavedAllTime: 0 };
+  const billingConfigured = Boolean(me.billing?.configured);
+  const blogEntitled = Boolean(me.entitlements?.blog);
   const k = reporting?.kpis;
   const derived = (() => {
     if (!reporting?.kpis || !reporting) {
@@ -888,44 +1509,123 @@ export function PortalDashboardClient() {
   })();
 
   const widgetIds: DashboardWidgetId[] = (dashboard?.widgets ?? []).map((w) => w.id);
-  const dashboardMissingLayout = !dashboard || widgetIds.length === 0;
-  const activeModuleCount = modules.filter((module) => module.enabled).length;
-  const firstActiveModule = modules.find((module) => module.enabled) ?? null;
-  const servicesWidgetSummary = (() => {
-    if (!me.billing.configured) {
+  const readyModuleCount = modules.filter((module) => module.coverageState === "ready").length;
+  const needsSetupModuleCount = modules.filter((module) => module.coverageState === "needs_setup").length;
+  const providerBlockedModuleCount = modules.filter((module) => module.coverageState === "provider_blocked").length;
+  const notEnabledModuleCount = modules.filter((module) => module.coverageState === "not_enabled").length;
+  const checkingModuleCount = modules.filter((module) => module.coverageState === "checking").length;
+  const firstReadyModule = modules.find((module) => module.coverageState === "ready") ?? null;
+  const readyModuleNames = modules.filter((module) => module.coverageState === "ready").map((module) => module.name);
+  const needsSetupModuleNames = modules.filter((module) => module.coverageState === "needs_setup").map((module) => module.name);
+  const providerBlockedModuleNames = modules.filter((module) => module.coverageState === "provider_blocked").map((module) => module.name);
+  const notEnabledModuleNames = modules.filter((module) => module.coverageState === "not_enabled").map((module) => module.name);
+  const checkingModuleNames = modules.filter((module) => module.coverageState === "checking").map((module) => module.name);
+  const includedToolsSummary = isCreditWorkspace
+    ? "Included tools already available: Pura, Inbox, Media library, Tasks, and the core credit workspace tools. Booking follow-up lives under Booking Automation rather than as a separate paid add-on."
+    : "Included tools already available: Pura, Inbox, Media library, Tasks, and Funnel Builder. Booking follow-up lives under Booking Automation rather than as a separate paid add-on.";
+  const servicesWidgetBanner = (() => {
+    if (!billingConfigured) {
       return {
-        headline: isCreditWorkspace ? "Connect billing for this credit workspace" : "Connect billing for this workspace",
-        body: isCreditWorkspace
-          ? "Billing controls paid service access and credit top-ups before operators can treat this as a live client workspace."
-          : "Billing controls paid service access and credit top-ups before services can go fully live.",
-        primaryHref: `${portalBase}/app/billing`,
-        primaryLabel: isCreditWorkspace ? "Set up billing" : "Connect billing",
+        eyebrow: "Optional workflows",
+        headline: "Billing is not connected yet, so optional workflows stay off.",
+        body: `${includedToolsSummary} Right now ${formatNaturalList(notEnabledModuleNames)} stay off until billing is connected.`,
+        badgeLabel: "Billing not connected",
+        badgeClass: "border-zinc-200 bg-zinc-50 text-zinc-700",
       };
     }
 
-    if (activeModuleCount === 0) {
+    if (notEnabledModuleCount === modules.length) {
       return {
-        headline: isCreditWorkspace ? "No credit workflows are active yet" : "No services are active yet",
-        body: isCreditWorkspace
-          ? "Review the Services page to unlock the first live workflow for reports, consultations, or follow-up."
-          : "Review the Services page to unlock the first live service before routing work into it.",
+        eyebrow: "Optional workflows",
+        headline: "Optional workflows are still intentionally off.",
+        body: `${includedToolsSummary} Turn on only the workflows you actually want in Billing, then come back here to watch setup and provider readiness fill in with real data.`,
+        badgeLabel: "Optional workflows off",
+        badgeClass: "border-zinc-200 bg-zinc-50 text-zinc-700",
+      };
+    }
+
+    if (providerBlockedModuleCount > 0) {
+      return {
+        eyebrow: "Optional workflows",
+        headline: "Some workflows are enabled, but provider setup is still blocking them.",
+        body: `${includedToolsSummary} ${formatNaturalList(providerBlockedModuleNames)} still need provider setup before they can be treated as live.`,
+        badgeLabel: "Provider setup needed",
+        badgeClass: "border-rose-200 bg-rose-50 text-rose-700",
+      };
+    }
+
+    if (needsSetupModuleCount > 0 || checkingModuleCount > 0) {
+      const setupNames = [...needsSetupModuleNames, ...checkingModuleNames];
+      return {
+        eyebrow: "Optional workflows",
+        headline: "Some workflows are enabled, but they still need setup.",
+        body: `${includedToolsSummary} ${formatNaturalList(setupNames)} still need a little more setup before they are ready to use.`,
+        badgeLabel: "Setup still needed",
+        badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
+      };
+    }
+
+    return {
+      eyebrow: "Optional workflows",
+      headline:
+        readyModuleCount === 1 && firstReadyModule
+          ? `${firstReadyModule.name} is turned on and ready to use.`
+          : "Your enabled optional workflows are ready to use.",
+      body: `${includedToolsSummary} ${formatNaturalList(readyModuleNames)} ${readyModuleNames.length === 1 ? "is" : "are"} already enabled in this workspace.`,
+      badgeLabel: "Ready to use",
+      badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    };
+  })();
+  const servicesWidgetSummary = (() => {
+    if (!billingConfigured) {
+      return {
+        headline: "Included tools are ready. Billing only matters when you want optional workflows on.",
+        body: `${includedToolsSummary} If you want ${formatNaturalList(notEnabledModuleNames)} active here, connect billing first.`,
+        primaryHref: `${portalBase}/app/billing`,
+        primaryLabel: "Open Billing",
+      };
+    }
+
+    if (notEnabledModuleCount === modules.length) {
+      return {
+        headline: "Optional workflows are off right now.",
+        body: `${includedToolsSummary} Turn on ${formatNaturalList(notEnabledModuleNames)} in Billing only when you actually want them running in this workspace.`,
+        primaryHref: `${portalBase}/app/billing`,
+        primaryLabel: "Manage in Billing",
+      };
+    }
+
+    const attentionNames = [...needsSetupModuleNames, ...providerBlockedModuleNames, ...checkingModuleNames];
+
+    if (attentionNames.length === 0 && readyModuleCount > 0) {
+      return {
+        headline:
+          readyModuleCount === 1 && firstReadyModule
+            ? `${firstReadyModule.name} is ready to use`
+            : "Your enabled optional workflows are ready to use.",
+        body: `${includedToolsSummary} ${formatNaturalList(readyModuleNames)} ${readyModuleNames.length === 1 ? "is" : "are"} already enabled and can be treated as live here.`,
         primaryHref: `${portalBase}/app/services`,
         primaryLabel: "Review services",
       };
     }
 
     return {
-      headline:
-        activeModuleCount === 1 && firstActiveModule
-          ? `${firstActiveModule.name} is active in this workspace`
-          : `${activeModuleCount} services are active in this workspace`,
-      body: isCreditWorkspace
-        ? "Check the Services page for anything still marked Needs setup before treating it as a live credit workflow."
-        : "Check the Services page for anything still marked Needs setup before treating it as a live service.",
+      headline: readyModuleCount > 0 ? "Some workflows are ready, and some still need attention." : "A few enabled workflows still need attention.",
+      body: `${includedToolsSummary} ${formatNaturalList(attentionNames)} ${attentionNames.length === 1 ? "still needs" : "still need"} setup before everything here feels fully ready.`,
       primaryHref: `${portalBase}/app/services`,
       primaryLabel: "Review services",
     };
   })();
+
+  const serviceQuickLinks = [
+    { href: `${portalBase}/app/onboarding`, label: "Setup checklist" },
+    blogEntitled ? { href: `${portalBase}/app/services/blogs`, label: "Blogs" } : null,
+    { href: `${portalBase}/app/billing`, label: "Billing" },
+    { href: `${portalBase}/app/services/reporting`, label: "Reporting" },
+    { href: `${portalBase}/app/ai-chat`, label: "Pura" },
+    { href: `${portalBase}/app/services/inbox/email`, label: "Inbox" },
+    { href: `${portalBase}/app/services/media-library`, label: "Media library" },
+  ].filter((item): item is { href: string; label: string } => Boolean(item));
 
   const dashboardAttentionItems = (() => {
     const items: Array<{ label: string; value: string; href: string; tone: "danger" | "warning" | "neutral" }> = [];
@@ -1173,6 +1873,7 @@ export function PortalDashboardClient() {
 
   function beginEdit() {
     setEditSnapshot(layouts);
+    setActiveEditWidgetId(null);
     setEditMode(true);
     try {
       window.dispatchEvent(new CustomEvent("pa.portal.dashboard.edit", { detail: { editing: true } }));
@@ -1184,6 +1885,7 @@ export function PortalDashboardClient() {
   function cancelEdit() {
     if (editSnapshot) setLayouts(editSnapshot);
     setEditSnapshot(null);
+    setActiveEditWidgetId(null);
     setEditMode(false);
     try {
       window.dispatchEvent(new CustomEvent("pa.portal.dashboard.edit", { detail: { editing: false } }));
@@ -1196,6 +1898,7 @@ export function PortalDashboardClient() {
     const ok = await saveDashboard(layouts);
     if (ok) {
       setEditSnapshot(null);
+      setActiveEditWidgetId(null);
       setEditMode(false);
 
       try {
@@ -1212,7 +1915,7 @@ export function PortalDashboardClient() {
         body: JSON.stringify({ trigger: "dashboard_saved" }),
       }).catch(() => null);
     } else {
-      setError("Dashboard changes did not save. Retry here, open services, or ask Pura to help.");
+      setError("Unable to save dashboard");
       window.setTimeout(() => setError(null), 2500);
     }
   }
@@ -1364,15 +2067,24 @@ export function PortalDashboardClient() {
     }
   }
 
+  function handleEditInteractionStart(item: LayoutItem | null | undefined) {
+    const nextId = typeof item?.i === "string" ? (item.i as DashboardWidgetId) : null;
+    setActiveEditWidgetId(nextId);
+  }
+
+  function handleEditInteractionStop() {
+    setActiveEditWidgetId(null);
+  }
+
   function renderWidget(id: DashboardWidgetId) {
     switch (id) {
       case "hoursSaved":
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="text-2xl font-bold text-brand-ink">{formatSavedTime(me.metrics.hoursSavedThisWeek)}</div>
+            <div className="text-2xl font-bold text-brand-ink">{formatSavedTime(meMetrics.hoursSavedThisWeek)}</div>
             <div className="mt-1 text-xs text-zinc-500">This week</div>
             <div className="mt-3 text-sm text-zinc-700">
-              All-time: <span className="font-semibold">{formatSavedTime(me.metrics.hoursSavedAllTime)}</span>
+              All-time: <span className="font-semibold">{formatSavedTime(meMetrics.hoursSavedAllTime)}</span>
             </div>
           </AccentCard>
         );
@@ -1382,13 +2094,13 @@ export function PortalDashboardClient() {
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm text-zinc-700">
-                {me.billing.configured ? "Manage your plan and payment method." : "View billing, credits, and top-ups."}
+                {billingConfigured ? "Manage your plan and payment method." : "View billing, credits, and top-ups."}
               </div>
               <button
                 className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
                 onClick={manageBilling}
               >
-                {me.billing.configured ? "Manage" : "Billing"}
+                {billingConfigured ? "Manage" : "Billing"}
               </button>
             </div>
           </AccentCard>
@@ -1458,14 +2170,14 @@ export function PortalDashboardClient() {
                     </div>
                   ))
                 ) : (
-                  <div className="flex h-full w-full flex-col items-start justify-center gap-3 rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-4 text-sm text-zinc-600">
+                  <div className="flex h-full w-full flex-col items-start justify-center gap-3 rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
                     <div>
-                      <div className="font-semibold text-zinc-900">No reporting activity yet</div>
-                      <div className="mt-1">This fills in as calls, bookings, reviews, and reporting-connected events start running.</div>
+                      <div className="font-semibold text-zinc-900">No reporting pulse yet.</div>
+                      <div className="mt-1 text-xs leading-relaxed text-zinc-500">Once calls, bookings, reviews, or lead activity start landing in Purely, this card turns into your 10-day pulse instead of a static summary.</div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
                       <Link href={`${portalBase}/app/services/reporting`} className={dashboardPrimaryButtonClass}>Open reporting</Link>
-                      <Link href={`${portalBase}/app/services`} className={dashboardSecondaryButtonClass}>Review services</Link>
+                      <Link href={`${portalBase}/app/ai-chat`} className={dashboardSecondaryButtonClass}>Open Pura</Link>
                     </div>
                   </div>
                 )}
@@ -1549,40 +2261,15 @@ export function PortalDashboardClient() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                <div className="text-sm text-zinc-700">{salesError ? "Sales need attention" : "Loading sales…"}</div>
+                <div className="text-sm text-zinc-700">Loading sales…</div>
                 {salesError ? <div className="text-xs text-zinc-500">{salesError}</div> : null}
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  {salesError ? (
-                    <button
-                      type="button"
-                      onClick={reloadDashboard}
-                      className={dashboardPrimaryButtonClass}
-                    >
-                      Retry
-                    </button>
-                  ) : null}
                   <Link
                     href={`${portalBase}/app/services/reporting/sales?from=dashboard`}
                     className={dashboardSecondaryButtonClass}
                   >
                     Open sales dashboard
                   </Link>
-                  {salesError ? (
-                    <Link
-                      href={`${portalBase}/app/services/reporting/stripe`}
-                      className={dashboardSecondaryButtonClass}
-                    >
-                      Review Stripe setup
-                    </Link>
-                  ) : null}
-                  {salesError ? (
-                    <Link
-                      href={`${portalBase}/app/ai-chat?onboarding=1`}
-                      className={dashboardSecondaryButtonClass}
-                    >
-                      Ask Pura
-                    </Link>
-                  ) : null}
                 </div>
               </div>
             )}
@@ -1593,95 +2280,97 @@ export function PortalDashboardClient() {
       case "services":
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {modules.map((m) => (
-                <div
-                  key={m.key}
-                  className={
-                    "rounded-2xl border p-4 " +
-                    (m.enabled ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-zinc-50")
-                  }
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">{m.name}</div>
-                      <div className="mt-1 text-xs text-zinc-600">{m.enabled ? "Included in your plan" : "Not active"}</div>
-                    </div>
-                    {!m.enabled ? (
-                      <button
-                        className="shrink-0 rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
-                        onClick={() => upgrade(m.key)}
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{servicesWidgetBanner.eyebrow}</div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">{servicesWidgetBanner.headline}</div>
+                  <div className="mt-1 text-xs leading-relaxed text-zinc-600">{servicesWidgetBanner.body}</div>
+                </div>
+                <div className="flex shrink-0 items-start">
+                  <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold ${servicesWidgetBanner.badgeClass}`}>
+                    {servicesWidgetBanner.badgeLabel}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {modules.map((m) => (
+                  <div
+                    key={m.key}
+                    className={
+                      `${dashboardServiceCardBaseClass} ` +
+                      (m.coverageState === "ready"
+                        ? "border-emerald-200 bg-white"
+                        : m.coverageState === "needs_setup"
+                          ? "border-amber-200 bg-amber-50/60"
+                          : m.coverageState === "provider_blocked"
+                            ? "border-rose-200 bg-rose-50/60"
+                            : m.coverageState === "checking"
+                              ? "border-sky-200 bg-sky-50/60"
+                              : "border-zinc-200 bg-zinc-50")
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">{m.name}</div>
+                        <div className="mt-1 text-xs text-zinc-600">{m.stateLabel}</div>
+                      </div>
+                      <span
+                        className={m.coverageState === "ready"
+                          ? "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700"
+                          : m.coverageState === "needs_setup"
+                            ? "rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700"
+                            : m.coverageState === "provider_blocked"
+                              ? "rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-rose-700"
+                              : m.coverageState === "checking"
+                                ? "rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-700"
+                                : "rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500"}
                       >
-                        Upgrade
-                      </button>
+                        {m.badgeLabel}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 flex-1 text-xs leading-relaxed text-zinc-600">{m.helper}</div>
+
+                    {m.ctaLabel && m.ctaHref ? (
+                      <div className="mt-auto pt-4">
+                        <Link href={m.ctaHref} className={dashboardPrimaryButtonClass}>
+                          {m.ctaLabel}
+                        </Link>
+                      </div>
                     ) : null}
                   </div>
-
-                  {!m.enabled ? (
-                    <div className="mt-3 text-xs text-zinc-600">
-                      {me.billing.configured ? "Upgrade to unlock this service." : "Upgrade from the Billing page."}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="font-semibold text-zinc-900">{servicesWidgetSummary.headline}</div>
-                <div className="mt-1 text-sm text-zinc-600">{servicesWidgetSummary.body}</div>
+                ))}
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Link
-                  href={servicesWidgetSummary.primaryHref}
-                  className={dashboardPrimaryButtonClass}
-                >
-                  {servicesWidgetSummary.primaryLabel}
-                </Link>
-                <Link
-                  href={`${portalBase}/app/onboarding`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Open setup checklist
-                </Link>
-                {me.entitlements.blog ? (
-                  <Link
-                    href={`${portalBase}/app/services/blogs`}
-                    className={dashboardSecondaryButtonClass}
-                  >
-                    Open blogs
-                  </Link>
-                ) : null}
-                <Link
-                  href={`${portalBase}/app/billing`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Billing
-                </Link>
-                <Link
-                  href={`${portalBase}/app/services/reporting`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Reporting
-                </Link>
-                <Link
-                  href={`${portalBase}/app/ai-chat`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Pura
-                </Link>
-                <Link
-                  href={`${portalBase}/app/services/inbox/email`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Inbox
-                </Link>
-                <Link
-                  href={`${portalBase}/app/services/media-library`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Media library
-                </Link>
+
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-4 shadow-sm">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-base font-semibold text-zinc-900">{servicesWidgetSummary.headline}</div>
+                    <div className="mt-1 text-sm leading-relaxed text-zinc-600">{servicesWidgetSummary.body}</div>
+                  </div>
+                  <div className="flex shrink-0 items-start">
+                    <Link
+                      href={servicesWidgetSummary.primaryHref}
+                      className={dashboardPrimaryButtonClass}
+                    >
+                      {servicesWidgetSummary.primaryLabel}
+                    </Link>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2 border-t border-zinc-200/80 pt-4">
+                  {serviceQuickLinks.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors duration-100 hover:border-zinc-300 hover:bg-zinc-50"
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
               </div>
             </div>
           </AccentCard>
@@ -1779,9 +2468,13 @@ export function PortalDashboardClient() {
             <div className="text-3xl font-bold text-brand-ink">
               {typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
                 ? `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`
-                : "N/A"}
+                : "Watching usage"}
             </div>
-            <div className="mt-2 text-xs text-zinc-500">Estimated based on your current spend rate</div>
+            <div className="mt-2 text-xs text-zinc-500">
+              {typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
+                ? "Estimated based on your current spend rate"
+                : "Purely needs a little more usage history before it can forecast runway."}
+            </div>
             <div className="mt-3 space-y-2">
               <StatLine label="Credits remaining" value={compactNum(reporting?.creditsRemaining ?? 0)} />
               <StatLine
@@ -1789,7 +2482,7 @@ export function PortalDashboardClient() {
                 value={
                   typeof derived.creditsPerDay === "number" && Number.isFinite(derived.creditsPerDay)
                     ? `~${Math.max(0, derived.creditsPerDay).toFixed(1)} / day`
-                    : "N/A"
+                    : "Not enough history yet"
                 }
               />
             </div>
@@ -1888,7 +2581,7 @@ export function PortalDashboardClient() {
             case "reviewsCollected":
               return compactNum(k.reviewsCollected);
             case "avgReviewRating":
-              return typeof k.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "N/A";
+              return typeof k.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "No rating yet";
             case "newsletterSends":
               return compactNum(k.newsletterSentCount);
             case "nurtureEnrollments":
@@ -1977,12 +2670,11 @@ export function PortalDashboardClient() {
                   </div>
                 ))
               ) : (
-                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No recent activity yet</div>
-                  <div className="mt-1">As the workspace starts taking calls, using credits, and completing tasks, the last few days will summarize here.</div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-sm font-semibold text-zinc-900">No recent usage pulse yet.</div>
+                  <div className="mt-1 text-xs leading-relaxed text-zinc-500">This card starts filling in after the first tracked day with AI calls, missed calls, and credit usage. Until then, open reporting for the full workspace view.</div>
+                  <div className="mt-3">
                     <Link href={`${portalBase}/app/services/reporting`} className={dashboardSecondaryButtonClass}>Open reporting</Link>
-                    <Link href={`${portalBase}/app/ai-chat?onboarding=1`} className={dashboardSecondaryButtonClass}>Ask Pura</Link>
                   </div>
                 </div>
               )}
@@ -2049,7 +2741,7 @@ export function PortalDashboardClient() {
               <StatLine label="Reviews collected" value={compactNum(k?.reviewsCollected ?? 0)} />
               <StatLine
                 label="Avg rating"
-                value={typeof k?.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "N/A"}
+                value={typeof k?.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "No rating yet"}
               />
               <StatLine label="Bookings" value={compactNum(k?.bookingsCreated ?? 0)} />
             </div>
@@ -2072,6 +2764,208 @@ export function PortalDashboardClient() {
   }
 
   const showEditControls = Boolean(dashboard);
+
+  // Compact inline guidance panel — shown above the widget grid when items exist.
+  function renderGuidancePanel() {
+    if (growthPayload?.topActions?.length) {
+      const visible = growthPayload.topActions.slice(0, 3);
+      const topAction = visible[0];
+      const secondaryItems = visible.slice(1);
+      if (!topAction) return null;
+
+      return (
+        <div className="mb-5 rounded-3xl border border-zinc-200 bg-linear-to-b from-white to-zinc-50/40 p-5 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                {growthPayload.isLowActivityWorkspace
+                  ? isCreditWorkspace
+                    ? "Credit starter path"
+                    : "Starter path"
+                  : isCreditWorkspace
+                    ? "Credit workspace next actions"
+                    : "Do this next"}
+              </div>
+              <div className="mt-1 text-sm text-zinc-600">
+                {growthPayload.isLowActivityWorkspace
+                  ? "Start from the stored gaps that will create the next real signal inside Purely."
+                  : "These actions come from the current workspace state, not generic motivational copy."}
+              </div>
+            </div>
+            <Link
+              href={`${portalBase}/app/services`}
+              className="shrink-0 text-xs font-semibold text-brand-ink hover:underline"
+            >
+              All services
+            </Link>
+          </div>
+
+          {contentGuidanceItem ? (
+            <Link
+              href={contentGuidanceItem.href}
+              className="mb-3 block rounded-[26px] border border-amber-200 bg-[linear-gradient(180deg,rgba(255,251,235,0.98),rgba(255,247,237,0.92))] p-5 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                      {isCreditWorkspace ? "Content demand" : "Content workflow"}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">{contentGuidanceItem.title}</div>
+                  <div className="mt-1 text-sm text-zinc-600">{contentGuidanceItem.reason}</div>
+                </div>
+                <div className="shrink-0 inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-4 py-2 text-xs font-semibold text-amber-700">
+                  {contentGuidanceItem.nextActionLabel}
+                </div>
+              </div>
+            </Link>
+          ) : null}
+
+          <div className="rounded-[26px] border border-brand-ink/10 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="rounded-full bg-brand-ink/5 px-2.5 py-0.5 text-[11px] font-semibold text-brand-ink inline-flex">
+                  {growthPayload.isLowActivityWorkspace ? "Start here" : "Top action"}
+                </div>
+                <div className="mt-2 text-sm font-semibold text-zinc-900">{topAction.title}</div>
+                <div className="mt-1 text-sm text-zinc-600">{topAction.detail}</div>
+                {topAction.blocker ? <div className="mt-2 text-xs font-semibold text-amber-700">{topAction.blocker}</div> : null}
+              </div>
+              <Link
+                href={topAction.href}
+                className="shrink-0 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+              >
+                {topAction.ctaLabel}
+              </Link>
+            </div>
+          </div>
+
+          {secondaryItems.length > 0 ? (
+            <div className={`mt-3 grid grid-cols-1 gap-3 ${secondaryItems.length > 1 ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
+              {secondaryItems.map((item) => (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className="flex h-full min-h-33 flex-col justify-between rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <div>
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600">
+                      Next step
+                    </span>
+                    <div className="mt-2 text-sm font-semibold leading-snug text-zinc-900">{item.title}</div>
+                    <div className="mt-1 text-xs leading-relaxed text-zinc-600">{item.detail}</div>
+                    {item.blocker ? <div className="mt-2 text-[11px] font-semibold text-amber-700">{item.blocker}</div> : null}
+                  </div>
+                  <div className="mt-3 text-xs font-semibold text-brand-ink">{item.ctaLabel} →</div>
+                </Link>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (guidanceItems.length === 0 && !contentGuidanceItem) return null;
+    // Show top 4 items.
+    const visible = guidanceItems.slice(0, contentGuidanceItem ? 3 : 4);
+    const topItem = visible[0];
+    if (!topItem && !contentGuidanceItem) return null;
+    const topColors = topItem ? guidanceStatusColors(topItem.status) : null;
+    const secondaryItems = visible.slice(1);
+    const secondaryGridClass = secondaryItems.length >= 3 ? "sm:grid-cols-3" : "sm:grid-cols-2";
+
+    return (
+      <div className="mb-5 rounded-3xl border border-zinc-200 bg-linear-to-b from-white to-zinc-50/40 p-5 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              {isCreditWorkspace ? "Credit workspace guidance" : "Business next steps"}
+            </div>
+            <div className="mt-1 text-sm text-zinc-600">
+              Based on what this workspace has and has not set up yet.
+            </div>
+          </div>
+          <Link
+            href={`${portalBase}/app/services`}
+            className="shrink-0 text-xs font-semibold text-brand-ink hover:underline"
+          >
+            All services
+          </Link>
+        </div>
+
+        {contentGuidanceItem ? (
+          <Link
+            href={contentGuidanceItem.href}
+            className="mb-3 block rounded-[26px] border border-amber-200 bg-[linear-gradient(180deg,rgba(255,251,235,0.98),rgba(255,247,237,0.92))] p-5 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                    {isCreditWorkspace ? "Content demand" : "Content workflow"}
+                  </span>
+                </div>
+                <div className="mt-2 text-sm font-semibold text-zinc-900">{contentGuidanceItem.title}</div>
+                <div className="mt-1 text-sm text-zinc-600">{contentGuidanceItem.reason}</div>
+              </div>
+              <div className="shrink-0 inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-4 py-2 text-xs font-semibold text-amber-700">
+                {contentGuidanceItem.nextActionLabel}
+              </div>
+            </div>
+          </Link>
+        ) : null}
+
+        {/* Top item — featured */}
+        {topItem && topColors ? (
+          <div className={`rounded-[26px] border p-5 shadow-sm ${topColors.border} ${topColors.bg}`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${topColors.badge}`}>
+                    {guidanceStatusLabel(topItem.status)}
+                  </span>
+                </div>
+                <div className="mt-2 text-sm font-semibold text-zinc-900">{topItem.title}</div>
+                <div className="mt-1 text-sm text-zinc-600">{topItem.reason}</div>
+              </div>
+              <Link
+                href={topItem.href}
+                className="shrink-0 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+              >
+                {topItem.nextActionLabel}
+              </Link>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Secondary items — compact row */}
+        {secondaryItems.length > 0 ? (
+          <div className={`mt-3 grid grid-cols-1 gap-3 ${secondaryGridClass}`}>
+            {secondaryItems.map((item) => {
+              const colors = guidanceStatusColors(item.status);
+              return (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className={`flex h-full min-h-33 flex-col justify-between rounded-3xl border p-4 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md ${colors.border} ${colors.bg}`}
+                >
+                  <div>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${colors.badge}`}>
+                      {guidanceStatusLabel(item.status)}
+                    </span>
+                    <div className="mt-2 text-sm font-semibold leading-snug text-zinc-900">{item.title}</div>
+                    <div className="mt-1 text-xs leading-relaxed text-zinc-600">{item.reason}</div>
+                  </div>
+                  <div className="mt-3 text-xs font-semibold text-brand-ink">{item.nextActionLabel} →</div>
+                </Link>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -2121,64 +3015,49 @@ export function PortalDashboardClient() {
         ) : null}
       </div>
 
+      {renderGuidancePanel()}
+
       <div ref={setContainerEl}>
         {width > 0 ? (
           <>
-            {dashboardMissingLayout ? (
-              <div className="rounded-[28px] border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600 shadow-sm">
-                <div className="text-base font-semibold text-zinc-900">Dashboard layout needs attention</div>
-                <div className="mt-2 max-w-2xl leading-6">
-                  This workspace does not have any dashboard cards ready right now. Reload the layout, restore the default dashboard, or move into Services while you keep setting the workspace up.
+            <ResponsiveGridLayoutAny
+              width={width}
+              className="layout"
+              layouts={layouts as any}
+              breakpoints={DASHBOARD_BREAKPOINTS as any}
+              cols={{ lg: 12, md: 12, sm: 6, xs: 4, xxs: 2 }}
+              rowHeight={12}
+              margin={[16, 16]}
+              containerPadding={[0, 0]}
+              compactType={null}
+              preventCollision={true}
+              dragConfig={{ enabled: editMode, handle: ".drag-handle" }}
+              resizeConfig={{ enabled: editMode, handles: ["se"] }}
+              onDragStart={(_layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => handleEditInteractionStart(newItem)}
+              onDragStop={() => handleEditInteractionStop()}
+              onResizeStart={(_layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => handleEditInteractionStart(newItem)}
+              onResizeStop={() => handleEditInteractionStop()}
+              onLayoutChange={(_current: Layout, all: ResponsiveLayouts) => setLayouts(all)}
+            >
+              {widgetIds.map((id) => (
+                <div key={id} className="relative min-h-0 min-w-0">
+                  {editMode && id !== "hoursSaved" && id !== "billing" && id !== "services" ? (
+                    <button
+                      type="button"
+                      className="absolute right-3 top-3 z-10 rounded-full border border-zinc-200 bg-white/95 px-2 py-1 text-xs font-semibold text-zinc-700 shadow-sm transition-colors duration-150 hover:bg-zinc-50"
+                      onClick={() => void removeWidget(id)}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                  {editMode && activeEditWidgetId
+                    ? <DashboardEditPreviewCard id={id} title={widgetTitle(id)} active={id === activeEditWidgetId} />
+                    : renderWidget(id)}
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button type="button" onClick={reloadDashboard} className={dashboardPrimaryButtonClass}>
-                    Retry layout
-                  </button>
-                  <button type="button" onClick={() => void resetDashboard()} className={dashboardSecondaryButtonClass}>
-                    Restore defaults
-                  </button>
-                  <Link href={`${portalBase}/app/services`} className={dashboardSecondaryButtonClass}>
-                    Open services
-                  </Link>
-                  <Link href={`${portalBase}/app/ai-chat?onboarding=1`} className={dashboardSecondaryButtonClass}>
-                    Ask Pura
-                  </Link>
-                </div>
-              </div>
-            ) : (
-              <ResponsiveGridLayoutAny
-                width={width}
-                className="layout"
-                layouts={layouts as any}
-                breakpoints={DASHBOARD_BREAKPOINTS as any}
-                cols={{ lg: 12, md: 12, sm: 6, xs: 4, xxs: 2 }}
-                rowHeight={12}
-                margin={[16, 16]}
-                containerPadding={[0, 0]}
-                compactType={null}
-                preventCollision={true}
-                dragConfig={{ enabled: editMode, handle: ".drag-handle" }}
-                resizeConfig={{ enabled: editMode, handles: ["se"] }}
-                onLayoutChange={(_current: Layout, all: ResponsiveLayouts) => setLayouts(all)}
-              >
-                {widgetIds.map((id) => (
-                  <div key={id} className="relative min-h-0 min-w-0">
-                    {editMode && id !== "hoursSaved" && id !== "billing" && id !== "services" ? (
-                      <button
-                        type="button"
-                        className="absolute right-3 top-3 z-10 rounded-full border border-zinc-200 bg-white/95 px-2 py-1 text-xs font-semibold text-zinc-700 shadow-sm transition-colors duration-150 hover:bg-zinc-50"
-                        onClick={() => void removeWidget(id)}
-                      >
-                        Remove
-                      </button>
-                    ) : null}
-                    {renderWidget(id)}
-                  </div>
-                ))}
-              </ResponsiveGridLayoutAny>
-            )}
+              ))}
+            </ResponsiveGridLayoutAny>
 
-            {!dashboardMissingLayout && !editMode && widgetIds.length <= 3 && dashboardSuggestionIds.length ? (
+            {!editMode && widgetIds.length <= 3 && dashboardSuggestionIds.length ? (
               <div className="mt-8 rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm ring-1 ring-black/4">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                   <div>
@@ -2192,9 +3071,9 @@ export function PortalDashboardClient() {
 
                 <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
                   {dashboardSuggestionIds.map((id) => (
-                    <div key={id} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div key={id} className={dashboardInfoCardClass}>
                       <div className="text-sm font-semibold text-zinc-900">{widgetTitle(id)}</div>
-                      <div className="mt-2 text-sm text-zinc-600">
+                      <div className="mt-2 flex-1 text-sm text-zinc-600">
                         {id === "puraAttention"
                           ? "Shows what needs attention now and gives you a direct path into Pura or the right service."
                           : id === "activityPulse"
@@ -2203,7 +3082,7 @@ export function PortalDashboardClient() {
                               ? "Brings the richer reporting table onto the dashboard for recent day-by-day breakdowns."
                               : "Adds a strong reporting summary so the top of the dashboard carries more signal."}
                       </div>
-                      <div className="mt-4">
+                      <div className="mt-auto pt-4">
                         <button type="button" className={dashboardSuggestionButtonClass} onClick={() => void addWidget(id)}>
                           Add widget
                         </button>

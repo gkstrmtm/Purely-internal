@@ -16,6 +16,6 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: true, channels: result.channels });
   } catch {
-    return NextResponse.json({ ok: false, error: "Unable to continue" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Reset options did not load. Retry from sign in." }, { status: 500 });
   }
 }

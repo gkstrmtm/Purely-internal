@@ -721,9 +721,9 @@ export default function PortalReviewsClient() {
         fetch("/api/portal/reviews/questions", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)).catch(() => null),
         fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)).catch(() => null),
       ]);
-      if (!s || !s.ok) throw new Error((s as any)?.error || "Review request settings did not load. Retry here, open requests, or ask Pura to help.");
+      if (!s || !s.ok) throw new Error((s as any)?.error || "Review request settings are still syncing. Retry here, open requests, or ask Pura to help.");
       const sData = s.data;
-      if (!sData?.ok) throw new Error(sData?.error || "Review request settings did not load. Retry here, open requests, or ask Pura to help.");
+      if (!sData?.ok) throw new Error(sData?.error || "Review request settings are still syncing. Retry here, open requests, or ask Pura to help.");
       const nextSettings = sData.settings || DEFAULT_SETTINGS;
       setSettings(nextSettings);
       lastSavedSettingsJsonRef.current = JSON.stringify(nextSettings);
@@ -789,7 +789,7 @@ export default function PortalReviewsClient() {
         setContactTags([]);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Reviews setup did not load. Retry here, open requests, open reviews home, or ask Pura to help.");
+      setError(err instanceof Error ? err.message : "Reviews setup is still syncing. Retry here, open requests, open reviews home, or ask Pura to help.");
     } finally {
       if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
       setLoading(false);
@@ -883,14 +883,14 @@ export default function PortalReviewsClient() {
     setError(null);
     try {
       const parsed = await fetch("/api/portal/reviews/bookings", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r));
-      if (!parsed.ok) throw new Error(parsed.error || "Bookings did not load. Retry here, open requests, or review booking settings.");
+      if (!parsed.ok) throw new Error(parsed.error || "Bookings are still syncing. Retry here, open requests, or review booking settings.");
       const res = parsed.data;
-      if (!res?.ok) throw new Error(res?.error || "Bookings did not load. Retry here, open requests, or review booking settings.");
+      if (!res?.ok) throw new Error(res?.error || "Bookings are still syncing. Retry here, open requests, or review booking settings.");
       const recent = Array.isArray(res.recent) ? res.recent : [];
       setRecentBookings(recent);
       setBookingsLoadedOnce(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Bookings did not load. Retry here, open requests, or review booking settings.");
+      setError(err instanceof Error ? err.message : "Bookings are still syncing. Retry here, open requests, or review booking settings.");
     } finally {
       setBookingsLoading(false);
     }
@@ -905,9 +905,9 @@ export default function PortalReviewsClient() {
       if (typeof q === "string") url.searchParams.set("q", q);
       url.searchParams.set("take", "20");
       const parsed = await fetch(url.toString(), { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r));
-      if (!parsed.ok) throw new Error(parsed.error || "Contacts did not load. Retry here, open reviews home, or ask Pura to help.");
+      if (!parsed.ok) throw new Error(parsed.error || "Contacts are still syncing. Retry here, open reviews home, or ask Pura to help.");
       const res = parsed.data;
-      if (!res?.ok) throw new Error(res?.error || "Contacts did not load. Retry here, open reviews home, or ask Pura to help.");
+      if (!res?.ok) throw new Error(res?.error || "Contacts are still syncing. Retry here, open reviews home, or ask Pura to help.");
       const next = Array.isArray(res.contacts) ? res.contacts : [];
       setContacts(
         next
@@ -921,7 +921,7 @@ export default function PortalReviewsClient() {
       );
       setContactsLoadedOnce(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Contacts did not load. Retry here, open reviews home, or ask Pura to help.");
+      setError(err instanceof Error ? err.message : "Contacts are still syncing. Retry here, open reviews home, or ask Pura to help.");
     } finally {
       setContactsLoading(false);
     }
@@ -1290,8 +1290,8 @@ export default function PortalReviewsClient() {
   }, [calendarFilterEnabled, settings.automation.calendarIds]);
 
   const calendarLabel = useCallback((calendarId?: string | null) => {
-    if (calendarId == null) return "(calendar unknown)";
-    return calendarTitleById.get(calendarId) || "(unknown calendar)";
+    if (calendarId == null) return "Calendar not linked yet";
+    return calendarTitleById.get(calendarId) || "Calendar title syncing";
   }, [calendarTitleById]);
 
   const hasHostedReviewsPath = Boolean(settings.publicPage.enabled && (liveHostedReviewsUrl || publicSiteSlug));
@@ -1657,7 +1657,7 @@ export default function PortalReviewsClient() {
                         </div>
                         {contactTags.length === 0 ? (
                           <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
-                            <div className="font-medium text-zinc-800">No tags found yet.</div>
+                            <div className="font-medium text-zinc-800">No contact tags ready yet.</div>
                             <div className="mt-1">Create a tag here or open People to organize contacts before turning on review requests.</div>
                             <div className="mt-3 flex flex-wrap items-center gap-2">
                               <button
@@ -2055,7 +2055,7 @@ export default function PortalReviewsClient() {
                         ] as any
                       }
                       onChange={(v) => setSiteDomainDraft(String(v || ""))}
-                      placeholder={funnelDomainsBusy ? "Loading domains…" : funnelDomains.length ? "Choose a domain" : "No domains yet"}
+                      placeholder={funnelDomainsBusy ? "Loading domains…" : funnelDomains.length ? "Choose a domain" : "No custom domains yet"}
                     />
                   </div>
 
@@ -2542,7 +2542,7 @@ export default function PortalReviewsClient() {
                       </div>
                     ) : (
                       <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600">
-                        <div className="font-semibold text-zinc-900">No custom questions yet</div>
+                        <div className="font-semibold text-zinc-900">No review questions yet</div>
                         <div className="mt-1">Add the first question if you want customers to answer anything beyond the default review flow.</div>
                         <button
                           type="button"
@@ -2593,7 +2593,7 @@ export default function PortalReviewsClient() {
                 <ReviewsRestingState
                   eyebrow="First steps"
                   title="Set up where your reviews should go first"
-                  description="There isn’t a live review page or destination configured yet, so this tab has nothing real to collect or show. Finish the setup path first, then Reviews becomes the place to send requests and manage responses."
+                  description="There isn’t a live review page or destination ready yet, so this tab has nothing real to collect or show. Finish the setup path first, then Reviews becomes the place to send requests and manage responses."
                   dotClassName="bg-(--color-brand-blue)"
                   actions={
                     <>
@@ -2667,7 +2667,7 @@ export default function PortalReviewsClient() {
                   description={
                     hasAnyReviewPath
                       ? "Once you send review requests, this area shows sends, skips, failures, and delivery details."
-                      : "There is no review path configured yet, so nothing can be sent from this page until setup is finished."
+                      : "No review path is ready yet, so nothing can be sent from this page until setup is finished."
                   }
                   actions={!showingReviewsOverviewCard ? (
                     <div className="flex flex-wrap items-center gap-2">
@@ -2701,15 +2701,15 @@ export default function PortalReviewsClient() {
                   <div className="mt-1 text-xs text-neutral-600">
                     {e.kind === "contact" ? (
                       <>
-                        Contact: <span className="font-mono">{e.contactId || "(unknown)"}</span>
+                        Contact: <span className="font-mono">{e.contactId || "Not linked yet"}</span>
                       </>
                     ) : (
                       <>
-                        Booking: <span className="font-mono">{e.bookingId || "(unknown)"}</span>
+                        Booking: <span className="font-mono">{e.bookingId || "Not linked yet"}</span>
                       </>
                     )}
                   </div>
-                  <div className="mt-1 text-xs text-neutral-600">To: {e.smsTo || "N/A"}</div>
+                  <div className="mt-1 text-xs text-neutral-600">To: {e.smsTo || "No destination number"}</div>
                   <div className="mt-1 text-xs text-neutral-600">
                     Link: <a className="underline" href={e.destinationUrl} target="_blank" rel="noreferrer">
                       {e.destinationLabel}

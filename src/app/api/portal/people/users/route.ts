@@ -95,7 +95,9 @@ export async function POST(req: Request) {
   const permissionsJson = normalizePortalPermissions(parsed.data.permissions, role);
 
   const invite = await createPortalAccountInvite({ ownerId, email, role, permissionsJson }).catch(() => null);
-  if (!invite) return NextResponse.json({ ok: false, error: "Failed to create invite" }, { status: 500 });
+  if (!invite) {
+    return NextResponse.json({ ok: false, error: "Invite did not send. Check the email and try again." }, { status: 500 });
+  }
 
   const base = process.env.NODE_ENV === "production" ? "https://purelyautomation.com" : baseUrlFromRequest(req);
   const link = `${base}/portalinvite/${invite.token}`;

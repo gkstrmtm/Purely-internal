@@ -1863,7 +1863,7 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
       <div className="flex items-center justify-between gap-3">
         <div className={classNames("flex items-center gap-2 text-xs font-semibold", needsInput ? "text-orange-700" : "text-amber-700")}>
           <ThinkingDots />
-          <span>{needsInput ? "Missing detail" : "Unfinished work"}</span>
+          <span>{needsInput ? "Needs one detail" : "Unfinished work"}</span>
         </div>
         <div className={classNames("px-1 text-[11px] font-semibold", needsInput ? "text-orange-800" : "text-amber-800")}>
           {needsInput ? "One detail needed" : formatRunStatusLabel(unresolvedRun.status)}
@@ -3279,7 +3279,7 @@ export function PortalAiChatClient({
     try {
       const res = await portalFetch("/api/portal/ai-chat/threads", { cache: "no-store" });
       const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Chat history did not load. Refresh the page or start a new chat.");
+      if (!json?.ok) throw new Error(json?.error || "Chat history is still syncing. Refresh the page or start a new chat.");
       const next = Array.isArray(json.threads)
         ? (json.threads as Array<Thread & { liveStatus?: unknown; latestRunStatus?: unknown; nextStepContext?: unknown; chatMode?: unknown; responseProfile?: unknown }>).map((thread) => ({
             ...thread,
@@ -3367,7 +3367,7 @@ export function PortalAiChatClient({
           cache: "no-store",
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "This chat did not load. Return to chat history or start a fresh chat.");
+        if (!json?.ok) throw new Error(json?.error || "This chat is still syncing. Return to chat history or start a fresh chat.");
         const cachedMessages = messagesByThreadRef.current[threadId] ?? [];
         setMessagesByThread((prev) => {
           const next = {
@@ -3795,7 +3795,7 @@ export function PortalAiChatClient({
         const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/share`, { cache: "no-store" });
         const json = await res.json().catch(() => null);
         if (!json?.ok) {
-          const statusMsg = res.status === 403 ? "Only the chat owner can manage sharing." : "Sharing settings did not load. Open Share with team again to retry.";
+          const statusMsg = res.status === 403 ? "Only the chat owner can manage sharing." : "Sharing settings are still syncing. Open Share with team again to retry.";
           throw new Error(json?.error || statusMsg);
         }
 
@@ -4081,7 +4081,9 @@ export function PortalAiChatClient({
               ...(bootstrapContext ? { bootstrapContext } : {}),
             }),
           }).then((r) => r.json().catch(() => null));
-          if (!created?.ok || !created?.thread?.id) throw new Error(created?.error || "Failed to create chat");
+          if (!created?.ok || !created?.thread?.id) {
+            throw new Error(created?.error || "Chat creation did not finish. Retry here or start a fresh chat.");
+          }
           pendingThreadBootstrapContextRef.current = null;
           createdThread = {
             ...(created.thread as Thread),
@@ -4728,7 +4730,7 @@ export function PortalAiChatClient({
     (_opts?: { modal?: boolean }) => {
       void _opts;
       if (!canvasUrl) {
-        toast.error("No canvas to open yet.");
+        toast.error("No canvas is ready yet. Send the next prompt and try again.");
         return;
       }
       setCanvasOpen(true);
@@ -4998,7 +5000,7 @@ export function PortalAiChatClient({
         ) : !threads.length ? (
           <div className="p-3">
             <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No chats yet</div>
+              <div className="font-semibold text-zinc-900">No Pura chats yet</div>
               <div className="mt-1">Start a fresh Pura thread to plan setup, troubleshoot a service, or ask what to do next in this workspace.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
@@ -5128,7 +5130,7 @@ export function PortalAiChatClient({
           ) : !threads.length ? (
             <div className="p-3">
               <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No chats yet</div>
+                <div className="font-semibold text-zinc-900">No Pura chats yet</div>
                 <div className="mt-1">Start a new thread and Pura can help set up services, explain gaps, or plan the next workflow.</div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button
@@ -6440,7 +6442,7 @@ export function PortalAiChatClient({
                   </div>
                 ) : (
                   <div className="px-3 py-5 text-sm text-zinc-500">
-                    <div className="font-semibold text-zinc-900">No chats match that search yet</div>
+                    <div className="font-semibold text-zinc-900">No Pura chats match that search yet</div>
                     <div className="mt-1">Clear the search to jump back into recent threads, or start a fresh chat.</div>
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                       <button
@@ -7284,7 +7286,7 @@ export function PortalAiChatClient({
                 <ThreadMemoryDetail memory={activeWorkingMemory} unresolvedRun={activeUnresolvedRun} nextStepContext={activeNextStepContext} />
               ) : (
                 <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No thread memory yet</div>
+                  <div className="font-semibold text-zinc-900">No thread memory saved yet</div>
                   <div className="mt-1">Keep chatting in this thread and Pura will build thread memory as the work becomes more specific.</div>
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                     <button
@@ -7431,7 +7433,7 @@ export function PortalAiChatClient({
               )
             ) : !sortedRunLedgerRows.length ? (
               <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No runs yet for this chat</div>
+                <div className="font-semibold text-zinc-900">No activity runs logged for this chat yet</div>
                 <div className="mt-1">Send the next message in this thread and Pura activity will start showing up here.</div>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <button

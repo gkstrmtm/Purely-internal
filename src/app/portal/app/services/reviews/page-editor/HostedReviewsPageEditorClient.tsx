@@ -81,7 +81,7 @@ export default function HostedReviewsPageEditorClient() {
       const res = await fetch(`/api/portal/hosted-pages/documents?service=reviews`, { cache: "no-store" });
       const data = (await res.json().catch(() => null)) as HostedListResponse | null;
       if (!res.ok || !data?.ok || !Array.isArray(data.documents)) {
-        throw new Error(data?.error || "The reviews page did not load. Try again here or keep working in the editor.");
+        throw new Error(data?.error || "The reviews page is still syncing. Try again here or keep working in the editor.");
       }
 
       const nextDoc = data.documents.find((entry) => entry.pageKey === "reviews_home") ?? data.documents[0] ?? null;

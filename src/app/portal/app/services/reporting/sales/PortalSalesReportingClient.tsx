@@ -107,14 +107,14 @@ export function PortalSalesReportingClient() {
       if (!salesRes?.ok) {
         const body = (await salesRes?.json().catch(() => ({}))) as { error?: string };
         if (isFirstLoad) setData(null);
-        setError(body?.error ?? "Sales reporting did not load. Retry here or review Stripe setup while reporting catches up.");
+        setError(body?.error ?? "Sales reporting is still syncing. Retry here or review Stripe setup while reporting catches up.");
         return;
       }
 
       const payload = ((await salesRes.json().catch(() => null)) as SalesReportPayload | null) ?? null;
       if (!payload || (payload as any).ok !== true) {
         if (isFirstLoad) setData(null);
-        setError((payload as any)?.error ?? "Sales reporting did not load. Retry here or review Stripe setup while reporting catches up.");
+        setError((payload as any)?.error ?? "Sales reporting is still syncing. Retry here or review Stripe setup while reporting catches up.");
         return;
       }
 
@@ -169,8 +169,8 @@ export function PortalSalesReportingClient() {
 
       {status && (status as any).ok === true && !(status as any).encryptionConfigured ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Sales reporting setup unavailable</div>
-          <div className="mt-2 text-sm text-zinc-600">Sales reporting is waiting on deployment-level encryption before live payment data can be shown here.</div>
+          <div className="text-sm font-semibold text-zinc-900">Sales reporting is waiting on secure setup</div>
+          <div className="mt-2 text-sm text-zinc-600">Deployment-level encryption still needs to be configured before live payment data can be shown here.</div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Link
               href={stripeSetupHref}

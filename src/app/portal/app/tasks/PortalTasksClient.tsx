@@ -119,7 +119,7 @@ export function PortalTasksClient() {
       ]);
 
       const tasksJson = (await tasksRes.json()) as any;
-      if (!tasksRes.ok || !tasksJson?.ok) throw new Error(String(tasksJson?.error || "Tasks did not load. Retry here, create a new task, or ask Pura to help."));
+      if (!tasksRes.ok || !tasksJson?.ok) throw new Error(String(tasksJson?.error || "Tasks are still syncing. Retry here, create a new task, or ask Pura to help."));
       setTasks(Array.isArray(tasksJson.tasks) ? (tasksJson.tasks as TaskRow[]) : []);
       setViewerUserId(typeof tasksJson.viewerUserId === "string" ? tasksJson.viewerUserId : "");
 
@@ -130,7 +130,7 @@ export function PortalTasksClient() {
         }
       }
     } catch (e: any) {
-      const message = String(e?.message || "Tasks did not load. Retry here, create a new task, or ask Pura to help.");
+      const message = String(e?.message || "Tasks are still syncing. Retry here, create a new task, or ask Pura to help.");
       toast.error(message);
       setLoadError(message);
     } finally {
@@ -159,7 +159,9 @@ export function PortalTasksClient() {
         }),
       });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to create"));
+      if (!res.ok || !json?.ok) {
+        throw new Error(String(json?.error || "Task creation did not finish. Review the task details and try again."));
+      }
       setTitle("");
       setDescription("");
       setAssignedToUserId("");
@@ -168,7 +170,7 @@ export function PortalTasksClient() {
       toast.success("Task created.");
       await load();
     } catch (e: any) {
-      toast.error(String(e?.message || "Failed to create"));
+      toast.error(String(e?.message || "Task creation did not finish. Review the task details and try again."));
     } finally {
       setCreating(false);
     }
@@ -299,7 +301,7 @@ export function PortalTasksClient() {
               ))
             ) : (
               <div className="px-3 py-2 text-sm text-zinc-500">
-                <div className="font-semibold text-zinc-900">No done tasks</div>
+                <div className="font-semibold text-zinc-900">No completed tasks logged yet</div>
                 <div className="mt-1 text-xs text-zinc-500">Completed work will land here. Create the next task now if you want something new to move through the list.</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button

@@ -253,8 +253,8 @@ function GeneralTab({
         setPhone(formatPhoneForDisplay(u?.phone ?? ""));
       } else {
         const j = pRes ? await pRes.json().catch(() => ({})) : ({} as any);
-        setLoadError(j?.error ?? "General settings did not load. Retry here, open services, or ask Pura to help.");
-        setProfile({ ok: false, error: j?.error ?? "General settings did not load. Retry here, open services, or ask Pura to help." } as any);
+        setLoadError(j?.error ?? "General settings are still syncing. Retry here, open services, or ask Pura to help.");
+        setProfile({ ok: false, error: j?.error ?? "General settings are still syncing. Retry here, open services, or ask Pura to help." } as any);
       }
 
       if (cRes?.ok) setCredits(((await cRes.json().catch(() => null)) as CreditsRes | null) ?? null);
@@ -365,7 +365,7 @@ function GeneralTab({
   }, [credits, reporting]);
 
   const formattedCreditsRemaining = useMemo(() => {
-    if (typeof creditsRemaining !== "number" || !Number.isFinite(creditsRemaining)) return "N/A";
+    if (typeof creditsRemaining !== "number" || !Number.isFinite(creditsRemaining)) return "Syncing balance";
     return Math.max(0, Math.round(creditsRemaining)).toLocaleString();
   }, [creditsRemaining]);
 
@@ -634,7 +634,7 @@ function GeneralTab({
                         : "text-zinc-800",
                 )}
               >
-                {typeof creditRunwayDays === "number" && Number.isFinite(creditRunwayDays) ? `${creditRunwayDays} days` : "N/A"}
+                {typeof creditRunwayDays === "number" && Number.isFinite(creditRunwayDays) ? `${creditRunwayDays} days` : "Watching usage"}
               </span>
             </div>
 
@@ -694,7 +694,7 @@ function GeneralTab({
             </div>
           ) : (
             <div className="mt-3 flex-1 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No services are active yet</div>
+              <div className="font-semibold text-zinc-900">No active services selected yet</div>
               <div className="mt-1">Open Services to choose what this workspace should launch first, or ask Pura to map the fastest setup path.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
