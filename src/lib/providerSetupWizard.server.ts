@@ -443,39 +443,45 @@ export async function getProviderSetupWizardPayload(input: {
             connectedLabel: null,
           };
 
-  const metaItem: ProviderSetupItem = meta && (meta.status === "connected" || meta.status === "needs_permissions" || meta.status === "reconnect_required")
+  const metaItem: ProviderSetupItem = meta
     ? {
         key: "meta",
-        displayName: workspaceVariant === "credit" ? "Meta education posting" : "Meta / Facebook / Instagram",
+        displayName: workspaceVariant === "credit" ? "Social publishing" : "Social publishing",
         category: workspaceVariant === "credit" ? "credit" : "social",
-        status: meta.status === "connected" ? "connected" : "blocked",
+        status: meta.status === "connected"
+          ? "connected"
+          : meta.status === "not_connected"
+            ? "needs_setup"
+            : meta.status === "needs_permissions" || meta.status === "reconnect_required" || meta.status === "disabled"
+              ? "blocked"
+              : "coming_soon",
         reason: meta.status === "connected"
-          ? `${meta.connectedAccountLabel || "Meta account"} is connected for readiness. Manual posting remains the live path today.`
+          ? `${meta.connectedAccountLabel || "Meta account"} is connected. Choose destination assets in Media Library after setup review.`
           : meta.setupMessage,
         businessOutcome: workspaceVariant === "credit"
-          ? "Manual posting is available now for education and trust content. Direct publishing is coming soon."
-          : "Manual posting is available now. Direct publishing is coming soon.",
-        setupHref: mediaLibraryHref(portalBase),
+          ? "Manual posting is available now. Meta connection setup prepares Facebook and Instagram for a future approved provider lane."
+          : "Manual posting is available now. Meta connection setup prepares Facebook and Instagram for a future approved provider lane.",
+        setupHref: metaWizardHref,
         wizardHref: metaWizardHref,
         testActionHref: mediaLibraryHref(portalBase),
         testActionLabel: "Open media library",
-        liveActionWarning: "This wizard does not publish to Meta.",
+        liveActionWarning: "This setup flow does not publish to Meta.",
         connectedLabel: meta.connectedAccountLabel || null,
       }
     : {
         key: "meta",
-        displayName: workspaceVariant === "credit" ? "Meta education posting" : "Meta / Facebook / Instagram",
+        displayName: workspaceVariant === "credit" ? "Social publishing" : "Social publishing",
         category: workspaceVariant === "credit" ? "credit" : "social",
         status: "coming_soon",
-        reason: meta?.setupMessage || "Manual posting is available now. Direct Meta and Instagram publishing is still coming soon.",
+        reason: "Manual posting is available now. Meta connection and direct publishing posture are not available from this deployment yet.",
         businessOutcome: workspaceVariant === "credit"
-          ? "Manual posting is available now for education and trust content. Direct publishing is coming soon."
-          : "Manual posting is available now. Direct publishing is coming soon.",
-        setupHref: mediaLibraryHref(portalBase),
+          ? "Manual posting is available now. Social setup will appear here when Meta connection posture is available."
+          : "Manual posting is available now. Social setup will appear here when Meta connection posture is available.",
+        setupHref: metaWizardHref,
         wizardHref: metaWizardHref,
         testActionHref: mediaLibraryHref(portalBase),
         testActionLabel: "Open media library",
-        liveActionWarning: "This wizard does not publish to Meta.",
+        liveActionWarning: "This setup flow does not publish to Meta.",
         connectedLabel: null,
       };
 

@@ -8,10 +8,23 @@ import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 
 import { AppModal } from "@/components/AppModal";
 import { InlineSpinner } from "@/components/InlineSpinner";
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
+import PortalImageCropModal, { type AspectPreset } from "@/components/PortalImageCropModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
+import {
+  defaultProviderConnectionState,
+  distributionProviderLabel,
+  inferDistributionProvider,
+  normalizeMediaGrowthProfileForSave,
+  providerConnectionLabel,
+  providerPublishLabel,
+  resolveProviderContinuity,
+} from "@/lib/mediaGrowthInvariants";
 import type { PortalMetaProviderReadiness } from "@/lib/portalMetaProviderReadiness";
 import { PORTAL_VARIANT_HEADER, portalVariantFromPathname } from "@/lib/portalVariant";
+import { buildProviderSetupWizardHref, portalBaseFromWorkspaceVariant } from "@/lib/providerSetupWizard";
+import { hostedFunnelPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type Folder = {
@@ -67,9 +80,51 @@ type ProviderConnectionState =
   | "direct_publish_unsupported"
   | "metrics_unavailable";
 
-type ProviderPublishState = "manual_only" | "draft" | "ready" | "queued" | "published" | "failed" | "blocked";
+type ProviderPublishState = "manual_only" | "unavailable" | "draft" | "ready" | "queued" | "pending" | "published" | "failed" | "blocked";
 
 type WorkflowFilterKey = "all" | "scheduled" | "ready" | "needs_copy" | "review" | "manual_only" | "posted";
+
+type ComposerPostStatusTone = "zinc" | "sky" | "amber" | "emerald" | "rose";
+
+type ComposerChecklistStatus = "ready" | "pending" | "blocked";
+
+type ComposerReadinessItem = {
+  key: string;
+  label: string;
+  detail: string;
+  status: ComposerChecklistStatus;
+};
+
+type WorkspaceVariant = "portal" | "credit";
+
+type ComposerPlatformKind = "instagram" | "facebook" | "youtube" | "manual";
+
+type PreviewComposerSection = "guidance" | "settings" | "schedule" | "handoff" | "history";
+
+type ComposerPlatformBehavior = {
+  kind: ComposerPlatformKind;
+  label: string;
+  captionFieldLabel: string;
+  captionPlaceholder: string;
+  guidanceTitle: string;
+  guidanceBody: string;
+  guidanceDetail: string;
+  linkFieldLabel: string;
+  linkFieldHelper: string;
+  linkFieldPlaceholder: string;
+  ctaLabelFieldLabel: string;
+  ctaLabelPlaceholder: string;
+  savedLinkLabel: string;
+  defaultCtaLabel: string;
+  starterButtonLabel: string;
+  copyButtonLabel: string;
+  manualPostingGuidance: string;
+  previewLabel: string;
+  previewLinkLabel: string;
+  previewLinkHelper: string;
+  accountLabel: string;
+  accountHandle: string;
+};
 
 type MediaGrowthProfile = {
   mediaItemId: string;
@@ -96,11 +151,20 @@ type MediaGrowthProfile = {
   distributionProvider: DistributionProviderKey | null;
   providerConnectionState: ProviderConnectionState | null;
   providerPublishState: ProviderPublishState | null;
+  providerDestinationType: string | null;
+  providerDestinationId: string | null;
+  providerDestinationLabel: string | null;
   providerAccountLabel: string | null;
+  providerScheduledForIso: string | null;
+  providerQueuedAtIso: string | null;
+  providerPendingAtIso: string | null;
   queueOrder: number | null;
   dailyPostCap: number | null;
+  providerStatus: string | null;
   providerPostId: string | null;
   providerLastError: string | null;
+  providerRetryEligible: boolean | null;
+  providerRetryAtIso: string | null;
   providerLastAttemptAtIso: string | null;
   providerPublishedAtIso: string | null;
   metricsImpressions: number | null;
@@ -151,12 +215,32 @@ type MetaReadinessRes =
     }
   | { ok: false; error?: string };
 
+type MetaDestinationOption = {
+  value: string;
+  label: string;
+  hint?: string;
+  destinationType: string;
+  destinationId: string;
+  destinationLabel: string;
+  accountLabel: string | null;
+};
+
 type AllFoldersRes =
   | { ok: true; folders: Array<{ id: string; parentId: string | null; name: string; tag: string; createdAt: string }> }
   | { ok: false; error?: string };
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function MoreDotsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <circle cx="3" cy="8" r="1.25" />
+      <circle cx="8" cy="8" r="1.25" />
+      <circle cx="13" cy="8" r="1.25" />
+    </svg>
+  );
 }
 
 function assetActionClass(options?: { tone?: "neutral" | "success" | "successOutline"; size?: "sm" | "md"; disabled?: boolean }) {
@@ -214,6 +298,145 @@ function itemTypeLabel(item: Item) {
   return "FILE";
 }
 
+function replaceFileExtension(fileName: string, nextExtension: string) {
+  const cleanedExtension = nextExtension.replace(/^\./, "");
+  const trimmed = String(fileName || "asset").trim() || "asset";
+  const dotIndex = trimmed.lastIndexOf(".");
+  const base = dotIndex > 0 ? trimmed.slice(0, dotIndex) : trimmed;
+  return `${base}.${cleanedExtension}`;
+}
+
+function buildPreparedVariantFileName(fileName: string, suffix: string) {
+  const trimmed = String(fileName || "asset").trim() || "asset";
+  const dotIndex = trimmed.lastIndexOf(".");
+  const base = dotIndex > 0 ? trimmed.slice(0, dotIndex) : trimmed;
+  return `${base}-${suffix}.png`;
+}
+
+function resolveInstagramCropDefaultPreset(targetPlatform: string | null | undefined): AspectPreset {
+  switch (String(targetPlatform || "")) {
+    case "instagram_story":
+      return "9:16";
+    case "instagram_post":
+      return "4:5";
+    default:
+      return "original";
+  }
+}
+
+function resolveInstagramCropOptions(targetPlatform: string | null | undefined): Array<{ value: AspectPreset; label: string }> {
+  switch (String(targetPlatform || "")) {
+    case "instagram_story":
+      return [
+        { value: "9:16", label: "Story 9:16" },
+        { value: "original", label: "Original" },
+      ];
+    case "instagram_post":
+      return [
+        { value: "4:5", label: "Feed 4:5" },
+        { value: "1:1", label: "Feed 1:1" },
+        { value: "1.91:1", label: "Feed 1.91:1" },
+        { value: "9:16", label: "Story 9:16" },
+        { value: "original", label: "Original" },
+      ];
+    default:
+      return [
+        { value: "original", label: "Original" },
+        { value: "1:1", label: "1:1" },
+        { value: "4:5", label: "4:5" },
+        { value: "1.91:1", label: "1.91:1" },
+        { value: "16:9", label: "16:9" },
+        { value: "4:3", label: "4:3" },
+        { value: "3:4", label: "3:4" },
+        { value: "9:16", label: "9:16" },
+      ];
+  }
+}
+
+function resolveComposerPreviewAspectClass(
+  targetPlatform: string | null | undefined,
+  platformKind: ComposerPlatformKind | null | undefined,
+) {
+  switch (String(targetPlatform || "")) {
+    case "instagram_story":
+      return "aspect-[9/16]";
+    case "instagram_post":
+      return "aspect-[4/5]";
+    case "youtube_video":
+      return "aspect-video";
+    case "facebook_post":
+      return "aspect-16/10";
+    default:
+      break;
+  }
+
+  switch (platformKind) {
+    case "facebook":
+      return "aspect-16/10";
+    case "youtube":
+      return "aspect-video";
+    case "instagram":
+      return "aspect-[4/5]";
+    default:
+      return "aspect-square";
+  }
+}
+
+function buildPreparedVariantGrowthProfile(source: MediaGrowthProfile, mediaItemId: string): Partial<MediaGrowthProfile> {
+  const nextWorkflowState = source.postedAtIso || source.providerPostId || source.providerPublishedAtIso || source.workflowState === "posted_manually"
+    ? "ready_to_use"
+    : source.workflowState;
+  const nextDistributionProvider = source.distributionProvider || inferDistributionProvider(source.targetPlatform);
+
+  return {
+    mediaItemId,
+    workflowState: nextWorkflowState,
+    assetPurpose: source.assetPurpose,
+    relatedOffer: source.relatedOffer,
+    targetPlatform: source.targetPlatform,
+    campaignLabel: source.campaignLabel,
+    captionDraft: source.captionDraft,
+    ctaLabel: source.ctaLabel,
+    ctaHref: source.ctaHref,
+    notes: source.notes,
+    bookingLinkUrl: source.bookingLinkUrl,
+    funnelId: source.funnelId,
+    funnelName: source.funnelName,
+    funnelSlug: source.funnelSlug,
+    funnelPageId: source.funnelPageId,
+    funnelPageTitle: source.funnelPageTitle,
+    funnelPageSlug: source.funnelPageSlug,
+    plannedForIso: source.plannedForIso,
+    approvedAtIso: source.approvedAtIso,
+    postedAtIso: null,
+    postedUrl: null,
+    distributionProvider: nextDistributionProvider,
+    providerConnectionState: source.providerConnectionState || defaultProviderConnectionState(nextDistributionProvider),
+    providerPublishState: nextDistributionProvider === "manual" ? "manual_only" : null,
+    providerDestinationType: source.providerDestinationType,
+    providerDestinationId: source.providerDestinationId,
+    providerDestinationLabel: source.providerDestinationLabel,
+    providerAccountLabel: source.providerAccountLabel,
+    providerScheduledForIso: source.providerScheduledForIso,
+    providerQueuedAtIso: null,
+    providerPendingAtIso: null,
+    queueOrder: source.queueOrder,
+    dailyPostCap: source.dailyPostCap,
+    providerStatus: null,
+    providerPostId: null,
+    providerLastError: null,
+    providerRetryEligible: null,
+    providerRetryAtIso: null,
+    providerLastAttemptAtIso: null,
+    providerPublishedAtIso: null,
+    metricsImpressions: null,
+    metricsReach: null,
+    metricsEngagementCount: null,
+    metricsClickCount: null,
+    metricsSyncedAtIso: null,
+  };
+}
+
 function emptyGrowthProfile(mediaItemId: string): MediaGrowthProfile {
   return {
     mediaItemId,
@@ -240,11 +463,20 @@ function emptyGrowthProfile(mediaItemId: string): MediaGrowthProfile {
     distributionProvider: null,
     providerConnectionState: null,
     providerPublishState: null,
+    providerDestinationType: null,
+    providerDestinationId: null,
+    providerDestinationLabel: null,
     providerAccountLabel: null,
+    providerScheduledForIso: null,
+    providerQueuedAtIso: null,
+    providerPendingAtIso: null,
     queueOrder: null,
     dailyPostCap: null,
+    providerStatus: null,
     providerPostId: null,
     providerLastError: null,
+    providerRetryEligible: null,
+    providerRetryAtIso: null,
     providerLastAttemptAtIso: null,
     providerPublishedAtIso: null,
     metricsImpressions: null,
@@ -284,198 +516,326 @@ function growthStateLabel(state: MediaGrowthState | null | undefined) {
   }
 }
 
-function distributionProviderLabel(value: DistributionProviderKey | string | null | undefined) {
-  switch (String(value || "")) {
-    case "facebook_page":
-      return "Social page";
-    case "instagram_business":
-      return "Social account";
-    case "future_youtube":
-      return "YouTube";
-    case "future_tiktok":
-      return "Future provider";
-    case "future_linkedin":
-      return "Future provider";
-    default:
-      return "Manual upload";
-  }
-}
-
-function providerConnectionLabel(value: ProviderConnectionState | string | null | undefined) {
-  switch (String(value || "")) {
-    case "coming_soon":
-      return "Coming soon";
-    case "not_connected":
-      return "Not connected";
-    case "connection_required":
-      return "Connection required";
-    case "connected":
-      return "Connected";
-    case "needs_permissions":
-      return "Needs permissions";
-    case "permission_missing":
-      return "Permission missing";
-    case "reconnect_required":
-      return "Reconnect required";
-    case "disabled":
-      return "Disabled";
-    case "direct_publish_unsupported":
-      return "Direct publish unsupported";
-    case "metrics_unavailable":
-      return "Metrics unavailable";
-    default:
-      return "Connection required";
-  }
-}
-
-function providerPublishLabel(value: ProviderPublishState | string | null | undefined) {
-  switch (String(value || "")) {
-    case "manual_only":
-      return "Manual only";
-    case "ready":
-      return "Ready for provider";
-    case "queued":
-      return "Queued";
-    case "published":
-      return "Published";
-    case "failed":
-      return "Publish failed";
-    case "blocked":
-      return "Blocked";
-    default:
-      return "Draft";
-  }
-}
-
-function inferDistributionProvider(targetPlatform: string | null | undefined): DistributionProviderKey {
-  switch (String(targetPlatform || "")) {
-    case "facebook_post":
-      return "facebook_page";
-    case "instagram_post":
-    case "instagram_story":
-      return "instagram_business";
-    case "youtube_video":
-      return "future_youtube";
-    default:
-      return "manual";
-  }
-}
-
-function defaultProviderConnectionState(provider: DistributionProviderKey): ProviderConnectionState {
-  switch (provider) {
-    case "manual":
-      return "connected";
-    case "future_youtube":
-      return "coming_soon";
-    case "future_tiktok":
-    case "future_linkedin":
-      return "not_connected";
-    case "facebook_page":
-    case "instagram_business":
-      return "coming_soon";
-    default:
-      return "connection_required";
-  }
-}
-
-function resolveProviderContinuity(profile: MediaGrowthProfile, metaReadiness?: PortalMetaProviderReadiness | null) {
-  const providerKey = profile.distributionProvider || inferDistributionProvider(profile.targetPlatform);
-  const connectionState = (providerKey === "facebook_page" || providerKey === "instagram_business") && metaReadiness
-    ? (metaReadiness.status === "connected"
-      ? "connected"
-      : metaReadiness.status === "needs_permissions"
-        ? "needs_permissions"
-        : metaReadiness.status === "reconnect_required"
-          ? "reconnect_required"
-          : metaReadiness.status === "disabled"
-            ? "disabled"
-            : metaReadiness.status === "not_connected"
-              ? "not_connected"
-              : "coming_soon")
-    : profile.providerConnectionState || defaultProviderConnectionState(providerKey);
-  const publishState = profile.workflowState === "posted_manually"
-    ? "manual_only"
-    : profile.providerPublishState
-      || (profile.providerPostId || profile.providerPublishedAtIso
-        ? "published"
-        : providerKey === "future_youtube"
-          ? "manual_only"
-        : profile.workflowState === "queued"
-          ? "queued"
-          : profile.workflowState === "provider_failed" || profile.providerLastError
-            ? "failed"
-            : profile.workflowState === "provider_blocked" || (providerKey !== "manual" && connectionState !== "connected")
-              ? "blocked"
-              : profile.workflowState === "approved"
-                ? "ready"
-                : providerKey === "manual"
-                  ? "manual_only"
-                  : "draft");
-  const blocked = publishState === "blocked";
-  const detail = profile.workflowState === "posted_manually" || providerKey === "manual"
-    ? "Manual posting is available now. Open or download the asset, then track the manual post here."
-    : providerKey === "future_youtube"
-      ? "YouTube planning is available here now. Upload and analytics stay manual until direct sync is ready."
-    : providerKey === "facebook_page" || providerKey === "instagram_business"
-      ? connectionState === "connected"
-        ? "A connected publishing provider is available, but direct publishing stays off. Use manual posting and track the result here."
-        : connectionState === "needs_permissions" || connectionState === "permission_missing"
-          ? "Provider access is incomplete, so direct publishing stays blocked. Use manual posting and keep the schedule here."
-          : connectionState === "reconnect_required"
-            ? "Reconnect the provider before direct publishing can continue. Until then, use manual posting."
-            : connectionState === "disabled"
-              ? "Provider connection is disabled in this environment. Use manual posting and keep planning inside Purely."
-              : connectionState === "not_connected"
-                ? "Direct publishing is not connected from this workspace yet. Use manual posting and keep planning inside Purely."
-                : "Direct provider publishing is not available yet. Use manual posting and keep planning inside Purely."
-      : "This provider is future-facing. Manual posting is available now while direct provider continuity is not connected yet.";
-  const metricsLabel = providerKey === "future_youtube"
-    ? "YouTube analytics stay unavailable until Google OAuth, API scopes, quota, and app verification are ready."
-    : (providerKey === "facebook_page" || providerKey === "instagram_business") && connectionState !== "connected"
-      ? "Metrics stay unavailable until a connected provider post exists."
-    : profile.metricsSyncedAtIso
-      ? `Metrics synced ${formatCalendarDay(profile.metricsSyncedAtIso)} at ${formatCalendarTime(profile.metricsSyncedAtIso)}`
-      : profile.providerPostId || profile.providerPublishedAtIso
-        ? "Metrics are pending or unavailable from the provider."
-        : "Metrics require a connected provider post.";
-
-  return {
-    providerKey,
-    providerLabel: distributionProviderLabel(providerKey),
-    connectionState,
-    connectionLabel: providerConnectionLabel(connectionState),
-    publishState: publishState as ProviderPublishState,
-    publishLabel: providerPublishLabel(publishState),
-    blocked,
-    detail,
-    metricsLabel,
-  };
-}
-
 function targetPlatformLabel(value: string | null | undefined) {
-  switch (String(value || "")) {
+  switch (canonicalComposerTargetPlatform(value, { allowYouTube: true })) {
     case "instagram_post":
-      return "Instagram post";
+      return "Instagram feed post";
     case "instagram_story":
       return "Instagram story";
     case "facebook_post":
       return "Facebook post";
     case "youtube_video":
       return "YouTube video";
+    default:
+      return "Other/manual post";
+  }
+}
+
+type ComposerTargetPlatformOptionValue = "" | "instagram_post" | "instagram_story" | "facebook_post" | "youtube_video";
+
+function canonicalComposerTargetPlatform(
+  value: string | null | undefined,
+  options?: { allowYouTube?: boolean },
+): ComposerTargetPlatformOptionValue {
+  switch (String(value || "").trim()) {
+    case "instagram_post":
+      return "instagram_post";
+    case "instagram_story":
+      return "instagram_story";
+    case "facebook_post":
+      return "facebook_post";
+    case "youtube_video":
+      return options?.allowYouTube === false ? "" : "youtube_video";
+    default:
+      return "";
+  }
+}
+
+function legacyTargetPlatformLabel(value: string | null | undefined) {
+  switch (String(value || "").trim()) {
     case "newsletter":
       return "Newsletter";
     case "email":
-      return "Email";
+      return "Gmail / email";
     case "sms":
       return "SMS";
     case "funnel_hero":
-      return "Funnel hero";
+      return "Promo proof / funnel hero";
     case "booking_promo":
-      return "Booking promo";
+      return "Booking";
     case "review_proof":
       return "Review proof";
+    default: {
+      const raw = String(value || "").trim();
+      if (!raw || canonicalComposerTargetPlatform(raw, { allowYouTube: true })) return null;
+      return raw
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (match) => match.toUpperCase());
+    }
+  }
+}
+
+function resolveVisibleDistributionProvider(
+  targetPlatform: string | null | undefined,
+  distributionProvider: DistributionProviderKey | null | undefined,
+  options?: { allowYouTube?: boolean },
+): DistributionProviderKey {
+  const canonicalTargetPlatform = canonicalComposerTargetPlatform(targetPlatform, options);
+  const inferredProvider = inferDistributionProvider(canonicalTargetPlatform || null);
+  const provider = distributionProvider || inferredProvider;
+
+  switch (canonicalTargetPlatform) {
+    case "instagram_post":
+    case "instagram_story":
+      return provider === "manual" || provider === "instagram_business" ? provider : "instagram_business";
+    case "facebook_post":
+      return provider === "manual" || provider === "facebook_page" ? provider : "facebook_page";
+    case "youtube_video":
+      return provider === "manual" || provider === "future_youtube" ? provider : "future_youtube";
     default:
-      return value || "General";
+      return "manual";
+  }
+}
+
+function resolveDestinationSummary(
+  profile: Pick<MediaGrowthProfile, "providerDestinationLabel" | "providerAccountLabel">,
+  provider: DistributionProviderKey,
+  behavior: Pick<ComposerPlatformBehavior, "accountLabel" | "accountHandle"> | null,
+) {
+  const savedLabel = profile.providerDestinationLabel || profile.providerAccountLabel || behavior?.accountLabel || null;
+  const savedHandle = behavior?.accountHandle || null;
+
+  switch (provider) {
+    case "instagram_business":
+      return {
+        label: "Instagram account",
+        detail: savedLabel
+          ? `${savedLabel}${savedHandle ? ` · ${savedHandle}` : ""}`
+          : (savedHandle || "Destination stays on the Instagram account lane."),
+      };
+    case "facebook_page":
+      return {
+        label: "Facebook Page",
+        detail: savedLabel
+          ? `${savedLabel}${savedHandle ? ` · ${savedHandle}` : ""}`
+          : (savedHandle || "Destination stays on the Facebook Page lane."),
+      };
+    case "future_youtube":
+      return {
+        label: "YouTube channel",
+        detail: savedLabel
+          ? `${savedLabel}${savedHandle ? ` · ${savedHandle}` : ""}`
+          : (savedHandle || "YouTube remains manual/future-only until real provider support exists."),
+      };
+    default:
+      return {
+        label: "Manual / external channel",
+        detail: savedLabel
+          ? `${savedLabel}${savedHandle ? ` · ${savedHandle}` : ""}`
+          : "Purely stores the plan here, but the real post still goes out through your manual or external lane.",
+      };
+  }
+}
+
+function metaTargetMatchesProvider(account: PortalMetaProviderReadiness["targetAccounts"][number], provider: DistributionProviderKey) {
+  if (provider === "instagram_business") return account.kind === "instagram_professional";
+  if (provider === "facebook_page") return account.kind === "facebook_page";
+  return false;
+}
+
+function buildMetaDestinationOption(account: PortalMetaProviderReadiness["targetAccounts"][number]): MetaDestinationOption | null {
+  if (!account.destinationId || !account.destinationType) return null;
+  return {
+    value: account.key,
+    label: account.label,
+    hint: account.reason || undefined,
+    destinationType: account.destinationType,
+    destinationId: account.destinationId,
+    destinationLabel: account.label,
+    accountLabel: account.label,
+  };
+}
+
+function clearMetaDestinationBlocker(profile: MediaGrowthProfile): MediaGrowthProfile {
+  const shouldClear = profile.providerStatus === "meta_destination_missing" || profile.providerStatus === "meta_destination_invalid";
+  if (!shouldClear) return profile;
+
+  return {
+    ...profile,
+    providerStatus: null,
+    providerLastError: null,
+    providerPublishState: profile.providerPublishState === "blocked" ? "draft" : profile.providerPublishState,
+  };
+}
+
+function resolveVariantCopy(variant: WorkspaceVariant) {
+  if (variant === "credit") {
+    return {
+      brandLabel: "Your credit team",
+      offerFallback: "your consultation offer",
+      directAction: "book a consultation",
+      profileAction: "the link in bio, DM, or your profile consultation button",
+      savedLinkFallback: "Consultation link",
+    };
+  }
+
+  return {
+    brandLabel: "Your business",
+    offerFallback: "your offer",
+    directAction: "book now",
+    profileAction: "the link in bio, DM, or your profile booking button",
+    savedLinkFallback: "Booking link",
+  };
+}
+
+function resolveComposerPlatformKind(
+  targetPlatform: string | null | undefined,
+  distributionProvider: DistributionProviderKey | null | undefined,
+): ComposerPlatformKind {
+  switch (String(targetPlatform || "")) {
+    case "instagram_post":
+    case "instagram_story":
+      return "instagram";
+    case "facebook_post":
+      return "facebook";
+    case "youtube_video":
+      return "youtube";
+    default:
+      break;
+  }
+
+  switch (distributionProvider) {
+    case "instagram_business":
+      return "instagram";
+    case "facebook_page":
+      return "facebook";
+    case "future_youtube":
+      return "youtube";
+    default:
+      return "manual";
+  }
+}
+
+function resolveComposerPlatformBehavior(profile: MediaGrowthProfile, variant: WorkspaceVariant): ComposerPlatformBehavior {
+  const variantCopy = resolveVariantCopy(variant);
+  const kind = resolveComposerPlatformKind(profile.targetPlatform, profile.distributionProvider);
+  const accountLabel = profile.providerAccountLabel
+    || (kind === "facebook"
+      ? `${variantCopy.brandLabel} Page`
+      : kind === "youtube"
+        ? `${variantCopy.brandLabel} Channel`
+        : kind === "instagram"
+          ? variantCopy.brandLabel
+          : `${variantCopy.brandLabel} Workflow`);
+  const accountHandle = kind === "instagram"
+    ? (variant === "credit" ? "@yourcreditbrand" : "@yourbusiness")
+    : kind === "youtube"
+      ? "Manual upload lane"
+      : kind === "facebook"
+        ? "Page preview"
+        : "Local composer preview";
+
+  switch (kind) {
+    case "instagram":
+      return {
+        kind,
+        label: "Instagram",
+        captionFieldLabel: "Instagram caption",
+        captionPlaceholder: "Write the Instagram caption. Keep the next step native to Instagram instead of treating the caption like a clickable link post.",
+      guidanceTitle: "Instagram should read like Instagram, not a generic link post.",
+        guidanceBody: "Lead with the proof, then tell people to use the link in bio, send a DM, or use the profile booking button if it is configured. Do not write the caption like Instagram will turn a URL into a clean clickable CTA.",
+      guidanceDetail: "Keep any URL here as planning-only support for bio, DM, profile booking, or internal follow-up. The post itself should stay platform-native.",
+        linkFieldLabel: "Internal reference link",
+      linkFieldHelper: "Optional. Save a planning-only URL for bio, DM, profile button, or internal follow-up. It does not become a clickable Instagram CTA in the post.",
+        linkFieldPlaceholder: "https://bio-link-or-tracking-url",
+      ctaLabelFieldLabel: "CTA note",
+      ctaLabelPlaceholder: "Link in bio, DM us, Book from profile",
+        savedLinkLabel: "Profile booking / bio reference",
+        defaultCtaLabel: variant === "credit" ? "Link in bio / DM" : "Book from profile",
+        starterButtonLabel: "Start caption",
+        copyButtonLabel: "Copy caption",
+        manualPostingGuidance: "Post it on Instagram in the real account, then save the live post URL here. Purely stores the record you enter, but does not detect manual posts automatically.",
+        previewLabel: "Instagram preview",
+        previewLinkLabel: "Instagram handoff",
+        previewLinkHelper: "The preview keeps URLs as plain text and shows saved links as planning-only. Instagram does not get a fake clickable button here.",
+        accountLabel,
+        accountHandle,
+      };
+    case "facebook":
+      return {
+        kind,
+        label: "Facebook",
+        captionFieldLabel: "Facebook post copy",
+        captionPlaceholder: "Write the Facebook post copy and any direct CTA language.",
+        guidanceTitle: "Facebook can support a more direct link CTA.",
+        guidanceBody: "Facebook post copy can point more directly to the destination, but the preview should still show the link honestly as part of the post instead of implying any hidden provider magic.",
+        guidanceDetail: "If the link is part of the post, make the benefit, destination, and next step obvious. Keep it readable and tied to one clear action.",
+        linkFieldLabel: "Post link",
+        linkFieldHelper: "Use the direct destination you want visible in the Facebook post or attached as the main CTA path.",
+        linkFieldPlaceholder: "https://post-destination-url",
+        ctaLabelFieldLabel: "Post CTA label",
+        ctaLabelPlaceholder: variant === "credit" ? "Book consultation, Message us, Learn more" : "Book now, Learn more, Claim offer",
+        savedLinkLabel: "Saved post link",
+        defaultCtaLabel: variant === "credit" ? "Book consultation" : "Book now",
+        starterButtonLabel: "Start caption",
+        copyButtonLabel: "Copy caption",
+        manualPostingGuidance: "Post it on Facebook manually, then paste the live post URL here.",
+        previewLabel: "Facebook preview",
+        previewLinkLabel: "Visible post link",
+        previewLinkHelper: "Facebook can carry a more direct link path, so the preview shows it as part of the post surface.",
+        accountLabel,
+        accountHandle,
+      };
+    case "youtube":
+      return {
+        kind,
+        label: "YouTube",
+        captionFieldLabel: "Title + description",
+        captionPlaceholder: "Write the working title, description, and link handoff notes.",
+        guidanceTitle: "YouTube stays manual and description-led here.",
+        guidanceBody: "Use this composer to plan the title, description, and CTA handoff. Uploading, publishing, scheduling, and analytics remain manual or future-only until real integration exists.",
+        guidanceDetail: "Put the real destination in the description or pinned comment plan. Keep the preview honest about the fact that this is local planning only.",
+        linkFieldLabel: "Description link",
+        linkFieldHelper: "Use the link you want available in the description or pinned comment after manual upload.",
+        linkFieldPlaceholder: "https://description-link-url",
+        ctaLabelFieldLabel: "Description CTA label",
+        ctaLabelPlaceholder: variant === "credit" ? "Book consultation, Review your report, Message us" : "Book now, Learn more, Start here",
+        savedLinkLabel: "Saved description link",
+        defaultCtaLabel: variant === "credit" ? "Description consultation link" : "Description booking link",
+        starterButtonLabel: "Start draft",
+        copyButtonLabel: "Copy draft",
+        manualPostingGuidance: "Upload it yourself, then paste the live video URL here. Description links and scheduling stay manual or future-only in this flow.",
+        previewLabel: "YouTube preview",
+        previewLinkLabel: "Description follow-up link",
+        previewLinkHelper: "Shown as part of the description plan, not as a live provider preview.",
+        accountLabel,
+        accountHandle,
+      };
+    default:
+      return {
+        kind: "manual",
+        label: "Manual / other",
+        captionFieldLabel: "Draft copy",
+        captionPlaceholder: "Write the draft copy, posting notes, or manual handoff copy here.",
+        guidanceTitle: "This stays a local planning draft.",
+        guidanceBody: "Use the copy and link fields to prepare the post honestly for the real channel or handoff you will use. Do not let the preview imply direct posting capability that does not exist.",
+        guidanceDetail: "Keep the destination saved here for internal tracking, manual posting, or a later handoff to the real channel.",
+        linkFieldLabel: "Manual link",
+        linkFieldHelper: "Use the manual destination, reference URL, or tracked follow-up link you want attached to this asset.",
+        linkFieldPlaceholder: "https://manual-destination-url",
+        ctaLabelFieldLabel: "Manual CTA label",
+        ctaLabelPlaceholder: variant === "credit" ? "Book consultation, Message us, Reply here" : "Book now, Learn more, Claim offer",
+        savedLinkLabel: "Saved manual link",
+        defaultCtaLabel: variantCopy.savedLinkFallback,
+        starterButtonLabel: "Start draft",
+        copyButtonLabel: "Copy draft",
+        manualPostingGuidance: "Publish it manually in the real channel, then paste the live URL here if you want the result tracked.",
+        previewLabel: "Local draft preview",
+        previewLinkLabel: "Manual follow-up link",
+        previewLinkHelper: "Shown as a local composer reference only.",
+        accountLabel,
+        accountHandle,
+      };
   }
 }
 
@@ -522,22 +882,131 @@ function fromDateTimeLocalValue(value: string) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function buildCaptionStarter(item: Item, profile: MediaGrowthProfile, context: MediaGrowthContext | null) {
+function buildLinkedFunnelPath(profile: Pick<MediaGrowthProfile, "funnelId" | "funnelSlug" | "funnelPageSlug">): string | null {
+  const basePath = hostedFunnelPath(profile.funnelSlug || "", profile.funnelId || "");
+  if (!basePath) return null;
+  const pageSlug = String(profile.funnelPageSlug || "").trim();
+  if (!pageSlug || pageSlug.toLowerCase() === "home") return basePath;
+  return `${basePath}/${encodeURIComponent(pageSlug)}`;
+}
+
+function resolveComposerDestination(
+  profile: Pick<MediaGrowthProfile, "ctaHref" | "bookingLinkUrl" | "funnelId" | "funnelName" | "funnelSlug" | "funnelPageTitle" | "funnelPageSlug">,
+  context?: Pick<MediaGrowthContext, "bookingLink"> | null,
+) {
+  if (profile.ctaHref) {
+    return {
+      href: profile.ctaHref,
+      sourceLabel: "Direct override link",
+      detail: "This explicit link overrides the saved booking handoff and linked funnel route below.",
+    };
+  }
+
+  const funnelHref = buildLinkedFunnelPath(profile);
+  if (funnelHref) {
+    return {
+      href: funnelHref,
+      sourceLabel: profile.funnelPageTitle ? `Linked funnel page: ${profile.funnelPageTitle}` : `Linked funnel entry: ${profile.funnelName || profile.funnelSlug || "Selected funnel"}`,
+      detail: profile.funnelPageTitle
+        ? "This post will point to the selected page inside the linked funnel."
+        : "This post will point to the funnel's main entry page until you choose a specific page.",
+    };
+  }
+
+  if (profile.bookingLinkUrl) {
+    return {
+      href: profile.bookingLinkUrl,
+      sourceLabel: "Saved booking / intake link",
+      detail: "This uses the saved booking or intake handoff you selected below.",
+    };
+  }
+
+  if (context?.bookingLink?.url) {
+    return {
+      href: context.bookingLink.url,
+      sourceLabel: `${context.bookingLink.providerLabel} default link`,
+      detail: "This falls back to the current booking handoff saved in Booking settings.",
+    };
+  }
+
+  return {
+    href: null,
+    sourceLabel: "No destination selected",
+    detail: "Leave the direct link blank only if you plan to use a saved booking handoff or linked funnel route.",
+  };
+}
+
+function buildCaptionStarter(item: Item, profile: MediaGrowthProfile, context: MediaGrowthContext | null, variant: WorkspaceVariant) {
   const purpose = profile.assetPurpose || "a campaign asset";
-  const offer = profile.relatedOffer || context?.bookingLink?.offerName || "your offer";
-  const platform = targetPlatformLabel(profile.targetPlatform);
-  const ctaLabel = profile.ctaLabel || (context?.bookingLink?.url ? "Book now" : "Learn more");
-  const ctaHref = profile.ctaHref || profile.bookingLinkUrl || context?.bookingLink?.url || "";
-  const intro = platform === "SMS"
-    ? `Quick update about ${offer}:`
-    : platform === "YouTube video"
-      ? `YouTube title + description ideas for ${offer}.`
-    : `Draft ${platform.toLowerCase()} copy for ${offer}.`;
-  return [
-    intro,
-    `${item.fileName} supports ${purpose}. Keep the copy concrete, proof-led, and tied to one next step.`,
-    ctaHref ? `${ctaLabel}: ${ctaHref}` : `CTA: ${ctaLabel}`,
-  ].filter(Boolean).join("\n\n");
+  const variantCopy = resolveVariantCopy(variant);
+  const offer = profile.relatedOffer || context?.bookingLink?.offerName || variantCopy.offerFallback;
+  const ctaHref = resolveComposerDestination(profile, context).href || "";
+  const behavior = resolveComposerPlatformBehavior(profile, variant);
+  const ctaLabel = profile.ctaLabel || behavior.defaultCtaLabel;
+
+  switch (behavior.kind) {
+    case "instagram":
+      return [
+        `Instagram caption draft for ${offer}.`,
+        `${item.fileName} should support ${purpose}. Lead with one concrete proof point or outcome, then point people to ${variantCopy.profileAction}.`,
+        "Keep the Instagram CTA native to the platform: mention the link in bio, invite a DM, or point to the profile booking button if it is configured. Do not make a raw caption URL the main CTA.",
+        ctaHref
+          ? `${behavior.linkFieldLabel}: saved in the planner for bio, DM, profile, or internal follow-up.`
+          : `${behavior.linkFieldLabel}: add one only if you need a planner reference for bio, DM, profile, or internal follow-up.`,
+      ].join("\n\n");
+    case "facebook":
+      return [
+        `Facebook post draft for ${offer}.`,
+        `${item.fileName} should support ${purpose}. Lead with the clearest benefit, one proof point, and a direct invitation to ${variantCopy.directAction}.`,
+        `CTA: ${ctaLabel}. Facebook can handle a more direct link path in the copy when it helps.`,
+        ctaHref
+          ? `${behavior.linkFieldLabel}: ${ctaHref}`
+          : `${behavior.linkFieldLabel}: add the destination you want visible in the post.`,
+      ].join("\n\n");
+    case "youtube":
+      return [
+        `Title: ${offer}`,
+        `Description opener: Explain what viewers will learn or see, why it matters, and the one next step to take after watching ${item.fileName}.`,
+        `Description CTA: ${ctaLabel}. Keep upload, scheduling, and analytics manual or future-only in this flow.`,
+        ctaHref
+          ? `${behavior.linkFieldLabel}: ${ctaHref}`
+          : `${behavior.linkFieldLabel}: add the follow-up link you want in the description or pinned comment.`,
+      ].join("\n\n");
+    default:
+      return [
+        `Draft copy for ${offer}.`,
+        `${item.fileName} supports ${purpose}. Keep the copy concrete, proof-led, and tied to one real next step.`,
+        `CTA: ${ctaLabel}.`,
+        ctaHref
+          ? `${behavior.linkFieldLabel}: ${ctaHref}`
+          : `${behavior.linkFieldLabel}: add the destination or tracked follow-up link you will use manually.`,
+      ].join("\n\n");
+  }
+}
+
+function splitYouTubeDraftPreview(captionDraft: string | null | undefined, fallbackTitle: string) {
+  const lines = String(captionDraft || "")
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return {
+      title: fallbackTitle,
+      body: "",
+    };
+  }
+
+  const titleIndex = lines.findIndex((line) => /^title(?:\s+idea)?:/i.test(line));
+  const title = titleIndex >= 0
+    ? lines[titleIndex].replace(/^title(?:\s+idea)?:\s*/i, "")
+    : lines[0];
+  const body = lines.filter((_, index) => index !== titleIndex && (titleIndex >= 0 || index > 0)).join("\n\n");
+
+  return {
+    title: title || fallbackTitle,
+    body,
+  };
 }
 
 type WorkflowResultSlot = {
@@ -552,6 +1021,43 @@ type WorkflowNextStep = {
   detail: string;
 };
 
+function isInstagramTargetPlatform(targetPlatform: string | null | undefined) {
+  return targetPlatform === "instagram_post" || targetPlatform === "instagram_story";
+}
+
+function renderCaptionPreviewLine(line: string, lineIndex: number) {
+  const parts = String(line || "").split(/(https?:\/\/[^\s]+)/g);
+  return parts.map((part, partIndex) => {
+    if (!part) return null;
+    if (/^https?:\/\//i.test(part)) {
+      return (
+        <span
+          key={`url-${lineIndex}-${partIndex}`}
+          className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[12px] text-zinc-600"
+        >
+          {part}
+        </span>
+      );
+    }
+    return <span key={`text-${lineIndex}-${partIndex}`}>{part}</span>;
+  });
+}
+
+function renderCaptionPreviewText(captionDraft: string | null | undefined, fallback: string) {
+  const value = String(captionDraft || "").trim();
+  const lines = (value || fallback).split(/\r?\n/);
+
+  return (
+    <div className="space-y-2 text-sm leading-6 text-zinc-800">
+      {lines.map((line, index) => (
+        <div key={`caption-line-${index}`} className="whitespace-pre-wrap wrap-break-word">
+          {renderCaptionPreviewLine(line, index)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function formatResultMetric(value: number | null | undefined, label: string) {
   const count = Number(value ?? 0);
   if (!Number.isFinite(count) || count <= 0) return null;
@@ -564,6 +1070,7 @@ function buildWorkflowNextStep(
   variant: "portal" | "credit",
 ): WorkflowNextStep {
   const nextStepLabel = variant === "credit" ? "consultation or document follow-up" : "booking or follow-up";
+  const destination = resolveComposerDestination(profile);
 
   if (profile.targetPlatform === "youtube_video" && !profile.captionDraft) {
     return {
@@ -586,10 +1093,12 @@ function buildWorkflowNextStep(
     };
   }
 
-  if (!profile.ctaHref && (profile.targetPlatform || profile.workflowState === "ready_to_use" || profile.workflowState === "planned")) {
+  if (!destination.href && (profile.targetPlatform || profile.workflowState === "ready_to_use" || profile.workflowState === "planned")) {
     return {
-      title: "Add a tracked link",
-      detail: `Attach a ${nextStepLabel} link before posting so the next action is clear and future clicks have a real destination.`,
+      title: isInstagramTargetPlatform(profile.targetPlatform) ? "Add an Instagram handoff plan" : "Add a tracked link",
+      detail: isInstagramTargetPlatform(profile.targetPlatform)
+        ? "Decide whether this Instagram post should push people to the link in bio, a DM, or the profile booking button. Keep any saved URL in the planner instead of treating it like a clickable caption CTA."
+        : `Attach a ${nextStepLabel} link before posting so the next action is clear and future clicks have a real destination.`,
     };
   }
 
@@ -602,10 +1111,10 @@ function buildWorkflowNextStep(
 
   if ((profile.plannedForIso || profile.workflowState === "planned") && !profile.postedAtIso) {
     return {
-      title: continuity.blocked ? "Post manually or reschedule" : "Post or reschedule",
+      title: continuity.blocked ? "Still planned locally" : "Ready for the provider lane",
       detail: continuity.blocked
-        ? "The time is set, but direct provider publishing stays blocked. Post it manually and store the public URL here, or move the schedule."
-        : "This asset already has a time. Post it manually when due, or adjust the timing if the campaign changed.",
+        ? "This post has a local plan, but it is not posted yet. Finish the provider lane when possible, or post it manually and save the live URL here after it is live."
+        : "This post is planned and ready for the real automatic path. Queue it through the provider lane when that path is available, or change the timing if the campaign moved.",
     };
   }
 
@@ -613,12 +1122,12 @@ function buildWorkflowNextStep(
     return {
       title: profile.targetPlatform === "youtube_video" ? "Save the live YouTube URL" : "Save the live post URL",
       detail: profile.targetPlatform === "youtube_video"
-        ? "Store the public YouTube URL after manual upload so the team can review the live video later."
-        : "Store the public URL after posting so the team can review the live asset later.",
+        ? "Use this after uploading outside Purely so the live YouTube URL stays recorded here. Provider-posted is still the preferred synchronized state when it exists."
+        : "Use this after posting outside Purely so the live post URL stays recorded here. Provider-posted is still the preferred synchronized state when it exists.",
     };
   }
 
-  if (profile.workflowState === "posted_manually" && !profile.ctaHref) {
+  if (profile.workflowState === "posted_manually" && !destination.href) {
     return {
       title: "Use a tracked link next time",
       detail: "Manual post results do not connect automatically. Add a tracked Purely link on the next iteration so clicks and follow-up have a real path.",
@@ -627,22 +1136,22 @@ function buildWorkflowNextStep(
 
   if (profile.workflowState === "posted_manually") {
     return {
-      title: "Try the next iteration",
-      detail: "Reuse the asset with a different offer, caption, or posting time based on what happened after the manual post.",
+      title: "Manual post is recorded",
+      detail: "This item is saved as posted outside Purely. Reuse the asset with a different offer, caption, or timing, and keep the provider lane for the cases where true automatic posting becomes ready.",
     };
   }
 
   if (continuity.blocked) {
     return {
-      title: "Finish provider setup",
-      detail: "Manual posting is still available, but direct provider continuity remains blocked until the provider connection is ready.",
+      title: "Finish the provider lane",
+      detail: "Planned locally is not posted. Manual posting is still available as fallback, but the real automatic path stays blocked until the provider lane is ready.",
     };
   }
 
   if (profile.workflowState === "ready_to_use" || profile.workflowState === "approved") {
     return {
       title: "Schedule the asset",
-      detail: "The draft, target, and CTA are in place. Pick a posting time and keep the asset moving through the manual-post workflow.",
+      detail: "The draft and handoff details are in place. Pick a timing, then use the provider queue when available. A planned item in Purely is not posted yet.",
     };
   }
 
@@ -664,41 +1173,47 @@ function buildWorkflowResultSlots(
   profile: MediaGrowthProfile,
   continuity: ReturnType<typeof resolveProviderContinuity>,
   variant: "portal" | "credit",
+  context?: MediaGrowthContext | null,
 ): WorkflowResultSlot[] {
   const providerMetrics = [
     formatResultMetric(profile.metricsImpressions, "impressions"),
     formatResultMetric(profile.metricsReach, "reach"),
     formatResultMetric(profile.metricsEngagementCount, "engagements"),
     formatResultMetric(profile.metricsClickCount, "clicks"),
-  ].filter(Boolean).join(" • ");
+  ].filter(Boolean).join(" | ");
+  const destination = resolveComposerDestination(profile, context);
 
   return [
     {
-      label: "Manual post",
-      value: profile.postedUrl ? "Live URL saved" : profile.postedAtIso ? "Posted manually" : "Not posted yet",
+      label: "Manual post record",
+      value: profile.postedUrl ? "Outside post URL saved" : profile.postedAtIso ? "Marked outside Purely" : "Not used",
       detail: profile.postedUrl
         ? profile.postedUrl
         : profile.postedAtIso
-          ? "Add the public post URL when you have it."
-          : "Use this slot after a manual post so the live asset is easy to find.",
+          ? "Add the public post URL when you have it. Purely stores the record you enter here, but it does not mean Purely synchronized the post automatically."
+          : "Use this after posting outside Purely so the live post record is easy to find.",
       href: profile.postedUrl,
     },
     {
-      label: "Tracked link",
-      value: profile.ctaHref ? (profile.ctaLabel || "Tracked link attached") : "No tracked link",
-      detail: profile.ctaHref
-        ? profile.ctaHref
-        : variant === "credit"
+      label: isInstagramTargetPlatform(profile.targetPlatform) ? "Instagram handoff" : "Destination link",
+      value: destination.href
+        ? (isInstagramTargetPlatform(profile.targetPlatform) ? "Internal follow-up saved" : (profile.ctaLabel || destination.sourceLabel))
+        : (isInstagramTargetPlatform(profile.targetPlatform) ? "No internal handoff saved" : "No destination linked"),
+      detail: destination.href
+        ? destination.href
+        : isInstagramTargetPlatform(profile.targetPlatform)
+          ? "Use this for the link in bio, DM follow-up, profile booking button, or internal planning only. It does not become a clickable Instagram CTA."
+          : variant === "credit"
           ? "Use a consultation, report, or document follow-up link before posting."
           : "Use a booking, funnel, or follow-up link before posting.",
-      href: profile.ctaHref,
+      href: destination.href,
     },
     {
-      label: "Funnel or form",
+      label: "Funnel destination",
       value: profile.funnelPageTitle || profile.funnelName || "Not linked",
       detail: profile.funnelId
-        ? "Form submissions stay in the linked funnel flow, but this asset does not get automatic attribution yet."
-        : "Link a funnel or form if you want the next step to stay inside Purely.",
+        ? "The linked funnel can supply the post destination now, but this asset still does not get automatic attribution inside that funnel flow yet."
+        : "Link a funnel if you want the next step to stay inside Purely.",
     },
     {
       label: "Booking handoff",
@@ -715,10 +1230,94 @@ function buildWorkflowResultSlots(
       detail: providerMetrics
         ? continuity.metricsLabel
         : profile.workflowState === "posted_manually"
-          ? "Manual post results are not connected automatically."
+          ? "Manual post records do not sync platform metrics automatically."
           : continuity.metricsLabel,
     },
   ];
+}
+
+function composerStatusToneClass(tone: ComposerPostStatusTone) {
+  switch (tone) {
+    case "sky":
+      return "bg-sky-50 text-sky-700";
+    case "amber":
+      return "bg-amber-50 text-amber-700";
+    case "emerald":
+      return "bg-emerald-50 text-emerald-700";
+    case "rose":
+      return "bg-rose-50 text-rose-700";
+    default:
+      return "bg-zinc-100 text-zinc-700";
+  }
+}
+
+function composerChecklistStatusClass(status: ComposerChecklistStatus) {
+  switch (status) {
+    case "ready":
+      return "bg-emerald-50 text-emerald-700";
+    case "blocked":
+      return "bg-rose-50 text-rose-700";
+    default:
+      return "bg-amber-50 text-amber-700";
+  }
+}
+
+function composerChecklistStatusLabel(status: ComposerChecklistStatus) {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "blocked":
+      return "Blocked";
+    default:
+      return "Pending";
+  }
+}
+
+function resolveComposerPostStatus(
+  profile: MediaGrowthProfile,
+  continuity: ReturnType<typeof resolveProviderContinuity>,
+): { label: string; detail: string; tone: ComposerPostStatusTone } | null {
+  if (continuity.publishState === "published") {
+    return {
+      label: "Provider-posted",
+      detail: "A real provider result is stored for this post. This is the ideal synchronized state.",
+      tone: "emerald",
+    };
+  }
+
+  if (profile.workflowState === "posted_manually" || Boolean(profile.postedAtIso)) {
+    return {
+      label: "Posted manually",
+      detail: "Recorded as posted outside Purely. Purely stores the live URL and timing you save here, but this is not an automatic provider-posted state.",
+      tone: "sky",
+    };
+  }
+
+  if (continuity.publishState === "queued" || continuity.publishState === "pending") {
+    return {
+      label: "Queued",
+      detail: "Queued through the provider lane. This is the intended automatic path once the provider route is truly live.",
+      tone: "sky",
+    };
+  }
+
+  if (continuity.blocked) {
+    return {
+      label: "Blocked",
+      detail: continuity.detail,
+      tone: "rose",
+    };
+  }
+
+  if (profile.plannedForIso || profile.workflowState === "planned" || profile.workflowState === "approved" || profile.workflowState === "ready_to_use") {
+    return {
+      label: "Planned",
+      detail: "Planned locally only. It is not posted yet.",
+      tone: "amber",
+    };
+  }
+
+  return null;
 }
 
 export function PortalMediaLibraryClient() {
@@ -728,6 +1327,7 @@ export function PortalMediaLibraryClient() {
     return portalVariantFromPathname(window.location.pathname);
   }, []);
   const isCreditWorkspace = portalVariant === "credit";
+  const portalBase = useMemo(() => portalBaseFromWorkspaceVariant(portalVariant), [portalVariant]);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -791,6 +1391,8 @@ export function PortalMediaLibraryClient() {
   const [metaReadiness, setMetaReadiness] = useState<PortalMetaProviderReadiness | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailSaving, setDetailSaving] = useState(false);
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [previewComposerSection, setPreviewComposerSection] = useState<PreviewComposerSection | null>(null);
 
   const selectedItem = useMemo(() => {
     if (!selected || selected.kind !== "item") return null;
@@ -817,13 +1419,342 @@ export function PortalMediaLibraryClient() {
 
   const previewResultSlots = useMemo(() => {
     return previewGrowthProfile && previewContinuity
-      ? buildWorkflowResultSlots(previewGrowthProfile, previewContinuity, portalVariant)
+      ? buildWorkflowResultSlots(previewGrowthProfile, previewContinuity, portalVariant, growthContext)
       : [];
-  }, [portalVariant, previewContinuity, previewGrowthProfile]);
+  }, [growthContext, portalVariant, previewContinuity, previewGrowthProfile]);
 
   const previewSupportsYouTubePlanning = useMemo(() => {
     return supportsYouTubePlanning(previewItem, previewGrowthProfile);
   }, [previewGrowthProfile, previewItem]);
+
+  const workflowDropdownButtonClass = "flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300";
+
+  const previewCanonicalTargetPlatform = useMemo<ComposerTargetPlatformOptionValue>(() => {
+    return canonicalComposerTargetPlatform(previewGrowthProfile?.targetPlatform, { allowYouTube: previewSupportsYouTubePlanning });
+  }, [previewGrowthProfile?.targetPlatform, previewSupportsYouTubePlanning]);
+
+  const previewLegacyTargetPlatform = useMemo(() => {
+    if (!previewGrowthProfile?.targetPlatform) return null;
+    if (previewCanonicalTargetPlatform) return null;
+    return legacyTargetPlatformLabel(previewGrowthProfile.targetPlatform);
+  }, [previewCanonicalTargetPlatform, previewGrowthProfile?.targetPlatform]);
+
+  const previewDistributionProvider = useMemo<DistributionProviderKey>(() => {
+    return resolveVisibleDistributionProvider(
+      previewGrowthProfile?.targetPlatform,
+      previewGrowthProfile?.distributionProvider,
+      { allowYouTube: previewSupportsYouTubePlanning },
+    );
+  }, [previewGrowthProfile?.distributionProvider, previewGrowthProfile?.targetPlatform, previewSupportsYouTubePlanning]);
+
+  const previewPostComposerStatus = useMemo(() => {
+    return previewGrowthProfile && previewContinuity
+      ? resolveComposerPostStatus(previewGrowthProfile, previewContinuity)
+      : null;
+  }, [previewContinuity, previewGrowthProfile]);
+
+  const previewPlatformBehavior = useMemo(() => {
+    return previewGrowthProfile ? resolveComposerPlatformBehavior(previewGrowthProfile, portalVariant) : null;
+  }, [portalVariant, previewGrowthProfile]);
+
+  const previewIsInstagramComposer = previewPlatformBehavior?.kind === "instagram";
+
+  const previewPlatformAspectClass = useMemo(() => {
+    return resolveComposerPreviewAspectClass(previewGrowthProfile?.targetPlatform, previewPlatformBehavior?.kind);
+  }, [previewGrowthProfile?.targetPlatform, previewPlatformBehavior?.kind]);
+
+  const previewInstagramCropPreset = useMemo(() => {
+    return resolveInstagramCropDefaultPreset(previewGrowthProfile?.targetPlatform);
+  }, [previewGrowthProfile?.targetPlatform]);
+
+  const previewInstagramCropOptions = useMemo(() => {
+    return resolveInstagramCropOptions(previewGrowthProfile?.targetPlatform);
+  }, [previewGrowthProfile?.targetPlatform]);
+
+  const previewCanPrepareInstagramAsset = useMemo(() => {
+    if (!previewItem?.previewUrl) return false;
+    if (itemPreviewKind(previewItem) !== "image") return false;
+    return previewPlatformBehavior?.kind === "instagram";
+  }, [previewItem, previewPlatformBehavior?.kind]);
+
+  const previewResolvedLinkHref = useMemo(() => {
+    return previewGrowthProfile ? resolveComposerDestination(previewGrowthProfile, growthContext).href : null;
+  }, [growthContext, previewGrowthProfile]);
+
+  const previewResolvedDestinationMeta = useMemo(() => {
+    return previewGrowthProfile ? resolveComposerDestination(previewGrowthProfile, growthContext) : null;
+  }, [growthContext, previewGrowthProfile]);
+
+  const previewResolvedCtaLabel = useMemo(() => {
+    if (!previewPlatformBehavior) return previewGrowthProfile?.ctaLabel || null;
+    return previewGrowthProfile?.ctaLabel || previewPlatformBehavior.defaultCtaLabel;
+  }, [previewGrowthProfile?.ctaLabel, previewPlatformBehavior]);
+
+  const previewYouTubeDraft = useMemo(() => {
+    return splitYouTubeDraftPreview(
+      previewGrowthProfile?.captionDraft,
+      previewGrowthProfile?.relatedOffer || previewItem?.fileName || "Planned video title",
+    );
+  }, [previewGrowthProfile?.captionDraft, previewGrowthProfile?.relatedOffer, previewItem?.fileName]);
+
+  const previewManualPostingGuidance = useMemo(() => {
+    return previewPlatformBehavior?.manualPostingGuidance || "Post it yourself, then paste the live link here.";
+  }, [previewPlatformBehavior]);
+
+  const previewProviderScheduleHelperText = useMemo(() => {
+    if (!previewGrowthProfile) return "Unavailable until a provider path is selected.";
+    if (previewDistributionProvider === "manual") return "Unavailable while manual posting is selected.";
+    if (previewDistributionProvider === "future_youtube") return "Unavailable until YouTube scheduling is supported.";
+    if (previewDistributionProvider === "future_tiktok") return "Unavailable until TikTok scheduling is supported.";
+    if (previewDistributionProvider === "future_linkedin") return "Unavailable until LinkedIn scheduling is supported.";
+    if (previewContinuity?.blocked && (previewDistributionProvider === "instagram_business" || previewDistributionProvider === "facebook_page")) {
+      return "Save the provider target time here, but Purely will keep live Meta posting blocked until provider setup is truly ready.";
+    }
+    return null;
+  }, [previewContinuity?.blocked, previewDistributionProvider, previewGrowthProfile]);
+
+  const previewProviderScheduleDisabled = !previewGrowthProfile
+    || previewDistributionProvider === "manual"
+    || previewDistributionProvider === "future_youtube"
+    || previewDistributionProvider === "future_tiktok"
+    || previewDistributionProvider === "future_linkedin";
+
+  const previewSocialSetupHref = useMemo(() => buildProviderSetupWizardHref(portalBase, "meta"), [portalBase]);
+  const previewUsesMetaProviderLane = previewDistributionProvider === "facebook_page" || previewDistributionProvider === "instagram_business";
+  const previewMetaDestinationSetupLabel = previewDistributionProvider === "instagram_business"
+    ? "Add Instagram professional account"
+    : "Add Facebook Page";
+  const previewBlockedSetupHref = previewUsesMetaProviderLane && previewContinuity?.blocked ? previewSocialSetupHref : null;
+
+  useEffect(() => {
+    if (!previewOpen) {
+      setPreviewComposerSection(null);
+      return;
+    }
+
+    setPreviewComposerSection(previewBlockedSetupHref ? "settings" : null);
+  }, [previewBlockedSetupHref, previewItem?.id, previewOpen]);
+
+  const togglePreviewComposerSection = useCallback((section: PreviewComposerSection) => {
+    setPreviewComposerSection((current) => (current === section ? null : section));
+  }, []);
+
+  const workflowStateOptions = useMemo(() => ([
+    { value: "needs_review", label: "Needs review" },
+    { value: "needs_caption", label: "Needs copy" },
+    { value: "needs_approval", label: "Review before posting" },
+    { value: "approved", label: "Approved" },
+    { value: "ready_to_use", label: "Ready to use" },
+    { value: "planned", label: "Planned" },
+    { value: "posted_manually", label: "Manual" },
+    { value: "used_in_campaign", label: "Used in campaign" },
+  ] satisfies Array<{ value: MediaGrowthState; label: string }>), []);
+
+  const targetPlatformOptions = useMemo(() => {
+    const base: Array<{ value: string; label: string }> = [
+      { value: "", label: "Other/manual post" },
+      { value: "instagram_post", label: "Instagram feed post" },
+      { value: "instagram_story", label: "Instagram story" },
+      { value: "facebook_post", label: "Facebook post" },
+    ];
+    if (previewSupportsYouTubePlanning) base.splice(4, 0, { value: "youtube_video", label: "YouTube video" });
+    return base;
+  }, [previewSupportsYouTubePlanning]);
+
+  const distributionProviderOptions = useMemo(() => {
+    const options: Array<{ value: DistributionProviderKey; label: string; hint?: string }> = [{
+      value: "manual",
+      label: "Post manually",
+      hint: "Keep the post inside Purely, then publish it yourself.",
+    }];
+
+    if (previewCanonicalTargetPlatform === "instagram_post" || previewCanonicalTargetPlatform === "instagram_story") {
+      options.push({
+        value: "instagram_business",
+        label: "Schedule through provider",
+        hint: "Use the Instagram provider lane when the real provider path is available.",
+      });
+    } else if (previewCanonicalTargetPlatform === "facebook_post") {
+      options.push({
+        value: "facebook_page",
+        label: "Schedule through provider",
+        hint: "Use the Facebook provider lane when the real provider path is available.",
+      });
+    } else if (previewCanonicalTargetPlatform === "youtube_video") {
+      options.push({
+        value: "future_youtube",
+        label: "Provider unavailable / coming soon",
+        hint: "YouTube upload and scheduling still stay manual here.",
+      });
+    }
+
+    return options;
+  }, [previewCanonicalTargetPlatform]);
+
+  const previewMetaDestinationOptions = useMemo(() => {
+    if (!metaReadiness || !previewUsesMetaProviderLane) return [] as MetaDestinationOption[];
+    return metaReadiness.targetAccounts
+      .filter((account) => account.connected && !account.placeholder && metaTargetMatchesProvider(account, previewDistributionProvider))
+      .map((account) => buildMetaDestinationOption(account))
+      .filter((account): account is MetaDestinationOption => Boolean(account));
+  }, [metaReadiness, previewDistributionProvider, previewUsesMetaProviderLane]);
+
+  const previewSelectedMetaDestination = useMemo(() => {
+    if (!previewGrowthProfile) return null;
+    return previewMetaDestinationOptions.find((option) => {
+      return option.destinationId === previewGrowthProfile.providerDestinationId
+        && option.destinationType === previewGrowthProfile.providerDestinationType;
+    }) || null;
+  }, [previewGrowthProfile, previewMetaDestinationOptions]);
+
+  const previewMetaDestinationBlockers = useMemo(() => {
+    if (!previewUsesMetaProviderLane || !metaReadiness) return [] as string[];
+    if (metaReadiness.targetAccountBlockers.length) return metaReadiness.targetAccountBlockers;
+    if (previewMetaDestinationOptions.length) return [] as string[];
+    if (metaReadiness.status === "not_connected") {
+      return ["Connect Meta in Integrations before Purely can list available destinations for this provider lane."];
+    }
+    if (metaReadiness.status === "reconnect_required") {
+      return ["Reconnect Meta in Integrations before Purely can refresh available destinations for this provider lane."];
+    }
+    return [
+      previewDistributionProvider === "instagram_business"
+        ? "No Instagram professional account was hydrated for this connected workspace yet."
+        : "No Facebook Page was hydrated for this connected workspace yet.",
+    ];
+  }, [metaReadiness, previewDistributionProvider, previewMetaDestinationOptions.length, previewUsesMetaProviderLane]);
+
+  const previewMetaDestinationOptionsForDropdown = useMemo(() => {
+    if (!previewUsesMetaProviderLane) return [] as Array<{ value: string; label: string; hint?: string }>;
+    const emptyLabel = previewDistributionProvider === "instagram_business"
+      ? "Choose Instagram professional account"
+      : "Choose Facebook Page";
+    return [
+      {
+        value: "",
+        label: emptyLabel,
+        hint: previewMetaDestinationBlockers[0] || "Pick the real destination returned by Meta for this workspace.",
+      },
+      ...previewMetaDestinationOptions.map((option) => ({
+        value: option.value,
+        label: option.label,
+        hint: option.hint,
+      })),
+    ];
+  }, [previewDistributionProvider, previewMetaDestinationBlockers, previewMetaDestinationOptions, previewUsesMetaProviderLane]);
+
+  const previewDestinationSummary = useMemo(() => {
+    return previewGrowthProfile
+      ? resolveDestinationSummary(previewGrowthProfile, previewDistributionProvider, previewPlatformBehavior)
+      : null;
+  }, [previewDistributionProvider, previewGrowthProfile, previewPlatformBehavior]);
+
+  const bookingLinkOptions = useMemo(() => {
+    const emptyLabel = previewPlatformBehavior?.kind === "instagram"
+      ? "No saved bio / DM booking link"
+      : previewPlatformBehavior?.kind === "facebook"
+        ? "No saved booking / intake link"
+        : previewPlatformBehavior?.kind === "youtube"
+          ? "No saved description booking link"
+          : "No saved booking / intake link";
+    const options: Array<{ value: string; label: string; hint?: string }> = [{
+      value: "",
+      label: emptyLabel,
+      hint: growthContext?.bookingLink?.url
+        ? "Attach the current booking CTA without triggering anything live."
+        : "Save a booking link in Booking Settings to reuse it here.",
+    }];
+
+    if (growthContext?.bookingLink?.url) {
+      options.push({
+        value: growthContext.bookingLink.url,
+        label: `${growthContext.bookingLink.providerLabel} ${growthContext.bookingLink.enabled ? "(active)" : "(saved)"}`,
+        hint: growthContext.bookingLink.offerName || undefined,
+      });
+    }
+
+    return options;
+  }, [growthContext?.bookingLink, previewPlatformBehavior?.kind]);
+
+  const funnelOptions = useMemo(() => ([
+    { value: "", label: "No funnel destination" },
+    ...(growthContext?.funnels || []).map((funnel) => ({ value: funnel.id, label: funnel.name })),
+  ]), [growthContext?.funnels]);
+
+  const previewProviderQueueAction = useMemo(() => {
+    if (!previewItem || !previewGrowthProfile || !previewContinuity) {
+      return {
+        label: "Queue post",
+        disabled: true,
+        helper: "Open an asset to prepare a post.",
+      };
+    }
+
+    if (detailLoading || detailSaving) {
+      return {
+        label: "Queue post",
+        disabled: true,
+        helper: "Finish saving the current post details first.",
+      };
+    }
+
+    if (previewDistributionProvider === "manual") {
+      return {
+        label: "Queue post",
+        disabled: true,
+        helper: "Manual posting is selected for this post.",
+      };
+    }
+
+    if (previewDistributionProvider === "future_youtube") {
+      return {
+        label: "Queue post",
+        disabled: true,
+        helper: "YouTube stays manual/future-only in this flow.",
+      };
+    }
+
+    if (previewContinuity.publishState === "published") {
+      return {
+        label: "Posted by provider",
+        disabled: true,
+        helper: "A real provider result is already stored for this post.",
+      };
+    }
+
+    if (previewContinuity.publishState === "queued" || previewContinuity.publishState === "pending") {
+      return {
+        label: "Queued",
+        disabled: true,
+        helper: "This post is already queued through the provider lane.",
+      };
+    }
+
+    if (previewContinuity.blocked) {
+      const providerBlockerMessage = typeof previewGrowthProfile.providerLastError === "string" && previewGrowthProfile.providerLastError.trim()
+        ? previewGrowthProfile.providerLastError.trim()
+        : null;
+      if (previewBlockedSetupHref) {
+        return {
+          label: "Resolve setup",
+          disabled: false,
+          helper: providerBlockerMessage || metaReadiness?.setupMessage || "Open setup to reconnect Meta, confirm permissions, and choose a destination.",
+          href: previewBlockedSetupHref,
+        };
+      }
+      return {
+        label: "Queue post",
+        disabled: true,
+        helper: providerBlockerMessage || metaReadiness?.setupMessage || "Auto-posting is not ready yet.",
+      };
+    }
+
+    return {
+      label: "Queue post",
+      disabled: false,
+      helper: "Queues the saved post through the existing provider route only when the provider path is truly ready.",
+    };
+  }, [detailLoading, detailSaving, metaReadiness, previewBlockedSetupHref, previewContinuity, previewDistributionProvider, previewGrowthProfile, previewItem]);
 
   const loadMetaReadiness = useCallback(async () => {
     const res = await fetch("/api/portal/media/providers/meta/readiness", { cache: "no-store" });
@@ -851,6 +1782,11 @@ export function PortalMediaLibraryClient() {
     if (!growthContext?.funnelPages?.length || !funnelId) return [];
     return growthContext.funnelPages.filter((page) => page.funnelId === funnelId);
   }, [growthContext, previewGrowthProfile?.funnelId]);
+
+  const previewFunnelPageOptions = useMemo(() => ([
+    { value: "", label: "Use funnel's main entry page" },
+    ...previewFunnelPages.map((page) => ({ value: page.id, label: page.title })),
+  ]), [previewFunnelPages]);
 
   useEffect(() => {
     if (!previewOpen) return;
@@ -916,13 +1852,11 @@ export function PortalMediaLibraryClient() {
     try {
       const res = await fetch(url.toString(), { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as ListRes | null;
-
       if (!res.ok || !json || json.ok !== true) {
         setError(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load media library");
         return;
       }
 
-      setBreadcrumbs(Array.isArray(json.breadcrumbs) ? json.breadcrumbs : []);
       setFolders(Array.isArray(json.folders) ? json.folders : []);
       setItems(Array.isArray(json.items) ? json.items : []);
 
@@ -1035,7 +1969,8 @@ export function PortalMediaLibraryClient() {
       .filter((item) => {
         const profile = item.growthProfile;
         if (!profile) return false;
-        return profile.workflowState === "queued" || resolveProviderContinuity(profile).publishState === "queued";
+        const publishState = resolveProviderContinuity(profile).publishState;
+        return publishState === "queued" || publishState === "pending";
       })
       .sort((left, right) => {
         const leftOrder = left.growthProfile?.queueOrder ?? Number.POSITIVE_INFINITY;
@@ -1049,7 +1984,7 @@ export function PortalMediaLibraryClient() {
       .filter((item) => {
         const profile = item.growthProfile;
         if (!profile) return false;
-        return profile.workflowState === "provider_failed" || resolveProviderContinuity(profile).publishState === "failed" || Boolean(profile.providerLastError);
+        return resolveProviderContinuity(profile).publishState === "failed";
       })
       .sort((left, right) => sortIsoAsc(right.growthProfile?.providerLastAttemptAtIso || right.growthProfile?.updatedAtIso || right.createdAt, left.growthProfile?.providerLastAttemptAtIso || left.growthProfile?.updatedAtIso || left.createdAt));
   }, [filteredItems]);
@@ -1115,13 +2050,13 @@ export function PortalMediaLibraryClient() {
     {
       key: "manual_only" as const,
       label: "Manual posting only",
-      description: "These assets can move ahead, but the live post still needs to be handled manually.",
+      description: "Manual posting is the current live lane. Post outside Purely, then save the live URL back here if you want it recorded.",
       count: manualOnlyItems.length,
     },
     {
       key: "posted" as const,
       label: "Posted manually",
-      description: "Assets already posted outside Purely and saved here for future reference.",
+      description: "Assets recorded as posted outside Purely. Purely stores the live URL you paste back here, but does not detect manual posts automatically.",
       count: postedCalendarItems.length,
     },
   ]), [manualOnlyItems.length, needsApprovalItems.length, needsCaptionItems.length, plannedCalendarItems.length, postedCalendarItems.length, readyWithoutScheduleItems.length]);
@@ -1305,28 +2240,10 @@ export function PortalMediaLibraryClient() {
     setSelectedGrowthProfile(profile);
   }
 
-  async function saveGrowthProfileForItem(itemId: string, current: MediaGrowthProfile, partial?: Partial<MediaGrowthProfile>, successText = "Campaign details saved") {
+  async function saveGrowthProfileForItem(itemId: string, current: MediaGrowthProfile, partial?: Partial<MediaGrowthProfile>, successText: string | null = "Post details saved") {
     if (!itemId || !current) return;
 
-    const next: MediaGrowthProfile = {
-      ...current,
-      ...partial,
-    };
-
-    next.distributionProvider = next.distributionProvider || inferDistributionProvider(next.targetPlatform);
-    next.providerConnectionState = next.providerConnectionState || defaultProviderConnectionState(next.distributionProvider);
-
-    if (next.workflowState === "posted_manually" && !next.postedAtIso) {
-      next.postedAtIso = new Date().toISOString();
-    }
-
-    if (next.workflowState === "approved" && !next.approvedAtIso) {
-      next.approvedAtIso = new Date().toISOString();
-    }
-
-    if (!next.providerPublishState) {
-      next.providerPublishState = resolveProviderContinuity(next).publishState;
-    }
+    const next = normalizeMediaGrowthProfileForSave(current, partial) as MediaGrowthProfile;
 
     setDetailSaving(true);
     setError(null);
@@ -1359,11 +2276,20 @@ export function PortalMediaLibraryClient() {
           distributionProvider: next.distributionProvider,
           providerConnectionState: next.providerConnectionState,
           providerPublishState: next.providerPublishState,
+          providerDestinationType: next.providerDestinationType,
+          providerDestinationId: next.providerDestinationId,
+          providerDestinationLabel: next.providerDestinationLabel,
           providerAccountLabel: next.providerAccountLabel,
+          providerScheduledForIso: next.providerScheduledForIso,
+          providerQueuedAtIso: next.providerQueuedAtIso,
+          providerPendingAtIso: next.providerPendingAtIso,
           queueOrder: next.queueOrder,
           dailyPostCap: next.dailyPostCap,
+          providerStatus: next.providerStatus,
           providerPostId: next.providerPostId,
           providerLastError: next.providerLastError,
+          providerRetryEligible: next.providerRetryEligible,
+          providerRetryAtIso: next.providerRetryAtIso,
           providerLastAttemptAtIso: next.providerLastAttemptAtIso,
           providerPublishedAtIso: next.providerPublishedAtIso,
           metricsImpressions: next.metricsImpressions,
@@ -1379,12 +2305,13 @@ export function PortalMediaLibraryClient() {
     if (!res.ok || !json?.ok || !json.growthProfile) {
       setDetailSaving(false);
       setError(typeof json?.error === "string" ? json.error : "Could not save campaign details");
-      return;
+      return null;
     }
 
     updateListGrowthProfile(itemId, json.growthProfile);
     setDetailSaving(false);
-    toastNotify.success(successText);
+    if (successText) toastNotify.success(successText);
+    return json.growthProfile;
   }
 
   async function saveSelectedGrowthProfile(partial?: Partial<MediaGrowthProfile>) {
@@ -1392,6 +2319,120 @@ export function PortalMediaLibraryClient() {
     const current = previewGrowthProfile;
     if (!itemId || !current) return;
     await saveGrowthProfileForItem(itemId, current, partial);
+  }
+
+  async function queueProviderPublishForSelectedItem() {
+    const itemId = previewItem?.id;
+    const current = previewGrowthProfile;
+    if (!itemId || !current) return;
+
+    const savedProfile = await saveGrowthProfileForItem(itemId, current, undefined, null);
+    if (!savedProfile) return;
+
+    setDetailSaving(true);
+    setError(null);
+
+    const res = await fetch("/api/portal/media/publish/queue", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [PORTAL_VARIANT_HEADER]: portalVariant,
+      },
+      body: JSON.stringify({ mediaItemId: itemId }),
+    });
+
+    const json = (await res.json().catch(() => null)) as {
+      ok?: boolean;
+      outcome?: string;
+      reason?: string;
+      error?: string;
+      growthProfile?: MediaGrowthProfile;
+    } | null;
+
+    if (!res.ok || !json?.ok || !json.growthProfile || json.outcome !== "queued") {
+      setDetailSaving(false);
+      const message = typeof json?.reason === "string"
+        ? json.reason
+        : typeof json?.error === "string"
+          ? json.error
+          : "Auto-posting is not ready yet.";
+      setError(message);
+      toastNotify.error(message);
+      return;
+    }
+
+    updateListGrowthProfile(itemId, json.growthProfile);
+    setDetailSaving(false);
+    toastNotify.success("Post queued");
+  }
+
+  async function createBlobBackedItem(file: File, nextFolderId: string | null) {
+    let blob: PutBlobResult;
+    try {
+      blob = await uploadToVercelBlob(file.name || "upload.bin", file, {
+        access: "public",
+        handleUploadUrl: "/api/portal/media/blob-upload",
+        headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+      });
+    } catch (err) {
+      const message = (err as any)?.message ? String((err as any).message) : "Upload failed";
+      throw new Error(message);
+    }
+
+    const finalizeRes = await fetch("/api/portal/media/items/from-blob", {
+      method: "POST",
+      headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
+      body: JSON.stringify({
+        url: blob.url,
+        fileName: file.name || blob.pathname || "upload.bin",
+        mimeType: file.type || blob.contentType || "application/octet-stream",
+        fileSize: Number.isFinite(file.size) ? file.size : 0,
+        folderId: nextFolderId,
+      }),
+    });
+
+    const finalizeJson = (await finalizeRes.json().catch(() => null)) as { ok?: boolean; error?: string; item?: Item } | null;
+    if (!finalizeRes.ok || !finalizeJson?.ok || !finalizeJson.item) {
+      throw new Error(typeof finalizeJson?.error === "string" ? finalizeJson.error : "Upload failed");
+    }
+
+    return finalizeJson.item;
+  }
+
+  async function prepareInstagramVariantForSelectedItem(file: File) {
+    if (!previewItem || !previewGrowthProfile) return;
+
+    setDetailSaving(true);
+    setError(null);
+
+    try {
+      const preparedFileName = buildPreparedVariantFileName(
+        replaceFileExtension(previewItem.fileName, "png"),
+        previewGrowthProfile.targetPlatform === "instagram_story" ? "instagram-story-ready" : "instagram-feed-ready",
+      );
+      const preparedFile = new File([file], preparedFileName, { type: file.type || "image/png" });
+      const createdItem = await createBlobBackedItem(preparedFile, previewItem.folderId || folderId || null);
+      const clonedProfile = await saveGrowthProfileForItem(
+        createdItem.id,
+        emptyGrowthProfile(createdItem.id),
+        buildPreparedVariantGrowthProfile(previewGrowthProfile, createdItem.id),
+        null,
+      );
+
+      await load(folderId);
+
+      setSelected({ kind: "item", id: createdItem.id });
+      setSelectedItemDetail({ ...createdItem, growthProfile: clonedProfile || emptyGrowthProfile(createdItem.id) });
+      setSelectedGrowthProfile(clonedProfile || emptyGrowthProfile(createdItem.id));
+      setCropModalOpen(false);
+      toastNotify.success("Instagram-ready asset created");
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : "Could not prepare the Instagram-ready asset";
+      setError(message);
+      toastNotify.error(message);
+    } finally {
+      setDetailSaving(false);
+    }
   }
 
   function openItemPreview(itemId: string) {
@@ -1659,15 +2700,16 @@ export function PortalMediaLibraryClient() {
     const previewKind = itemPreviewKind(item);
     const continuity = resolveProviderContinuity(profile);
     const nextStep = buildWorkflowNextStep(profile, continuity, portalVariant);
+    const resolvedDestination = resolveComposerDestination(profile);
     const scheduleLabel = profile.plannedForIso ? `${formatCalendarDay(profile.plannedForIso)} at ${formatCalendarTime(profile.plannedForIso)}` : "No schedule";
     const campaignLabel = profile.campaignLabel || profile.relatedOffer || "Not labeled";
-    const ctaLabel = profile.ctaLabel || (profile.ctaHref ? "Tracked link attached" : isCreditWorkspace ? "No consultation link yet" : "No booking link yet");
-    const providerLabel = `${continuity.providerLabel} · ${continuity.connectionLabel}`;
+    const ctaLabel = profile.ctaLabel || (resolvedDestination.href ? resolvedDestination.sourceLabel : isCreditWorkspace ? "No consultation link yet" : "No booking link yet");
+    const providerLabel = `${continuity.providerLabel} -+ ${continuity.connectionLabel}`;
     const cardSummary = profile.captionDraft
       ? profile.captionDraft.slice(0, 140)
       : nextStep.detail;
-    const supportHref = profile.postedUrl || profile.ctaHref || null;
-    const supportLabel = profile.postedUrl ? "Open post" : profile.ctaHref ? "Open CTA" : null;
+    const supportHref = profile.postedUrl || resolvedDestination.href || null;
+    const supportLabel = profile.postedUrl ? "Open post" : resolvedDestination.href ? "Open destination" : null;
 
     return (
       <article key={item.id} className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm transition-shadow hover:shadow-md">
@@ -1676,7 +2718,7 @@ export function PortalMediaLibraryClient() {
           onClick={() => openItemPreview(item.id)}
           className="group block w-full text-left"
         >
-          <div className="relative aspect-[4/3] overflow-hidden bg-zinc-100">
+          <div className="relative aspect-4/3 overflow-hidden bg-zinc-100">
             {previewKind === "image" && item.previewUrl ? (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img src={item.previewUrl} alt={item.fileName} className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
@@ -1711,7 +2753,7 @@ export function PortalMediaLibraryClient() {
                 {continuity.publishLabel}
               </span>
             </div>
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-zinc-950/75 via-zinc-950/30 to-transparent p-3 text-white">
+            <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-zinc-950/75 via-zinc-950/30 to-transparent p-3 text-white">
               <div className="truncate text-base font-semibold">{item.fileName}</div>
               <div className="mt-1 text-xs text-white/85">{campaignLabel}</div>
             </div>
@@ -1758,7 +2800,7 @@ export function PortalMediaLibraryClient() {
               onClick={() => openItemPreview(item.id)}
               className="inline-flex flex-1 items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
             >
-              Open workflow
+              Create post
             </button>
             {supportHref && supportLabel ? (
               <a
@@ -1868,7 +2910,7 @@ export function PortalMediaLibraryClient() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search files and tags…"
+            placeholder="Search files and tags..."
             className="h-10 w-60 max-w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
           />
           <input
@@ -1888,7 +2930,7 @@ export function PortalMediaLibraryClient() {
             className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
           >
             <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-base leading-none">+</span>
-            {uploading ? "Uploading…" : "Upload"}
+            {uploading ? "Uploading..." : "Upload"}
           </button>
           <button
             type="button"
@@ -1943,11 +2985,11 @@ export function PortalMediaLibraryClient() {
             {refreshing ? (
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
                 <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-                Refreshing…
+                Refreshing...
               </div>
             ) : null}
             {loading ? (
-              <div className="text-sm text-zinc-600">Loading…</div>
+              <div className="text-sm text-zinc-600">Loading...</div>
             ) : viewMode === "calendar" ? (
               <div className="space-y-6">
                 <div className="rounded-3xl border border-zinc-200 bg-white p-4">
@@ -2078,7 +3120,7 @@ export function PortalMediaLibraryClient() {
                                 openDotsMenu(e, "folder", f.id);
                               }}
                             >
-                              ⋯
+                              <MoreDotsIcon />
                             </button>
                           </div>
                           <div className="mt-auto inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
@@ -2122,24 +3164,28 @@ export function PortalMediaLibraryClient() {
                                 <div className="line-clamp-2 wrap-break-word text-sm font-semibold leading-5 text-zinc-900">{it.fileName}</div>
                                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
                                   <span className="font-mono">tag: {it.tag}</span>
-                                  <span>•</span>
+                                  <span>|</span>
                                   <span>{formatBytes(it.fileSize)}</span>
                                 </div>
-                                <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-semibold text-zinc-700">
-                                    {growthStateLabel(it.growthProfile?.workflowState)}
-                                  </span>
-                                  {it.growthProfile?.targetPlatform ? (
-                                    <span className="rounded-full bg-sky-50 px-2.5 py-1 font-semibold text-sky-700">
-                                      {targetPlatformLabel(it.growthProfile.targetPlatform)}
+                                <div className="mt-2 space-y-2 text-[11px]">
+                                  <div className="flex min-h-7 flex-wrap gap-2">
+                                    <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-semibold text-zinc-700">
+                                      {growthStateLabel(it.growthProfile?.workflowState)}
                                     </span>
-                                  ) : null}
-                                  {it.growthProfile?.ctaHref ? (
-                                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">CTA linked</span>
-                                  ) : null}
-                                  {it.growthProfile?.funnelId ? (
-                                    <span className="rounded-full bg-amber-50 px-2.5 py-1 font-semibold text-amber-700">Funnel linked</span>
-                                  ) : null}
+                                    {it.growthProfile?.targetPlatform ? (
+                                      <span className="rounded-full bg-sky-50 px-2.5 py-1 font-semibold text-sky-700">
+                                        {targetPlatformLabel(it.growthProfile.targetPlatform)}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex min-h-7 flex-wrap gap-2">
+                                    {it.growthProfile && resolveComposerDestination(it.growthProfile).href ? (
+                                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">Destination linked</span>
+                                    ) : null}
+                                    {it.growthProfile?.funnelId ? (
+                                      <span className="rounded-full bg-amber-50 px-2.5 py-1 font-semibold text-amber-700">Funnel linked</span>
+                                    ) : null}
+                                  </div>
                                 </div>
                               </div>
                               <button
@@ -2151,7 +3197,7 @@ export function PortalMediaLibraryClient() {
                                   openDotsMenu(e, "item", it.id);
                                 }}
                               >
-                                ⋯
+                                <MoreDotsIcon />
                               </button>
                             </div>
                             <div className="mt-3 flex min-w-0 w-full flex-1 flex-col items-start gap-3">
@@ -2183,9 +3229,6 @@ export function PortalMediaLibraryClient() {
                                   </div>
                                 )}
                               </div>
-                            </div>
-                            <div className="mt-auto inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                              {previewKind === "video" ? "Preview video" : previewKind === "image" ? "Preview image" : "Open file"}
                             </div>
                           </div>
                         );
@@ -2480,48 +3523,202 @@ export function PortalMediaLibraryClient() {
         ? createPortal(
             <div className="fixed inset-0 z-110 flex items-end justify-center px-4 pa-modal-safe-pad sm:items-center">
               <div className="absolute inset-0 bg-black/40" onMouseDown={() => setPreviewOpen(false)} />
-              <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] w-full max-w-4xl overflow-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
-                <div className="flex items-start justify-between gap-3">
+              <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] w-full max-w-6xl overflow-auto rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl">
+                <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-zinc-900">{previewItem.fileName}</div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {previewItem.mimeType} • {formatBytes(previewItem.fileSize)}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-lg font-semibold text-zinc-900">Create post</div>
+                      {previewPostComposerStatus ? (
+                        previewBlockedSetupHref && previewPostComposerStatus.label === "Blocked" ? (
+                          <a
+                            href={previewBlockedSetupHref}
+                            className={classNames(
+                              "inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] transition-colors hover:opacity-90",
+                              composerStatusToneClass(previewPostComposerStatus.tone),
+                            )}
+                          >
+                            {previewPostComposerStatus.label}
+                          </a>
+                        ) : (
+                          <span className={classNames("rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]", composerStatusToneClass(previewPostComposerStatus.tone))}>
+                            {previewPostComposerStatus.label}
+                          </span>
+                        )
+                      ) : null}
                     </div>
+                    <div className="mt-1 text-sm text-zinc-500">Prepare this media with platform-aware copy, preview, and CTA guidance.</div>
+                    <div className="mt-1 truncate text-xs text-zinc-500">{previewItem.fileName} | {previewItem.mimeType} | {formatBytes(previewItem.fileSize)}</div>
                   </div>
                   <button
                     type="button"
                     aria-label="Close preview"
-                    className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800"
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-sm font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800"
                     onClick={() => setPreviewOpen(false)}
                   >
-                    ×
+                    x
                   </button>
                 </div>
 
-                <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-                  <div>
-                    {itemPreviewKind(previewItem) === "image" && previewItem.previewUrl ? (
-                      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={previewItem.previewUrl} alt={previewItem.fileName} className="w-full object-cover" />
+                <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.95fr)]">
+                  <div className="space-y-4 lg:sticky lg:top-0">
+                    {!previewPlatformBehavior ? (
+                      <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-zinc-50">
+                        {itemPreviewKind(previewItem) === "image" && previewItem.previewUrl ? (
+                          <div className="overflow-hidden bg-white">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={previewItem.previewUrl} alt={previewItem.fileName} className="w-full object-cover" />
+                          </div>
+                        ) : itemPreviewKind(previewItem) === "video" && (previewItem.previewUrl || previewItem.openUrl) ? (
+                          <div className="overflow-hidden bg-black">
+                            <video
+                              src={previewItem.previewUrl || previewItem.openUrl}
+                              className="w-full"
+                              controls
+                              playsInline
+                              preload="metadata"
+                            />
+                          </div>
+                        ) : (
+                          <div className="p-8 text-sm text-zinc-600">Preview not available for this file type.</div>
+                        )}
                       </div>
-                    ) : itemPreviewKind(previewItem) === "video" && (previewItem.previewUrl || previewItem.openUrl) ? (
-                      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-black">
-                        <video
-                          src={previewItem.previewUrl || previewItem.openUrl}
-                          className="w-full"
-                          controls
-                          playsInline
-                          preload="metadata"
-                        />
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
-                        Preview not available for this file type.
-                      </div>
-                    )}
+                    ) : null}
 
-                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {previewPlatformBehavior ? (
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Local platform preview</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-900">{previewPlatformBehavior.previewLabel}</div>
+                          </div>
+                          <span className="rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold text-zinc-700">{previewPlatformBehavior.label}</span>
+                        </div>
+
+                        <div className="mt-4 rounded-[28px] border border-zinc-200 bg-zinc-50 p-4">
+                          {previewPlatformBehavior.kind === "youtube" ? (
+                            <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-zinc-200">
+                              <div className="overflow-hidden bg-zinc-100">
+                                {itemPreviewKind(previewItem) === "video" && (previewItem.previewUrl || previewItem.openUrl) ? (
+                                  <video
+                                    src={previewItem.previewUrl || previewItem.openUrl}
+                                    className="aspect-video w-full object-cover"
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                  />
+                                ) : itemPreviewKind(previewItem) === "image" && previewItem.previewUrl ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img src={previewItem.previewUrl} alt={previewItem.fileName} className="aspect-video w-full object-cover" />
+                                ) : (
+                                  <div className="aspect-video w-full bg-zinc-100" />
+                                )}
+                              </div>
+
+                              <div className="px-4 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="h-10 w-10 rounded-full bg-zinc-200" />
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-semibold text-zinc-900">{previewPlatformBehavior.accountLabel}</div>
+                                    <div className="text-xs text-zinc-500">{previewPlatformBehavior.accountHandle}</div>
+                                  </div>
+                                </div>
+
+                                <div className="mt-4 text-base font-semibold leading-6 text-zinc-900">{previewYouTubeDraft.title}</div>
+
+                                <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
+                                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Description</div>
+                                  <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-700">
+                                    {previewYouTubeDraft.body || "Your description draft will render here."}
+                                  </div>
+                                </div>
+
+                                <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-3">
+                                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewPlatformBehavior.previewLinkLabel}</div>
+                                  <div className="mt-2 text-sm font-semibold text-zinc-900">{previewResolvedCtaLabel || previewPlatformBehavior.defaultCtaLabel}</div>
+                                  <div className="mt-1 break-all text-xs text-zinc-500">{previewResolvedLinkHref || "Add the follow-up link you want in the description or pinned comment."}</div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-zinc-200">
+                              <div className="flex items-center gap-3 px-4 py-3">
+                                <div className="h-10 w-10 rounded-full bg-zinc-200" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-sm font-semibold text-zinc-900">{previewPlatformBehavior.accountLabel}</div>
+                                  <div className="text-xs text-zinc-500">{previewPlatformBehavior.accountHandle}</div>
+                                </div>
+                              </div>
+
+                              <div className="overflow-hidden border-y border-zinc-200 bg-zinc-100">
+                                {itemPreviewKind(previewItem) === "image" && previewItem.previewUrl ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img
+                                    data-local-platform-preview-media="true"
+                                    src={previewItem.previewUrl}
+                                    alt={previewItem.fileName}
+                                    className={classNames(
+                                      "w-full object-cover",
+                                      previewPlatformAspectClass,
+                                    )}
+                                  />
+                                ) : itemPreviewKind(previewItem) === "video" && (previewItem.previewUrl || previewItem.openUrl) ? (
+                                  <video
+                                    data-local-platform-preview-media="true"
+                                    src={previewItem.previewUrl || previewItem.openUrl}
+                                    className={classNames(
+                                      "w-full object-cover",
+                                      previewPlatformAspectClass,
+                                    )}
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <div data-local-platform-preview-media="true" className={classNames("w-full bg-zinc-100", previewPlatformAspectClass)} />
+                                )}
+                              </div>
+
+                              <div className="space-y-3 px-4 py-4">
+                                {renderCaptionPreviewText(
+                                  previewGrowthProfile.captionDraft,
+                                  `Your ${previewPlatformBehavior.label.toLowerCase()} copy will render here.`,
+                                )}
+
+                                {previewPlatformBehavior.kind === "instagram" ? (
+                                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewPlatformBehavior.previewLinkLabel}</div>
+                                    <div className="mt-2 text-sm font-semibold text-zinc-900">
+                                      {previewResolvedDestinationMeta?.sourceLabel || "No bio / DM / profile handoff saved yet"}
+                                    </div>
+                                    <div className="mt-1 text-xs leading-5 text-zinc-500">
+                                      Use the link in bio, a DM/message prompt, or the profile booking button if it is configured. Any saved URL stays inside planning and does not become a clickable Instagram button.
+                                    </div>
+                                    {previewResolvedLinkHref ? (
+                                      <div className="mt-3 rounded-xl bg-white px-3 py-2 text-xs text-zinc-500">
+                                        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Internal reference only</div>
+                                        <div className="mt-1 break-all font-mono text-[11px] text-zinc-600">{previewResolvedLinkHref}</div>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewPlatformBehavior.previewLinkLabel}</div>
+                                    <div className="mt-2 text-sm font-semibold text-zinc-900">{previewResolvedCtaLabel || previewPlatformBehavior.defaultCtaLabel}</div>
+                                    <div className="mt-1 break-all text-xs text-zinc-500">
+                                      {previewResolvedLinkHref || "Add the direct destination you want visible in the post."}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-3 rounded-2xl bg-zinc-50 px-4 py-3 text-xs text-zinc-600">{previewPlatformBehavior.previewLinkHelper}</div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <button
                         type="button"
                         onClick={(e) => void copyAbsoluteUrl(previewItem.shareUrl, e.currentTarget)}
@@ -2532,29 +3729,9 @@ export function PortalMediaLibraryClient() {
                       <button
                         type="button"
                         onClick={() => triggerDownload(previewItem.downloadUrl, previewItem.fileName)}
-                        className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                       >
                         Download
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPreviewOpen(false);
-                          openRename("item", previewItem.id, previewItem.fileName);
-                        }}
-                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPreviewOpen(false);
-                          void openMove("item", previewItem.id);
-                        }}
-                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Add to folder
                       </button>
                       <a
                         href={previewItem.openUrl || previewItem.previewUrl || previewItem.downloadUrl}
@@ -2565,571 +3742,510 @@ export function PortalMediaLibraryClient() {
                       >
                         Open
                       </a>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPreviewOpen(false);
-                          void removeItemById(previewItem.id, previewItem.fileName);
-                        }}
-                        className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                      >
-                        Delete
-                      </button>
                     </div>
+
+                    <details className="rounded-3xl border border-zinc-200 bg-white p-4">
+                      <summary className="cursor-pointer list-none text-sm font-semibold text-zinc-900">Asset actions</summary>
+                      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-4">
+                        {previewCanPrepareInstagramAsset ? (
+                          <button
+                            type="button"
+                            onClick={() => setCropModalOpen(true)}
+                            className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+                          >
+                            Prepare for Instagram
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewOpen(false);
+                            openRename("item", previewItem.id, previewItem.fileName);
+                          }}
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewOpen(false);
+                            void openMove("item", previewItem.id);
+                          }}
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Add to folder
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewOpen(false);
+                            void removeItemById(previewItem.id, previewItem.fileName);
+                          }}
+                          className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </details>
                   </div>
 
-                  <div className="space-y-4">
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="text-sm font-semibold text-zinc-900">Workflow actions</div>
-                      <div className="mt-1 text-xs text-zinc-600">Update the asset, move it through approval, set the schedule, then store the manual-post result here when it goes live.</div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <div className="rounded-[30px] bg-zinc-50/85 p-4 sm:p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold text-zinc-900">{previewPlatformBehavior?.captionFieldLabel || "Caption"}</div>
+                      {detailLoading ? <div className="text-xs text-zinc-500">Loading...</div> : null}
+                    </div>
+
+                    {previewPlatformBehavior ? (
+                      <div className="mt-3 border-t border-zinc-200/80 pt-3">
                         <button
                           type="button"
-                          disabled={detailSaving || detailLoading}
-                          onClick={() => {
-                            const starter = buildCaptionStarter(previewItem, previewGrowthProfile, growthContext);
-                            setSelectedGrowthProfile({
-                              ...previewGrowthProfile,
-                              captionDraft: starter,
-                              workflowState: previewGrowthProfile.captionDraft ? previewGrowthProfile.workflowState : "needs_caption",
-                            });
-                          }}
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                          onClick={() => togglePreviewComposerSection("guidance")}
+                          className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
                         >
-                          Write copy
+                          <span>{previewPlatformBehavior.label} guidance</span>
+                          <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
+                            {previewComposerSection === "guidance" ? "Hide" : "Show"}
+                          </span>
                         </button>
+                        {previewComposerSection === "guidance" ? (
+                          <div className="mt-3 space-y-2 text-sm text-zinc-700">
+                            <div className="font-semibold text-zinc-900">{previewPlatformBehavior.guidanceTitle}</div>
+                            <div className="leading-6 text-zinc-600">{previewPlatformBehavior.guidanceBody}</div>
+                            <div className="text-xs leading-5 text-zinc-500">{previewPlatformBehavior.guidanceDetail}</div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <textarea
+                      value={previewGrowthProfile.captionDraft || ""}
+                      onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, captionDraft: e.target.value || null })}
+                      placeholder={previewPlatformBehavior?.captionPlaceholder || "Write the caption, draft copy, or post copy here."}
+                      className="mt-3 min-h-44 w-full rounded-[28px] border border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-900 placeholder:text-zinc-500"
+                    />
+
+                    <div className="mt-4 flex flex-wrap gap-2 border-t border-zinc-200/80 pt-4">
+                      <button
+                        type="button"
+                        disabled={detailSaving || detailLoading}
+                        onClick={() => void saveSelectedGrowthProfile()}
+                        className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      >
+                        {detailSaving ? "Saving..." : "Save"}
+                      </button>
+                      {previewProviderQueueAction.href ? (
+                        <a
+                          href={previewProviderQueueAction.href}
+                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        >
+                          {previewProviderQueueAction.label}
+                        </a>
+                      ) : (
                         <button
                           type="button"
-                          disabled={detailSaving || detailLoading || !growthContext?.bookingLink?.url}
-                          onClick={() => {
-                            setSelectedGrowthProfile({
-                              ...previewGrowthProfile,
-                              ctaHref: growthContext?.bookingLink?.url || previewGrowthProfile.ctaHref,
-                              ctaLabel: previewGrowthProfile.ctaLabel || "Book now",
-                              bookingLinkUrl: growthContext?.bookingLink?.url || previewGrowthProfile.bookingLinkUrl,
-                            });
-                          }}
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                          disabled={previewProviderQueueAction.disabled}
+                          onClick={() => void queueProviderPublishForSelectedItem()}
+                          className={classNames(
+                            "inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold",
+                            previewProviderQueueAction.disabled
+                              ? "border-zinc-200 bg-zinc-100 text-zinc-400"
+                              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                          )}
                         >
-                          Attach booking link
+                          {previewProviderQueueAction.label}
                         </button>
-                        <button
-                          type="button"
-                          disabled={detailSaving || detailLoading}
-                          onClick={() => void saveSelectedGrowthProfile({ workflowState: "needs_approval" })}
-                          className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
-                        >
-                          Review before posting
-                        </button>
-                        <button
-                          type="button"
-                          disabled={detailSaving || detailLoading}
-                          onClick={() => void saveSelectedGrowthProfile({ workflowState: "approved", approvedAtIso: previewGrowthProfile.approvedAtIso || new Date().toISOString() })}
-                          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          disabled={detailSaving || detailLoading}
-                          onClick={() => void saveSelectedGrowthProfile({ workflowState: "ready_to_use" })}
-                          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
-                        >
-                          Mark ready to plan
-                        </button>
+                      )}
+                    </div>
+
+                    <div className="mt-2 text-xs text-zinc-500">{previewProviderQueueAction.helper}</div>
+                    {previewUsesMetaProviderLane && previewContinuity?.blocked ? (
+                      <a
+                        href={previewSocialSetupHref}
+                        className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      >
+                        Open social publishing setup
+                      </a>
+                    ) : null}
+
+                    <div className="mt-4 border-t border-zinc-200/80 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => togglePreviewComposerSection("settings")}
+                        className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
+                      >
+                        <span>Post settings</span>
+                        <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
+                          {previewComposerSection === "settings" ? "Hide" : "Show"}
+                        </span>
+                      </button>
+                      {previewComposerSection === "settings" ? (
+                        <div className="mt-4 space-y-4">
+                          <div className="grid gap-4 xl:grid-cols-3">
+                            <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Post type</div>
+                          <div className="mt-2">
+                            <PortalListboxDropdown
+                              value={previewCanonicalTargetPlatform}
+                              onChange={(value) => {
+                                const nextTarget = value || null;
+                                const nextProvider = resolveVisibleDistributionProvider(nextTarget, previewGrowthProfile.distributionProvider, {
+                                  allowYouTube: previewSupportsYouTubePlanning,
+                                });
+                                const providerChanged = nextProvider !== previewGrowthProfile.distributionProvider;
+                                const nextProfile = providerChanged ? clearMetaDestinationBlocker({
+                                  ...previewGrowthProfile,
+                                  providerDestinationType: null,
+                                  providerDestinationId: null,
+                                  providerDestinationLabel: null,
+                                  providerAccountLabel: null,
+                                }) : previewGrowthProfile;
+                                setSelectedGrowthProfile({
+                                  ...nextProfile,
+                                  targetPlatform: nextTarget,
+                                  distributionProvider: nextProvider,
+                                });
+                              }}
+                              options={targetPlatformOptions}
+                              buttonClassName={workflowDropdownButtonClass}
+                            />
+                          </div>
+                          <div className="mt-3 text-xs leading-5 text-zinc-500">Choose the native format first.</div>
+                        </label>
+
+                            <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Publishing method</div>
+                          <div className="mt-2">
+                            <PortalListboxDropdown
+                              value={previewDistributionProvider}
+                              onChange={(value) => {
+                                const nextProvider = value as DistributionProviderKey;
+                                const providerChanged = nextProvider !== previewGrowthProfile.distributionProvider;
+                                const nextProfile = providerChanged ? clearMetaDestinationBlocker({
+                                  ...previewGrowthProfile,
+                                  providerDestinationType: null,
+                                  providerDestinationId: null,
+                                  providerDestinationLabel: null,
+                                  providerAccountLabel: null,
+                                }) : previewGrowthProfile;
+                                setSelectedGrowthProfile({
+                                  ...nextProfile,
+                                  distributionProvider: nextProvider,
+                                });
+                              }}
+                              options={distributionProviderOptions}
+                              buttonClassName={workflowDropdownButtonClass}
+                            />
+                          </div>
+                          <div className="mt-3 text-xs leading-5 text-zinc-500">Only use provider mode when setup is real.</div>
+                        </label>
+
+                            <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Post status</div>
+                          <div className="mt-2">
+                            <PortalListboxDropdown
+                              value={previewGrowthProfile.workflowState}
+                              onChange={(value) => setSelectedGrowthProfile({ ...previewGrowthProfile, workflowState: value as MediaGrowthState })}
+                              options={workflowStateOptions}
+                              buttonClassName={workflowDropdownButtonClass}
+                            />
+                          </div>
+                          <div className="mt-3 text-xs leading-5 text-zinc-500">Planning state stays separate from provider readiness.</div>
+                        </label>
+                          </div>
+                          <div className="border-t border-zinc-200/80 pt-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Destination setup</div>
+                                <div className="mt-1 text-sm font-semibold text-zinc-900">Choose the real destination lane before you queue anything</div>
+                                <div className="mt-1 text-xs leading-5 text-zinc-500">
+                                  {previewUsesMetaProviderLane
+                                    ? "Pick the Instagram professional account or Facebook Page that should actually receive this post."
+                                    : "Manual and future-only lanes do not need a provider destination here."}
+                                </div>
+                              </div>
+                              {previewUsesMetaProviderLane ? (
+                                <a
+                                  href={previewSocialSetupHref}
+                                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                                >
+                                  {previewMetaDestinationSetupLabel}
+                                </a>
+                              ) : null}
+                            </div>
+
+                            {previewUsesMetaProviderLane ? (
+                              <div className="mt-3 space-y-3">
+                                <PortalListboxDropdown
+                                  value={previewSelectedMetaDestination?.value || ""}
+                                  onChange={(value) => {
+                                    const nextOption = previewMetaDestinationOptions.find((option) => option.value === value) || null;
+                                    const baseProfile = clearMetaDestinationBlocker(previewGrowthProfile);
+                                    setSelectedGrowthProfile({
+                                      ...baseProfile,
+                                      providerDestinationType: nextOption?.destinationType || null,
+                                      providerDestinationId: nextOption?.destinationId || null,
+                                      providerDestinationLabel: nextOption?.destinationLabel || null,
+                                      providerAccountLabel: nextOption?.accountLabel || null,
+                                    });
+                                  }}
+                                  options={previewMetaDestinationOptionsForDropdown}
+                                  buttonClassName={workflowDropdownButtonClass}
+                                />
+                                <div>
+                                  <div className="text-xs font-medium text-zinc-600">Current lane</div>
+                                  <div className="mt-1 text-sm font-semibold text-zinc-900">{previewSelectedMetaDestination?.destinationLabel || "No destination selected yet"}</div>
+                                  <div className="mt-1 text-xs leading-5 text-zinc-500">
+                                    {previewSelectedMetaDestination?.hint || "Select a real Meta destination before you try to validate or queue the provider lane."}
+                                  </div>
+                                </div>
+                                {previewMetaDestinationBlockers.length ? (
+                                  <div className="space-y-2 text-xs leading-5 text-amber-700">
+                                    {previewMetaDestinationBlockers.map((blocker) => (
+                                      <div key={blocker} className="flex items-start gap-2">
+                                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+                                        <span>{blocker}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs leading-5 text-emerald-700">
+                                    Destination is selected and ready to carry into validation.
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="mt-3 text-sm text-zinc-700">
+                                <div className="font-semibold text-zinc-900">{previewDestinationSummary?.label || "Manual / external channel"}</div>
+                                <div className="mt-1 text-xs leading-5 text-zinc-500">{previewDestinationSummary?.detail || "Purely keeps the planning context here without triggering anything live."}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-4 border-t border-zinc-200/80 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => togglePreviewComposerSection("schedule")}
+                        className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
+                      >
+                        <span>Schedule</span>
+                        <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
+                          {previewComposerSection === "schedule" ? "Hide" : "Show"}
+                        </span>
+                      </button>
+                      {previewComposerSection === "schedule" ? (
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <label className="block">
+                          <div className="text-xs font-medium text-zinc-600">Plan for</div>
+                          <div className="mt-2">
+                            <LocalDateTimePicker
+                            value={toDateTimeLocalValue(previewGrowthProfile.plannedForIso)}
+                              onChange={(value) => setSelectedGrowthProfile({ ...previewGrowthProfile, plannedForIso: fromDateTimeLocalValue(value) })}
+                              placeholder="Choose date and time"
+                              buttonClassName="h-12 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-left text-sm text-zinc-900 hover:bg-zinc-50"
+                            />
+                          </div>
+                        </label>
+
+                        <label className="block">
+                          <div className="text-xs font-medium text-zinc-600">Provider publish time</div>
+                          <div className="mt-2">
+                            <LocalDateTimePicker
+                            value={toDateTimeLocalValue(previewGrowthProfile.providerScheduledForIso)}
+                              onChange={(value) => setSelectedGrowthProfile({ ...previewGrowthProfile, providerScheduledForIso: fromDateTimeLocalValue(value) })}
+                              placeholder={previewProviderScheduleDisabled ? "Unavailable" : "Choose date and time"}
+                              disabled={previewProviderScheduleDisabled}
+                              buttonClassName={classNames(
+                                "h-12 w-full rounded-2xl border px-4 text-left text-sm hover:bg-zinc-50",
+                                previewProviderScheduleDisabled
+                                  ? "border-zinc-200 bg-zinc-100 text-zinc-400 hover:bg-zinc-100"
+                                  : "border-zinc-200 bg-white text-zinc-900",
+                              )}
+                            />
+                          </div>
+                          {previewProviderScheduleHelperText ? (
+                            <div className="mt-2 text-xs text-zinc-500">{previewProviderScheduleHelperText}</div>
+                          ) : null}
+                        </label>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-4 border-t border-zinc-200/80 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => togglePreviewComposerSection("handoff")}
+                        className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
+                      >
+                        <span>{previewIsInstagramComposer ? "Instagram handoff" : "Destination / CTA"}</span>
+                        <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
+                          {previewComposerSection === "handoff" ? "Hide" : "Show"}
+                        </span>
+                      </button>
+                      {previewComposerSection === "handoff" ? (
+                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {!previewIsInstagramComposer ? (
+                          <label className="block">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewPlatformBehavior?.ctaLabelFieldLabel || "CTA label"}</div>
+                            <input
+                              value={previewGrowthProfile.ctaLabel || ""}
+                              onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, ctaLabel: e.target.value || null })}
+                              placeholder={previewPlatformBehavior?.ctaLabelPlaceholder || "Book now, Learn more, See offer"}
+                              className="mt-2 h-12 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
+                            />
+                          </label>
+                        ) : (
+                          <div className="sm:col-span-2 rounded-2xl bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Instagram next step</div>
+                            <div className="mt-2 font-semibold text-zinc-900">Keep the CTA native to Instagram</div>
+                            <div className="mt-1 text-xs leading-5 text-zinc-500">Tell people to use the link in bio, send a DM/message, or use the profile booking button if it is configured. Save any URL here for planning only, not as a fake post CTA.</div>
+                          </div>
+                        )}
+                        <label className="block sm:col-span-2">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewPlatformBehavior?.linkFieldLabel || "Direct link"}</div>
+                          <input
+                            value={previewGrowthProfile.ctaHref || ""}
+                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, ctaHref: e.target.value || null })}
+                            placeholder={previewPlatformBehavior?.linkFieldPlaceholder || "https://..."}
+                            className="mt-2 h-12 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
+                          />
+                          <div className="mt-2 text-xs leading-5 text-zinc-500">{previewPlatformBehavior?.linkFieldHelper || "Use the best destination for this post."}</div>
+                          <div className="mt-1 text-xs leading-5 text-zinc-500">
+                            {previewIsInstagramComposer
+                              ? "Optional. Use this only for internal reference, link-in-bio planning, DM follow-up, or a profile booking handoff."
+                              : "Leave this blank if you want the post to use the linked funnel route or saved booking / intake handoff below."}
+                          </div>
+                        </label>
+                        <label className="block sm:col-span-2">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewIsInstagramComposer ? (previewPlatformBehavior?.savedLinkLabel || "Profile booking / bio reference") : "Saved booking / intake link"}</div>
+                          <div className="mt-2">
+                            <PortalListboxDropdown
+                              value={previewGrowthProfile.bookingLinkUrl || ""}
+                              onChange={(value) => {
+                                const url = value || null;
+                                setSelectedGrowthProfile({
+                                  ...previewGrowthProfile,
+                                  bookingLinkUrl: url,
+                                  ctaLabel: !previewIsInstagramComposer && url && !previewGrowthProfile.ctaLabel
+                                    ? (previewPlatformBehavior?.defaultCtaLabel || previewGrowthProfile.ctaLabel)
+                                    : previewGrowthProfile.ctaLabel,
+                                });
+                              }}
+                              options={bookingLinkOptions}
+                              buttonClassName={workflowDropdownButtonClass}
+                            />
+                          </div>
+                          <div className="mt-2 text-xs leading-5 text-zinc-500">
+                            {previewIsInstagramComposer
+                              ? "Optional. Use the reusable booking or intake handoff from Booking settings when the Instagram profile button or bio path should carry the follow-up."
+                              : "Use the reusable booking or intake handoff from Booking settings. This stays separate from a direct override link."}
+                          </div>
+                        </label>
+                        <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Funnel destination</div>
+                          <div className="mt-2">
+                            <PortalListboxDropdown
+                              value={previewGrowthProfile.funnelId || ""}
+                              onChange={(value) => {
+                                const selectedFunnel = growthContext?.funnels.find((funnel) => funnel.id === value) || null;
+                                setSelectedGrowthProfile({
+                                  ...previewGrowthProfile,
+                                  funnelId: selectedFunnel?.id || null,
+                                  funnelName: selectedFunnel?.name || null,
+                                  funnelSlug: selectedFunnel?.slug || null,
+                                  funnelPageId: null,
+                                  funnelPageTitle: null,
+                                  funnelPageSlug: null,
+                                });
+                              }}
+                              options={funnelOptions}
+                              buttonClassName={workflowDropdownButtonClass}
+                            />
+                          </div>
+                          <div className="mt-2 text-xs leading-5 text-zinc-500">Pick the offer funnel this post should send people into. If you do not pick a page, Purely uses the funnel's main entry page.</div>
+                        </label>
+
+                        <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Funnel page</div>
+                          <div className="mt-2">
+                            <PortalListboxDropdown
+                              value={previewGrowthProfile.funnelPageId || ""}
+                              onChange={(value) => {
+                                const selectedPage = previewFunnelPages.find((page) => page.id === value) || null;
+                                setSelectedGrowthProfile({
+                                  ...previewGrowthProfile,
+                                  funnelPageId: selectedPage?.id || null,
+                                  funnelPageTitle: selectedPage?.title || null,
+                                  funnelPageSlug: selectedPage?.slug || null,
+                                });
+                              }}
+                              disabled={!previewGrowthProfile.funnelId}
+                              options={previewFunnelPageOptions}
+                              buttonClassName={workflowDropdownButtonClass}
+                            />
+                          </div>
+                          <div className="mt-2 text-xs leading-5 text-zinc-500">Optional. Choose a specific page inside that funnel if this post should land deeper than the main entry page.</div>
+                        </label>
+                        <div className="sm:col-span-2 rounded-2xl bg-zinc-50 px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewIsInstagramComposer ? "Internal follow-up path" : "Resolved destination"}</div>
+                          <div className="mt-2 text-sm font-semibold text-zinc-900">{previewResolvedDestinationMeta?.sourceLabel || "No destination selected"}</div>
+                          <div className="mt-1 break-all text-xs leading-5 text-zinc-500">
+                            {previewResolvedLinkHref
+                              || previewResolvedDestinationMeta?.detail
+                              || (previewIsInstagramComposer
+                                ? "Keep the follow-up path here for bio, DM, profile booking, or internal tracking. It does not appear as a clickable Instagram CTA."
+                                : "Add a direct link, saved booking handoff, or linked funnel route before posting.")}
+                          </div>
+                        </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-4 border-t border-zinc-200/80 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => togglePreviewComposerSection("history")}
+                        className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
+                      >
+                        <span>Result / history</span>
+                        <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
+                          {previewComposerSection === "history" ? "Hide" : "Show"}
+                        </span>
+                      </button>
+                      {previewComposerSection === "history" ? (
+                        <>
+                      <label className="mt-3 block">
+                        <div className="text-xs font-medium text-zinc-600">Live post URL</div>
+                        <input
+                          value={previewGrowthProfile.postedUrl || ""}
+                          onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, postedUrl: e.target.value || null })}
+                          placeholder="https://live-post-url"
+                          className="h-12 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
+                        />
+                      </label>
+
+                      <div className="mt-2 text-xs text-zinc-500">
+                        {previewGrowthProfile.postedAtIso
+                          ? `Marked as posted outside Purely on ${formatCalendarDay(previewGrowthProfile.postedAtIso)} at ${formatCalendarTime(previewGrowthProfile.postedAtIso)}.`
+                          : previewManualPostingGuidance}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">Use this after you post outside Purely. Purely stores the live URL you save here, but does not detect the manual post automatically.</div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
                           disabled={detailSaving || detailLoading}
                           onClick={() => void saveSelectedGrowthProfile({ workflowState: "posted_manually", postedAtIso: previewGrowthProfile.postedAtIso || new Date().toISOString(), providerPublishState: "manual_only" })}
-                          className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 disabled:opacity-60"
+                          className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
                         >
-                          Mark posted manually
+                          Mark as posted outside Purely
                         </button>
                       </div>
-                    </div>
-
-                    <div className="grid gap-3 lg:grid-cols-[0.85fr,1.15fr]">
-                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                        <div className="text-sm font-semibold text-zinc-900">What to do next</div>
-                        <div className="mt-2 text-sm font-semibold text-zinc-900">{previewNextStep?.title || "Move this asset forward"}</div>
-                        <div className="mt-1 text-xs text-zinc-600">{previewNextStep?.detail || "Add the missing workflow details, then schedule or post it manually."}</div>
-                        {previewContinuity ? <div className="mt-3 text-xs text-zinc-500">{previewContinuity.detail}</div> : null}
-                      </div>
-
-                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                        <div className="text-sm font-semibold text-zinc-900">Result slots</div>
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                          {previewResultSlots.slice(0, 4).map((slot) => (
-                            <div key={slot.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-700">
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{slot.label}</div>
-                              <div className="mt-2 font-semibold text-zinc-900">{slot.value}</div>
-                              <div className="mt-1 break-words text-xs text-zinc-500">{slot.detail}</div>
-                              {slot.href ? (
-                                <a href={slot.href} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-semibold text-brand-ink hover:underline">
-                                  Open
-                                </a>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-zinc-900">Content workflow details</div>
-                          <div className="mt-1 text-xs text-zinc-500">Stored with the asset so schedule, posting status, provider state, and later reporting can reuse the same record.</div>
-                        </div>
-                        <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
-                          {growthStateLabel(previewGrowthProfile.workflowState)}
-                        </span>
-                      </div>
-
-                      {detailLoading ? <div className="mt-3 text-sm text-zinc-600">Loading campaign details...</div> : null}
-
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">State</div>
-                          <select
-                            value={previewGrowthProfile.workflowState}
-                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, workflowState: e.target.value as MediaGrowthState })}
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                          >
-                            <option value="needs_review">Needs review</option>
-                            <option value="needs_caption">Needs copy</option>
-                            <option value="needs_approval">Review before posting</option>
-                            <option value="approved">Approved</option>
-                            <option value="ready_to_use">Ready to plan</option>
-                            <option value="planned">Planned</option>
-                            <option value="provider_blocked">Manual posting only</option>
-                            <option value="queued">Queued</option>
-                            <option value="provider_failed">Provider failed</option>
-                            <option value="posted_manually">Posted manually</option>
-                            <option value="used_in_campaign">Used in campaign</option>
-                          </select>
-                        </label>
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Target platform</div>
-                          <select
-                            value={previewGrowthProfile.targetPlatform || ""}
-                            onChange={(e) => {
-                              const nextTarget = e.target.value || null;
-                              const previousInferredProvider = inferDistributionProvider(previewGrowthProfile.targetPlatform);
-                              const nextInferredProvider = inferDistributionProvider(nextTarget);
-                              setSelectedGrowthProfile({
-                                ...previewGrowthProfile,
-                                targetPlatform: nextTarget,
-                                distributionProvider:
-                                  previewGrowthProfile.distributionProvider && previewGrowthProfile.distributionProvider !== previousInferredProvider
-                                    ? previewGrowthProfile.distributionProvider
-                                    : nextInferredProvider,
-                              });
-                            }}
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                          >
-                            <option value="">General</option>
-                            <option value="instagram_post">Instagram post</option>
-                            <option value="instagram_story">Instagram story</option>
-                            <option value="facebook_post">Facebook post</option>
-                            {previewSupportsYouTubePlanning ? <option value="youtube_video">YouTube video</option> : null}
-                            <option value="newsletter">Newsletter</option>
-                            <option value="email">Email</option>
-                            <option value="sms">SMS</option>
-                            <option value="funnel_hero">Funnel hero</option>
-                            <option value="booking_promo">Booking promo</option>
-                            <option value="review_proof">Review proof</option>
-                          </select>
-                        </label>
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Asset purpose</div>
-                          <input
-                            value={previewGrowthProfile.assetPurpose || ""}
-                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, assetPurpose: e.target.value || null })}
-                            placeholder="Offer proof, before/after, testimonial, team photo"
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                          />
-                        </label>
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Offer or service</div>
-                          <input
-                            value={previewGrowthProfile.relatedOffer || ""}
-                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, relatedOffer: e.target.value || null })}
-                            placeholder="Credit repair consult, whitening offer, spring promo"
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                          />
-                        </label>
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Campaign label</div>
-                          <input
-                            value={previewGrowthProfile.campaignLabel || ""}
-                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, campaignLabel: e.target.value || null })}
-                            placeholder="June booking push, testimonials, newsletter hero"
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                          />
-                        </label>
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Planned for</div>
-                          <input
-                            type="datetime-local"
-                            value={toDateTimeLocalValue(previewGrowthProfile.plannedForIso)}
-                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, plannedForIso: fromDateTimeLocalValue(e.target.value) })}
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                          />
-                          <button
-                            type="button"
-                            disabled={!previewGrowthProfile.plannedForIso}
-                            onClick={() => setSelectedGrowthProfile({ ...previewGrowthProfile, plannedForIso: null, workflowState: previewGrowthProfile.postedAtIso ? previewGrowthProfile.workflowState : "ready_to_use" })}
-                            className="mt-2 inline-flex text-xs font-semibold text-zinc-600 hover:text-zinc-900 disabled:pointer-events-none disabled:text-zinc-400"
-                          >
-                            Clear schedule
-                          </button>
-                        </label>
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Queue order</div>
-                          <input
-                            type="number"
-                            min={1}
-                            max={999}
-                            value={previewGrowthProfile.queueOrder ?? ""}
-                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, queueOrder: e.target.value ? Number(e.target.value) : null })}
-                            placeholder="1"
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                          />
-                        </label>
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Daily post cap</div>
-                          <input
-                            type="number"
-                            min={1}
-                            max={20}
-                            value={previewGrowthProfile.dailyPostCap ?? ""}
-                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, dailyPostCap: e.target.value ? Number(e.target.value) : null })}
-                            placeholder="3"
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                          />
-                        </label>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">CTA label</div>
-                          <input
-                            value={previewGrowthProfile.ctaLabel || ""}
-                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, ctaLabel: e.target.value || null })}
-                            placeholder="Book now, See offer, Learn more"
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                          />
-                        </label>
-                        <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">CTA or booking link</div>
-                          <input
-                            value={previewGrowthProfile.ctaHref || ""}
-                            onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, ctaHref: e.target.value || null })}
-                            placeholder="https://..."
-                            className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                          />
-                        </label>
-                      </div>
-
-                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <button
-                          type="button"
-                          disabled={!previewGrowthProfile.captionDraft}
-                          onClick={(e) => void copyTextWithToast(previewGrowthProfile.captionDraft, "Caption copied", e.currentTarget)}
-                          className={assetActionClass({ size: "sm", disabled: !previewGrowthProfile.captionDraft })}
-                        >
-                          Copy caption
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!previewGrowthProfile.ctaHref}
-                          onClick={(e) => void copyTextWithToast(previewGrowthProfile.ctaHref, "CTA link copied", e.currentTarget)}
-                          className={assetActionClass({ size: "sm", disabled: !previewGrowthProfile.ctaHref })}
-                        >
-                          Copy CTA link
-                        </button>
-                        <a
-                          href={previewGrowthProfile.ctaHref || undefined}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={assetActionClass({ size: "sm", disabled: !previewGrowthProfile.ctaHref })}
-                        >
-                          Open CTA
-                        </a>
-                      </div>
-
-                      <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Growth destinations</div>
-                        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <label className="block">
-                            <div className="text-xs font-semibold text-zinc-700">Current booking link</div>
-                            <select
-                              value={previewGrowthProfile.bookingLinkUrl || ""}
-                              onChange={(e) => {
-                                const url = e.target.value || null;
-                                setSelectedGrowthProfile({
-                                  ...previewGrowthProfile,
-                                  bookingLinkUrl: url,
-                                  ctaHref: url || previewGrowthProfile.ctaHref,
-                                  ctaLabel: url && !previewGrowthProfile.ctaLabel ? "Book now" : previewGrowthProfile.ctaLabel,
-                                });
-                              }}
-                              className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                            >
-                              <option value="">No booking CTA attached</option>
-                              {growthContext?.bookingLink?.url ? (
-                                <option value={growthContext.bookingLink.url}>
-                                  {growthContext.bookingLink.providerLabel} {growthContext.bookingLink.enabled ? "(active)" : "(saved)"}
-                                </option>
-                              ) : null}
-                            </select>
-                            <div className="mt-1 text-[11px] text-zinc-500">
-                              {growthContext?.bookingLink?.url
-                                ? "Attach the current booking CTA without triggering any live outreach."
-                                : "Save a booking link in Booking Settings to reuse it here."}
-                            </div>
-                          </label>
-
-                          <div className="grid grid-cols-1 gap-3">
-                            <label className="block">
-                              <div className="text-xs font-semibold text-zinc-700">Funnel</div>
-                              <select
-                                value={previewGrowthProfile.funnelId || ""}
-                                onChange={(e) => {
-                                  const selectedFunnel = growthContext?.funnels.find((funnel) => funnel.id === e.target.value) || null;
-                                  setSelectedGrowthProfile({
-                                    ...previewGrowthProfile,
-                                    funnelId: selectedFunnel?.id || null,
-                                    funnelName: selectedFunnel?.name || null,
-                                    funnelSlug: selectedFunnel?.slug || null,
-                                    funnelPageId: null,
-                                    funnelPageTitle: null,
-                                    funnelPageSlug: null,
-                                  });
-                                }}
-                                className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                              >
-                                <option value="">No funnel linked</option>
-                                {(growthContext?.funnels || []).map((funnel) => (
-                                  <option key={funnel.id} value={funnel.id}>{funnel.name}</option>
-                                ))}
-                              </select>
-                            </label>
-
-                            <label className="block">
-                              <div className="text-xs font-semibold text-zinc-700">Funnel page</div>
-                              <select
-                                value={previewGrowthProfile.funnelPageId || ""}
-                                onChange={(e) => {
-                                  const selectedPage = previewFunnelPages.find((page) => page.id === e.target.value) || null;
-                                  setSelectedGrowthProfile({
-                                    ...previewGrowthProfile,
-                                    funnelPageId: selectedPage?.id || null,
-                                    funnelPageTitle: selectedPage?.title || null,
-                                    funnelPageSlug: selectedPage?.slug || null,
-                                  });
-                                }}
-                                disabled={!previewGrowthProfile.funnelId}
-                                className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 disabled:opacity-60"
-                              >
-                                <option value="">No page linked</option>
-                                {previewFunnelPages.map((page) => (
-                                  <option key={page.id} value={page.id}>{page.title}</option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Provider continuity</div>
-                            <div className="mt-1 text-xs text-zinc-500">Manual posting is live now. Direct provider continuity is prepared here without sending any live post.</div>
-                          </div>
-                          {previewContinuity ? (
-                            <span
-                              className={classNames(
-                                "rounded-full px-2.5 py-1 text-[11px] font-semibold",
-                                previewContinuity.blocked
-                                  ? "bg-rose-50 text-rose-700"
-                                  : previewContinuity.publishState === "published"
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : previewContinuity.publishState === "queued"
-                                      ? "bg-sky-50 text-sky-700"
-                                      : "bg-zinc-100 text-zinc-700",
-                              )}
-                            >
-                              {previewContinuity.publishLabel}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <label className="block">
-                            <div className="text-xs font-semibold text-zinc-700">Publish target</div>
-                            <select
-                              value={previewGrowthProfile.distributionProvider || inferDistributionProvider(previewGrowthProfile.targetPlatform)}
-                              onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, distributionProvider: e.target.value as DistributionProviderKey })}
-                              className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                            >
-                              <option value="manual">Manual upload</option>
-                              <option value="facebook_page">Social page</option>
-                              <option value="instagram_business">Social account</option>
-                              {previewSupportsYouTubePlanning ? <option value="future_youtube">YouTube (coming soon)</option> : null}
-                              <option value="future_tiktok">TikTok (future)</option>
-                              <option value="future_linkedin">LinkedIn (future)</option>
-                            </select>
-                          </label>
-
-                          <label className="block">
-                            <div className="text-xs font-semibold text-zinc-700">Provider page/account label</div>
-                            <input
-                              value={previewGrowthProfile.providerAccountLabel || ""}
-                              onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, providerAccountLabel: e.target.value || null })}
-                              placeholder="Main social page or account"
-                              className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                            />
-                          </label>
-
-                          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Connection state</div>
-                            <div className="mt-2 font-semibold text-zinc-900">{previewContinuity?.connectionLabel || "Connection required"}</div>
-                            <div className="mt-1 text-xs text-zinc-500">{previewContinuity?.detail}</div>
-                          </div>
-
-                          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Metrics continuity</div>
-                            <div className="mt-2 font-semibold text-zinc-900">{previewContinuity?.metricsLabel || "Metrics require a connected provider post."}</div>
-                            <div className="mt-1 text-xs text-zinc-500">{previewGrowthProfile.providerPostId ? `Provider post ID: ${previewGrowthProfile.providerPostId}` : previewGrowthProfile.workflowState === "posted_manually" ? "Posted-manual records do not create provider metrics or a provider post ID here." : "No provider post ID stored yet."}</div>
-                          </div>
-                        </div>
-
-                        {previewGrowthProfile.providerLastError ? (
-                          <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-800">
-                            <div className="font-semibold">Provider failure</div>
-                            <div className="mt-1">{previewGrowthProfile.providerLastError}</div>
-                          </div>
-                        ) : null}
-
-                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Provider post ID</div>
-                            <div className="mt-2">{previewGrowthProfile.providerPostId || "Not stored yet"}</div>
-                          </div>
-                          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Last provider attempt</div>
-                            <div className="mt-2">{previewGrowthProfile.providerLastAttemptAtIso ? `${formatCalendarDay(previewGrowthProfile.providerLastAttemptAtIso)} at ${formatCalendarTime(previewGrowthProfile.providerLastAttemptAtIso)}` : "No provider attempt stored"}</div>
-                          </div>
-                          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Provider publish time</div>
-                            <div className="mt-2">{previewGrowthProfile.providerPublishedAtIso ? `${formatCalendarDay(previewGrowthProfile.providerPublishedAtIso)} at ${formatCalendarTime(previewGrowthProfile.providerPublishedAtIso)}` : "No provider publish stored"}</div>
-                          </div>
-                          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Metrics sync</div>
-                            <div className="mt-2">{previewGrowthProfile.metricsSyncedAtIso ? `${formatCalendarDay(previewGrowthProfile.metricsSyncedAtIso)} at ${formatCalendarTime(previewGrowthProfile.metricsSyncedAtIso)}` : "No metrics sync stored"}</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Manual post tracking</div>
-                        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <label className="block sm:col-span-2">
-                            <div className="text-xs font-semibold text-zinc-700">{previewGrowthProfile.targetPlatform === "youtube_video" ? "Posted URL or YouTube permalink" : "Posted URL or permalink"}</div>
-                            <input
-                              value={previewGrowthProfile.postedUrl || ""}
-                              onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, postedUrl: e.target.value || null })}
-                              placeholder="https://..."
-                              className="mt-2 h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                            />
-                          </label>
-                          <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700 sm:col-span-2">
-                            {previewGrowthProfile.postedAtIso
-                              ? `Posted manually on ${formatCalendarDay(previewGrowthProfile.postedAtIso)} at ${formatCalendarTime(previewGrowthProfile.postedAtIso)}.`
-                              : "This item has not been marked as posted manually yet."}
-                          </div>
-                        </div>
-                        <div className="mt-2 text-[11px] text-zinc-500">
-                          {previewGrowthProfile.targetPlatform === "youtube_video"
-                            ? "Tracking a YouTube URL here does not upload, schedule, or publish anything. It only stores manual-post history until Google OAuth, scopes, quota, and verification are ready."
-                            : "Tracking a post here does not publish anything. It only stores planning and posted-manual history. Posted-manual records do not generate provider metrics or provider post IDs in this flow."}
-                        </div>
-                      </div>
-
-                      {previewSupportsYouTubePlanning ? (
-                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">YouTube continuity</div>
-                          <div className="mt-2">Prepare the video, title, description, thumbnail direction, and posting notes here now. Direct YouTube upload, scheduling, and analytics stay off in this beta slice.</div>
-                          <div className="mt-2 text-xs text-zinc-500">Use the draft field for title and description ideas, the notes field for thumbnail or upload notes, and the posted URL field for the live YouTube link after manual upload.</div>
-                        </div>
+                        </>
                       ) : null}
-
-                      <label className="mt-4 block">
-                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewGrowthProfile.targetPlatform === "youtube_video" ? "Title, description, or copy draft" : "Caption or copy draft"}</div>
-                          <div className="grid grid-cols-1 gap-2 md:min-w-64 md:grid-cols-2">
-                            <button
-                              type="button"
-                              disabled={detailSaving || detailLoading}
-                              onClick={() => setSelectedGrowthProfile({
-                                ...previewGrowthProfile,
-                                captionDraft: buildCaptionStarter(previewItem, previewGrowthProfile, growthContext),
-                                workflowState: previewGrowthProfile.workflowState === "needs_review" ? "needs_caption" : previewGrowthProfile.workflowState,
-                              })}
-                              className={assetActionClass({ size: "sm", disabled: detailSaving || detailLoading })}
-                            >
-                              Start draft
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!previewGrowthProfile.captionDraft}
-                              onClick={(e) => void copyTextWithToast(previewGrowthProfile.captionDraft, "Caption copied", e.currentTarget)}
-                              className={assetActionClass({ size: "sm", disabled: !previewGrowthProfile.captionDraft })}
-                            >
-                              Copy draft
-                            </button>
-                          </div>
-                        </div>
-                        <textarea
-                          value={previewGrowthProfile.captionDraft || ""}
-                          onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, captionDraft: e.target.value || null })}
-                          placeholder={previewGrowthProfile.targetPlatform === "youtube_video"
-                            ? "Write a YouTube title, description outline, pinned-link copy, or manual posting draft here. This stays editable and does not upload anything."
-                            : "Write or edit a caption, email blurb, SMS angle, or post draft here. This stays editable and does not publish anything."}
-                          className="mt-2 min-h-32 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                        />
-                        <div className="mt-1 text-[11px] text-zinc-500">
-                          {previewGrowthProfile.targetPlatform === "youtube_video"
-                            ? "Drafts are planning notes only. Purely does not upload, schedule, or publish YouTube content from this screen yet."
-                            : "Drafts are editable planning notes only. No outbound action is triggered from this screen."}
-                        </div>
-                      </label>
-
-                      <label className="mt-4 block">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewSupportsYouTubePlanning ? "Next iteration notes / thumbnail plan" : "Next iteration notes"}</div>
-                        <textarea
-                          value={previewGrowthProfile.notes || ""}
-                          onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, notes: e.target.value || null })}
-                          placeholder={previewSupportsYouTubePlanning
-                            ? "Add thumbnail direction, opening hook, chapters, upload checklist notes, blocked reasons, or the next title/description version to try."
-                            : "Add what changed, what to test next, blocked reasons, follow-up reminders, or the next offer/caption/time to try."}
-                          className="mt-2 min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                        />
-                      </label>
-
-                      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
-                        <button
-                          type="button"
-                          disabled={detailSaving || detailLoading}
-                          onClick={() => void saveSelectedGrowthProfile()}
-                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                        >
-                          {detailSaving ? "Saving..." : "Save campaign details"}
-                        </button>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -3176,11 +4292,27 @@ export function PortalMediaLibraryClient() {
               disabled={creatingFolder || !newFolderName.trim()}
               className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
             >
-              {creatingFolder ? "Creating…" : "Create folder"}
+              {creatingFolder ? "Creating..." : "Create folder"}
             </button>
           </div>
         </div>
       </AppModal>
+
+      <PortalImageCropModal
+        open={cropModalOpen}
+        imageUrl={cropModalOpen ? previewItem?.previewUrl || null : null}
+        title={previewGrowthProfile?.targetPlatform === "instagram_story" ? "Prepare Instagram story asset" : "Prepare Instagram feed asset"}
+        description={previewGrowthProfile?.targetPlatform === "instagram_story"
+          ? "Create the final 9:16 image you want Instagram to receive. Purely stores the prepared asset so posting uses the finished media, not a CSS preview crop."
+          : "Create the final feed image you want Instagram to receive. Purely stores the prepared asset so posting uses the finished media, not a CSS preview crop."}
+        defaultAspectPreset={previewInstagramCropPreset}
+        aspectOptions={previewInstagramCropOptions}
+        onClose={() => {
+          if (detailSaving) return;
+          setCropModalOpen(false);
+        }}
+        onSave={prepareInstagramVariantForSelectedItem}
+      />
     </div>
   );
 }

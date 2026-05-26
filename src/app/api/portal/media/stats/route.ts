@@ -30,14 +30,20 @@ export async function GET() {
         needsApprovalAssets: number | bigint | null;
         missingCtaAssets: number | bigint | null;
         manuallyPostedAssets: number | bigint | null;
-        providerReadyAssets: number | bigint | null;
+        providerQueuedAssets: number | bigint | null;
+        providerPendingAssets: number | bigint | null;
+        providerPublishedAssets: number | bigint | null;
         providerBlockedAssets: number | bigint | null;
         providerFailedAssets: number | bigint | null;
         youtubePreparedAssets: number | bigint | null;
       }>>(
         `
 SELECT
-  COALESCE(SUM(CASE WHEN ((growth."plannedForAt" IS NOT NULL) OR COALESCE(growth."workflowState", '') = 'planned') AND growth."postedAt" IS NULL AND COALESCE(growth."workflowState", '') <> 'posted_manually' THEN 1 ELSE 0 END), 0) AS "plannedPosts",
+  COALESCE(SUM(CASE WHEN ((growth."plannedForAt" IS NOT NULL) OR COALESCE(growth."workflowState", '') = 'planned')
+    AND growth."postedAt" IS NULL
+    AND COALESCE(growth."workflowState", '') <> 'posted_manually'
+    AND COALESCE(growth."providerPublishState", '') NOT IN ('queued', 'pending', 'published', 'failed', 'blocked', 'unavailable')
+    THEN 1 ELSE 0 END), 0) AS "plannedPosts",
   COALESCE(SUM(CASE WHEN growth."workflowState" = 'approved' THEN 1 ELSE 0 END), 0) AS "approvedPosts",
   COALESCE(SUM(CASE WHEN growth."workflowState" = 'ready_to_use' THEN 1 ELSE 0 END), 0) AS "readyToUseAssets",
   COALESCE(SUM(CASE WHEN COALESCE(growth."workflowState", '') IN ('approved', 'ready_to_use') AND growth."plannedForAt" IS NULL AND growth."postedAt" IS NULL THEN 1 ELSE 0 END), 0) AS "unscheduledReadyAssets",
@@ -45,10 +51,12 @@ SELECT
   COALESCE(SUM(CASE WHEN (COALESCE(growth."targetPlatform", '') = 'youtube_video' OR COALESCE(growth."distributionProvider", '') = 'future_youtube') AND COALESCE(BTRIM(growth."notes"), '') = '' THEN 1 ELSE 0 END), 0) AS "notesNeededAssets",
   COALESCE(SUM(CASE WHEN growth."workflowState" = 'needs_approval' THEN 1 ELSE 0 END), 0) AS "needsApprovalAssets",
   COALESCE(SUM(CASE WHEN COALESCE(growth."ctaHref", '') = '' THEN 1 ELSE 0 END), 0) AS "missingCtaAssets",
-  COALESCE(SUM(CASE WHEN growth."workflowState" = 'posted_manually' OR growth."postedAt" IS NOT NULL THEN 1 ELSE 0 END), 0) AS "manuallyPostedAssets",
-  COALESCE(SUM(CASE WHEN COALESCE(growth."providerConnectionState", '') = 'connected' OR COALESCE(growth."providerPublishState", '') IN ('queued', 'published', 'ready') THEN 1 ELSE 0 END), 0) AS "providerReadyAssets",
-  COALESCE(SUM(CASE WHEN COALESCE(growth."workflowState", '') = 'provider_blocked' OR COALESCE(growth."providerConnectionState", '') IN ('coming_soon', 'not_connected', 'connection_required', 'needs_permissions', 'permission_missing', 'reconnect_required', 'direct_publish_unsupported', 'disabled') THEN 1 ELSE 0 END), 0) AS "providerBlockedAssets",
-  COALESCE(SUM(CASE WHEN COALESCE(growth."workflowState", '') = 'provider_failed' OR COALESCE(growth."providerPublishState", '') = 'failed' OR COALESCE(growth."providerLastError", '') <> '' THEN 1 ELSE 0 END), 0) AS "providerFailedAssets",
+  COALESCE(SUM(CASE WHEN (growth."workflowState" = 'posted_manually' OR growth."postedAt" IS NOT NULL) AND COALESCE(growth."providerPublishState", '') <> 'published' THEN 1 ELSE 0 END), 0) AS "manuallyPostedAssets",
+  COALESCE(SUM(CASE WHEN COALESCE(growth."providerPublishState", '') = 'queued' THEN 1 ELSE 0 END), 0) AS "providerQueuedAssets",
+  COALESCE(SUM(CASE WHEN COALESCE(growth."providerPublishState", '') = 'pending' THEN 1 ELSE 0 END), 0) AS "providerPendingAssets",
+  COALESCE(SUM(CASE WHEN COALESCE(growth."providerPublishState", '') = 'published' OR growth."providerPublishedAt" IS NOT NULL OR COALESCE(growth."providerPostId", '') <> '' THEN 1 ELSE 0 END), 0) AS "providerPublishedAssets",
+  COALESCE(SUM(CASE WHEN COALESCE(growth."providerPublishState", '') IN ('blocked', 'unavailable') OR COALESCE(growth."workflowState", '') = 'provider_blocked' OR COALESCE(growth."providerConnectionState", '') IN ('coming_soon', 'not_connected', 'connection_required', 'needs_permissions', 'permission_missing', 'reconnect_required', 'direct_publish_unsupported', 'disabled') THEN 1 ELSE 0 END), 0) AS "providerBlockedAssets",
+  COALESCE(SUM(CASE WHEN COALESCE(growth."providerPublishState", '') = 'failed' OR COALESCE(growth."workflowState", '') = 'provider_failed' THEN 1 ELSE 0 END), 0) AS "providerFailedAssets",
   COALESCE(SUM(CASE WHEN media."mimeType" LIKE 'video/%' AND (COALESCE(growth."targetPlatform", '') = 'youtube_video' OR COALESCE(growth."distributionProvider", '') = 'future_youtube') THEN 1 ELSE 0 END), 0) AS "youtubePreparedAssets"
 FROM "PortalMediaGrowthProfile" growth
 LEFT JOIN "PortalMediaItem" media ON media."id" = growth."mediaItemId"
@@ -68,7 +76,9 @@ WHERE growth."ownerId" = $1;
       needsApprovalAssets: 0,
       missingCtaAssets: 0,
       manuallyPostedAssets: 0,
-      providerReadyAssets: 0,
+      providerQueuedAssets: 0,
+      providerPendingAssets: 0,
+      providerPublishedAssets: 0,
       providerBlockedAssets: 0,
       providerFailedAssets: 0,
       youtubePreparedAssets: 0,
@@ -90,7 +100,9 @@ WHERE growth."ownerId" = $1;
         needsApprovalAssets: toNumber(continuity.needsApprovalAssets),
         missingCtaAssets: toNumber(continuity.missingCtaAssets),
         manuallyPostedAssets: toNumber(continuity.manuallyPostedAssets),
-        providerReadyAssets: toNumber(continuity.providerReadyAssets),
+        providerQueuedAssets: toNumber(continuity.providerQueuedAssets),
+        providerPendingAssets: toNumber(continuity.providerPendingAssets),
+        providerPublishedAssets: toNumber(continuity.providerPublishedAssets),
         providerBlockedAssets: toNumber(continuity.providerBlockedAssets),
         providerFailedAssets: toNumber(continuity.providerFailedAssets),
         youtubePreparedAssets: toNumber(continuity.youtubePreparedAssets),

@@ -174,7 +174,9 @@ type MediaStatsPayload =
         needsApprovalAssets: number;
         missingCtaAssets: number;
         manuallyPostedAssets: number;
-        providerReadyAssets: number;
+        providerQueuedAssets: number;
+        providerPendingAssets: number;
+        providerPublishedAssets: number;
         providerBlockedAssets: number;
         providerFailedAssets: number;
         youtubePreparedAssets: number;
@@ -642,8 +644,10 @@ const PREVIEW_MEDIA_STATS: MediaStatsPayload = {
     needsApprovalAssets: 1,
     missingCtaAssets: 3,
     manuallyPostedAssets: 5,
-    providerReadyAssets: 0,
-    providerBlockedAssets: 3,
+    providerQueuedAssets: 1,
+    providerPendingAssets: 0,
+    providerPublishedAssets: 1,
+    providerBlockedAssets: 2,
     providerFailedAssets: 0,
     youtubePreparedAssets: 1,
   },
@@ -660,8 +664,23 @@ function buildContentGuidanceItem(args: {
 }): GuidanceItem | null {
   const { continuity, isCreditWorkspace, href } = args;
   const needsCopyOrNotes = contentAssetsNeedingCopyOrNotes(continuity);
-  const usableAssets = (continuity.unscheduledReadyAssets ?? 0) + (continuity.plannedPosts ?? 0) + (continuity.manuallyPostedAssets ?? 0);
+  const queued = (continuity.providerQueuedAssets ?? 0) + (continuity.providerPendingAssets ?? 0);
+  const publishedByProvider = continuity.providerPublishedAssets ?? 0;
+  const usableAssets = (continuity.unscheduledReadyAssets ?? 0) + (continuity.plannedPosts ?? 0) + (continuity.manuallyPostedAssets ?? 0) + publishedByProvider;
   const youtubePreparedAssets = continuity.youtubePreparedAssets ?? 0;
+
+  if ((continuity.providerFailedAssets ?? 0) > 0) {
+    return {
+      id: 'content-provider-failed',
+      priority: 0,
+      category: 'follow-up',
+      status: 'needs-attention',
+      title: isCreditWorkspace ? 'A provider publish attempt failed for consultation support content' : 'A provider publish attempt failed for content in the queue',
+      reason: `${continuity.providerFailedAssets.toLocaleString()} asset${continuity.providerFailedAssets === 1 ? '' : 's'} need a blocker review before Purely should retry or move them back to manual posting.`,
+      nextActionLabel: 'Open content workflow',
+      href,
+    };
+  }
 
   if ((continuity.unscheduledReadyAssets ?? 0) > 0) {
     return {
@@ -678,14 +697,27 @@ function buildContentGuidanceItem(args: {
     };
   }
 
-  if ((continuity.plannedPosts ?? 0) > 0 && (continuity.manuallyPostedAssets ?? 0) === 0) {
+  if (queued > 0) {
+    return {
+      id: 'content-provider-queued',
+      priority: 0,
+      category: 'follow-up',
+      status: 'opportunity',
+      title: isCreditWorkspace ? 'Consultation support content is queued for provider publishing' : 'Content is queued for provider publishing',
+      reason: `${queued.toLocaleString()} asset${queued === 1 ? '' : 's'} ${queued === 1 ? 'is' : 'are'} in Purely's provider queue. They should only publish if the provider path stays truly ready at dispatch time.`,
+      nextActionLabel: 'Review queued assets',
+      href,
+    };
+  }
+
+  if ((continuity.plannedPosts ?? 0) > 0 && (continuity.manuallyPostedAssets ?? 0) === 0 && publishedByProvider === 0) {
     return {
       id: 'content-planned-not-posted',
       priority: 0,
       category: 'follow-up',
       status: 'needs-attention',
-      title: isCreditWorkspace ? 'You planned consultation support content but have not marked anything posted' : 'You planned content but have not marked anything posted',
-      reason: `${continuity.plannedPosts.toLocaleString()} planned item${continuity.plannedPosts === 1 ? '' : 's'} ${continuity.plannedPosts === 1 ? 'is' : 'are'} stored here, but there is no manual post history yet.`,
+      title: isCreditWorkspace ? 'You planned consultation support content in Purely but have not marked anything posted' : 'You planned content in Purely but have not marked anything posted',
+      reason: `${continuity.plannedPosts.toLocaleString()} locally planned item${continuity.plannedPosts === 1 ? '' : 's'} ${continuity.plannedPosts === 1 ? 'is' : 'are'} stored here, but there is no manual or provider-published history yet.`,
       nextActionLabel: 'Review schedule',
       href,
     };
@@ -697,10 +729,10 @@ function buildContentGuidanceItem(args: {
       priority: 0,
       category: 'setup',
       status: 'blocked',
-      title: isCreditWorkspace ? 'You are preparing consultation support content, but publishing is still manual' : 'You are preparing content, but provider publishing is still manual',
+      title: isCreditWorkspace ? 'Consultation support content is blocked from live provider publishing' : 'Content is blocked from live provider publishing',
       reason: youtubePreparedAssets > 0
-        ? `${continuity.providerBlockedAssets.toLocaleString()} asset${continuity.providerBlockedAssets === 1 ? '' : 's'} still sit in a manual-only provider lane, including ${youtubePreparedAssets.toLocaleString()} future YouTube video ${youtubePreparedAssets === 1 ? 'plan' : 'plans'}.`
-        : `${continuity.providerBlockedAssets.toLocaleString()} asset${continuity.providerBlockedAssets === 1 ? '' : 's'} still sit in a manual-only provider lane, so the next live step stays inside Media Library planning and manual posting.`,
+        ? `${continuity.providerBlockedAssets.toLocaleString()} asset${continuity.providerBlockedAssets === 1 ? '' : 's'} are blocked or unavailable for live provider publishing, including ${youtubePreparedAssets.toLocaleString()} future YouTube video ${youtubePreparedAssets === 1 ? 'plan' : 'plans'}.`
+        : `${continuity.providerBlockedAssets.toLocaleString()} asset${continuity.providerBlockedAssets === 1 ? '' : 's'} are blocked or unavailable, so the next live step still stays inside Media Library planning or manual posting.`,
       nextActionLabel: 'Open content workflow',
       href,
     };
@@ -2889,6 +2921,8 @@ export function PortalDashboardClient() {
                 </div>
                 <div className="mt-2 text-sm font-semibold text-zinc-900">{contentGuidanceItem.title}</div>
                 <div className="mt-1 text-sm text-zinc-600">{contentGuidanceItem.reason}</div>
+                <div className="mt-2 text-xs leading-5 text-zinc-500">Media Library planning and manual posting work now. Automatic provider posting still depends on connected provider setup, permissions, and approval.</div>
+                <div className="mt-2 text-xs leading-5 text-zinc-500">Media Library planning and manual posting work now. Automatic provider posting still depends on connected provider setup, permissions, and approval.</div>
               </div>
               <div className="shrink-0 inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-4 py-2 text-xs font-semibold text-amber-700">
                 {contentGuidanceItem.nextActionLabel}

@@ -6,12 +6,31 @@ import Cropper, { type Area } from "react-easy-crop";
 import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 
-type AspectPreset = "original" | "1:1" | "16:9" | "4:3" | "3:4";
+export type AspectPreset = "original" | "1:1" | "4:5" | "1.91:1" | "16:9" | "4:3" | "3:4" | "9:16";
+
+type AspectOption = {
+  value: AspectPreset;
+  label: string;
+};
+
+const DEFAULT_ASPECT_OPTIONS: AspectOption[] = [
+  { value: "original", label: "Original" },
+  { value: "1:1", label: "1:1" },
+  { value: "4:5", label: "4:5" },
+  { value: "1.91:1", label: "1.91:1" },
+  { value: "16:9", label: "16:9" },
+  { value: "4:3", label: "4:3" },
+  { value: "3:4", label: "3:4" },
+  { value: "9:16", label: "9:16" },
+];
 
 export type PortalImageCropModalProps = {
   open: boolean;
   imageUrl: string | null;
   title?: string;
+  description?: string;
+  defaultAspectPreset?: AspectPreset;
+  aspectOptions?: AspectOption[];
   onClose: () => void;
   onSave: (file: File) => Promise<void> | void;
 };
@@ -66,6 +85,9 @@ export default function PortalImageCropModal({
   open,
   imageUrl,
   title = "Crop image",
+  description = "Drag to reposition, scroll/zoom to frame, then save.",
+  defaultAspectPreset = "original",
+  aspectOptions = DEFAULT_ASPECT_OPTIONS,
   onClose,
   onSave,
 }: PortalImageCropModalProps) {
@@ -76,16 +98,27 @@ export default function PortalImageCropModal({
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
-  const [aspectPreset, setAspectPreset] = useState<AspectPreset>("original");
+  const [aspectPreset, setAspectPreset] = useState<AspectPreset>(defaultAspectPreset);
 
   const aspect = useMemo(() => {
     if (aspectPreset === "1:1") return 1;
+    if (aspectPreset === "4:5") return 4 / 5;
+    if (aspectPreset === "1.91:1") return 1.91;
     if (aspectPreset === "16:9") return 16 / 9;
     if (aspectPreset === "4:3") return 4 / 3;
     if (aspectPreset === "3:4") return 3 / 4;
+    if (aspectPreset === "9:16") return 9 / 16;
     if (naturalSize?.w && naturalSize?.h) return naturalSize.w / naturalSize.h;
     return 4 / 3;
   }, [aspectPreset, naturalSize?.h, naturalSize?.w]);
+
+  useEffect(() => {
+    if (!open) return;
+    setAspectPreset(defaultAspectPreset);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+    setCroppedAreaPixels(null);
+  }, [defaultAspectPreset, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -142,7 +175,7 @@ export default function PortalImageCropModal({
     <AppModal
       open={open}
       title={title}
-      description="Drag to reposition, scroll/zoom to frame, then save."
+      description={description}
       onClose={onClose}
       widthClassName="w-[min(880px,calc(100vw-32px))]"
       footer={
@@ -183,13 +216,7 @@ export default function PortalImageCropModal({
             <PortalListboxDropdown<AspectPreset>
               value={aspectPreset}
               onChange={setAspectPreset}
-              options={[
-                { value: "original", label: "Original" },
-                { value: "1:1", label: "1:1" },
-                { value: "16:9", label: "16:9" },
-                { value: "4:3", label: "4:3" },
-                { value: "3:4", label: "3:4" },
-              ]}
+              options={aspectOptions}
               portal
               className="min-w-45"
               buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"

@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { validateMetaInstagramFeedPublishDryRun } from "@/lib/portalMetaPublishing.server";
+import { queuePortalMediaPublishJob } from "@/lib/portalMediaPublishing.server";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const runtime = "nodejs";
 
-const publishSchema = z.object({
+const queueSchema = z.object({
   mediaItemId: z.string().min(1).max(200),
 });
 
@@ -17,31 +17,24 @@ export async function POST(req: Request) {
   if (!auth.ok) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: auth.status });
 
   const body = (await req.json().catch(() => null)) as unknown;
-  const parsed = publishSchema.safeParse(body);
+  const parsed = queueSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
   }
 
   const ownerId = String((auth as any).access?.ownerId || auth.session.user.id || "").trim();
-  const portalVariant = String((auth.session.user as any)?.portalVariant || "portal").trim() || "portal";
   const memberId = String((auth.session.user as any)?.memberId || auth.session.user.id || "").trim();
-  const validation = await validateMetaInstagramFeedPublishDryRun({
-    ownerId,
-    mediaItemId: parsed.data.mediaItemId,
-    portalVariant: portalVariant === "credit" ? "credit" : "portal",
+  const portalVariant = String((auth.session.user as any)?.portalVariant || "portal").trim() === "credit" ? "credit" : "portal";
+
+  const result = await queuePortalMediaPublishJob(ownerId, parsed.data.mediaItemId, {
+    portalVariant,
     isOwnerSession: Boolean(ownerId && memberId === ownerId),
   });
 
-  const primary = validation.blockers[0] || null;
-
-  return NextResponse.json(
-    {
-      ok: false,
-      code: primary?.code || (validation.state === "ready_but_live_disabled" ? "meta_live_publish_disabled" : "meta_publish_blocked"),
-      error: validation.summary,
-      mediaItemId: parsed.data.mediaItemId,
-      validation,
-    },
-    { status: 409 },
-  );
+  return NextResponse.json({
+    ok: true,
+    outcome: result.outcome,
+    reason: result.reason,
+    growthProfile: result.growthProfile,
+  });
 }

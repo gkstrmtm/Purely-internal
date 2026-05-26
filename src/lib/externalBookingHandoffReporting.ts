@@ -3,25 +3,19 @@ import {
   type ExternalBookingHandoffMode,
   type ExternalBookingProviderKey,
 } from "@/lib/externalBookingLink";
+import {
+  resolveExternalBookingConfirmationState,
+  resolveExternalBookingGuidance,
+  type ExternalBookingGuidance,
+} from "@/lib/externalBookingTruthInvariants";
 import { getExternalBookingProviderConnectionReadiness } from "@/lib/externalBookingProviderConnection.server";
 import { ensurePortalBookingExternalConfirmationEventsSchema } from "@/lib/portalBookingExternalConfirmationEventsSchema";
 import { ensurePortalBookingExternalLinkEventsSchema } from "@/lib/portalBookingExternalLinkEventsSchema";
 import { prisma } from "@/lib/db";
 
-export type ExternalBookingHandoffGuidanceState =
-  | "disabled"
-  | "provider_not_connected"
-  | "no_handoffs"
-  | "handoffs_only"
-  | "captured_leads"
-  | "redirect_confirmed"
-  | "provider_confirmed";
+export type ExternalBookingHandoffGuidanceState = ExternalBookingGuidance["state"];
 
-export type ExternalBookingHandoffGuidance = {
-  state: ExternalBookingHandoffGuidanceState;
-  title: string;
-  detail: string;
-};
+export type ExternalBookingHandoffGuidance = ExternalBookingGuidance;
 
 export type ExternalBookingHandoffProviderBreakdown = {
   providerKey: string;
@@ -65,14 +59,6 @@ function readDestinationHost(raw: string): string {
   }
 }
 
-function defaultGuidance(providerLabel: string): ExternalBookingHandoffGuidance {
-  return {
-    state: "disabled",
-    title: "External booking handoff is off",
-    detail: `Turn the external booking link on and share the tracked ${providerLabel || "booking"} handoff if you want Purely to record sends to the booking page.`,
-  };
-}
-
 export async function getExternalBookingHandoffSummaryForOwner(
   ownerId: string,
   options?: { startAt?: Date },
@@ -105,7 +91,17 @@ export async function getExternalBookingHandoffSummaryForOwner(
     latestProviderConfirmedAt: null,
     latestActivityAt: null,
     providerBreakdown: [],
-    guidance: defaultGuidance(config.providerLabel),
+    guidance: resolveExternalBookingGuidance({
+      enabled: config.enabled,
+      destinationHost,
+      providerLabel: config.providerLabel,
+      providerConfirmationAvailable: false,
+      providerConfirmationConnected: false,
+      totalHandoffs: 0,
+      leadFirstCaptures: 0,
+      confirmedViaRedirect: 0,
+      providerConfirmedBookings: 0,
+    }),
   };
 
   await ensurePortalBookingExternalLinkEventsSchema().catch(() => null);
@@ -205,55 +201,25 @@ ORDER BY "handoffs" DESC, "providerLabel" ASC;
   }));
 
   const providerLabel = providerBreakdown[0]?.providerLabel || config.providerLabel || "booking page";
-  let guidance: ExternalBookingHandoffGuidance;
-  if (!config.enabled || !destinationHost) {
-    guidance = defaultGuidance(providerLabel);
-  } else if (providerReadiness?.implemented && !providerReadiness.connected) {
-    guidance = {
-      state: "provider_not_connected",
-      title: `${providerLabel} confirmation is available but not connected`,
-      detail: providerReadiness.blocker || `Connect ${providerLabel} confirmation if you want Purely to count verified booking lifecycle events instead of handoffs alone.`,
-    };
-  } else if (providerConfirmedBookings > 0) {
-    guidance = {
-      state: "provider_confirmed",
-      title: "Verified provider bookings are reaching Purely",
-      detail:
-        "Purely is receiving verified provider events for confirmed bookings. Keep those counts separate from redirect returns and raw handoffs when you review follow-up or no-show risk.",
-    };
-  } else if (totalHandoffs === 0) {
-    guidance = {
-      state: "no_handoffs",
-      title: "No tracked booking handoffs yet",
-      detail:
-        "Share the tracked booking handoff on a funnel, landing page, or CTA so Purely can count sends to the booking page before any provider confirmation exists.",
-    };
-  } else if (confirmedViaRedirect > 0) {
-    guidance = {
-      state: "redirect_confirmed",
-      title: "Redirect-return confirmations are coming back into Purely",
-      detail:
-        "Purely is now recording returns to the hosted confirmation page after the external provider flow. Use that signal for review requests or appointment follow-up, but keep it separate from webhook or API-confirmed booking truth.",
-    };
-  } else if (leadFirstCaptures === 0) {
-    guidance = {
-      state: "handoffs_only",
-      title: "People are reaching the booking page, but Purely can only confirm handoffs",
-      detail:
-        "You are sending people to your booking page. Add lead-first capture or paste the hosted confirmation URL into a provider redirect field if you need stronger booking proof.",
-    };
-  } else {
-    guidance = {
-      state: "captured_leads",
-      title: "Captured leads still need follow-up or provider confirmation",
-      detail:
-        "Purely captured leads before redirect, but that still does not prove a completed booking. Follow up with captured contacts or connect a provider confirmation path.",
-    };
-  }
+  const guidance = resolveExternalBookingGuidance({
+    enabled: config.enabled,
+    destinationHost,
+    providerLabel,
+    providerConfirmationAvailable: Boolean(providerReadiness?.implemented),
+    providerConfirmationConnected: Boolean(providerReadiness?.connected),
+    providerConnectionBlocker: providerReadiness?.blocker,
+    totalHandoffs,
+    leadFirstCaptures,
+    confirmedViaRedirect,
+    providerConfirmedBookings,
+  });
 
   return {
     ...fallback,
-    confirmationState: providerConfirmedBookings > 0 ? "provider_confirmed" : confirmedViaRedirect > 0 ? "redirect_confirmed" : "handoff_only",
+    confirmationState: resolveExternalBookingConfirmationState({
+      confirmedViaRedirect,
+      providerConfirmedBookings,
+    }),
     providerConfirmationAvailable: Boolean(providerReadiness?.implemented),
     providerConfirmationConnected: Boolean(providerReadiness?.connected),
     totalHandoffs,

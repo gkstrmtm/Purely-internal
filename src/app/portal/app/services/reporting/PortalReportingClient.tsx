@@ -179,7 +179,9 @@ type MediaStatsPayload =
         needsApprovalAssets: number;
         missingCtaAssets: number;
         manuallyPostedAssets: number;
-        providerReadyAssets: number;
+        providerQueuedAssets: number;
+        providerPendingAssets: number;
+        providerPublishedAssets: number;
         providerBlockedAssets: number;
         providerFailedAssets: number;
         youtubePreparedAssets: number;
@@ -715,9 +717,12 @@ function buildContentWorkflowGuidanceMessages(args: {
   const ready = continuity.unscheduledReadyAssets ?? 0;
   const planned = continuity.plannedPosts ?? 0;
   const manual = continuity.manuallyPostedAssets ?? 0;
+  const queued = (continuity.providerQueuedAssets ?? 0) + (continuity.providerPendingAssets ?? 0);
+  const publishedByProvider = continuity.providerPublishedAssets ?? 0;
   const blocked = continuity.providerBlockedAssets ?? 0;
+  const failed = continuity.providerFailedAssets ?? 0;
   const youtubePrepared = continuity.youtubePreparedAssets ?? 0;
-  const usable = ready + planned + manual;
+  const usable = ready + planned + manual + publishedByProvider;
   const guidance: string[] = [];
 
   if (ready > 0) {
@@ -728,19 +733,35 @@ function buildContentWorkflowGuidanceMessages(args: {
     );
   }
 
-  if (planned > 0 && manual === 0) {
+  if (queued > 0) {
     guidance.push(
       variant === "credit"
-        ? "You planned consultation support content but have not marked anything posted."
-        : "You planned content but have not marked anything posted.",
+        ? "Some consultation support content is queued for provider publishing."
+        : "Some content is queued for provider publishing.",
+    );
+  }
+
+  if (planned > 0 && manual === 0 && publishedByProvider === 0) {
+    guidance.push(
+      variant === "credit"
+        ? "You planned consultation support content in Purely but have not marked anything posted or provider-published."
+        : "You planned content in Purely but have not marked anything posted or provider-published.",
+    );
+  }
+
+  if (failed > 0) {
+    guidance.push(
+      variant === "credit"
+        ? "A provider publish attempt failed and needs review before retrying."
+        : "A provider publish attempt failed and needs review before retrying.",
     );
   }
 
   if (blocked > 0 && (ready > 0 || planned > 0 || youtubePrepared > 0)) {
     guidance.push(
       variant === "credit"
-        ? "You are preparing consultation support content, but publishing is still manual."
-        : "You are preparing content, but provider publishing is still manual.",
+        ? "Some consultation support content is blocked from live provider publishing."
+        : "Some content is blocked from live provider publishing.",
     );
   }
 
@@ -766,9 +787,13 @@ function buildContentWorkflowCardSummary(args: {
   const ready = continuity.unscheduledReadyAssets ?? 0;
   const planned = continuity.plannedPosts ?? 0;
   const manual = continuity.manuallyPostedAssets ?? 0;
+  const queued = continuity.providerQueuedAssets ?? 0;
+  const pending = continuity.providerPendingAssets ?? 0;
+  const publishedByProvider = continuity.providerPublishedAssets ?? 0;
   const blocked = continuity.providerBlockedAssets ?? 0;
+  const failed = continuity.providerFailedAssets ?? 0;
   const youtubePrepared = continuity.youtubePreparedAssets ?? 0;
-  const usable = ready + planned + manual;
+  const usable = ready + planned + manual + publishedByProvider;
 
   const summary = usable > 0
     ? variant === "credit"
@@ -796,9 +821,9 @@ function buildContentWorkflowCardSummary(args: {
       sub: ready > 0 ? "Usable but unscheduled" : "Nothing waiting",
     },
     {
-      label: "Planned",
+      label: "Planned in Purely",
       value: planned.toLocaleString(),
-      sub: planned > 0 ? "Scheduled in workflow" : "Nothing scheduled",
+      sub: planned > 0 ? "Scheduled only inside Purely" : "Nothing scheduled locally",
     },
     {
       label: "Manual posts",
@@ -806,9 +831,24 @@ function buildContentWorkflowCardSummary(args: {
       sub: manual > 0 ? "Marked posted here" : "No posted history yet",
     },
     {
-      label: "Manual-only lane",
+      label: "Queued for provider",
+      value: (queued + pending).toLocaleString(),
+      sub: queued + pending > 0 ? `${queued.toLocaleString()} queued, ${pending.toLocaleString()} pending` : "Nothing in provider queue",
+    },
+    {
+      label: "Published by provider",
+      value: publishedByProvider.toLocaleString(),
+      sub: publishedByProvider > 0 ? "Stored provider publish proof" : "No provider publish proof yet",
+    },
+    {
+      label: "Provider blocked",
       value: blocked.toLocaleString(),
-      sub: blocked > 0 ? "Future provider connection still blocks direct publishing" : "No blocked provider lane",
+      sub: blocked > 0 ? "Unavailable or blocked from live publishing" : "No blocked provider lane",
+    },
+    {
+      label: "Provider failed",
+      value: failed.toLocaleString(),
+      sub: failed > 0 ? "Needs review before retry" : "No provider failures stored",
     },
     ...(youtubePrepared > 0
       ? [{ label: "YouTube prep", value: youtubePrepared.toLocaleString(), sub: "Future manual workflow" }]

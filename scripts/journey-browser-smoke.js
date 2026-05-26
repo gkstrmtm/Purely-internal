@@ -403,6 +403,16 @@ const JOURNEYS = [
   },
   {
     type: "route",
+    name: "Portal media library",
+    session: "portal",
+    route: "/portal/app/services/media-library",
+    expectedFinalPath: "/portal/app/services/media-library",
+    expectedStatus: 200,
+    anyIndicators: ["Media library", "Create post", "Folders"],
+    expectedBehavior: "Media Library route loads for the main portal and shows the media-first composer shell.",
+  },
+  {
+    type: "route",
     name: "Portal booking",
     session: "portal",
     route: "/portal/app/services/booking",
@@ -453,6 +463,16 @@ const JOURNEYS = [
     allIndicators: ["Credit reports", "Import report"],
     anyIndicators: ["configured provider API key and connection", "Import report JSON", "Manual import"],
     expectedBehavior: "Credit Reports loads and shows the manual JSON import boundary plus the live-provider-unavailable boundary.",
+  },
+  {
+    type: "route",
+    name: "Credit media library",
+    session: "credit",
+    route: "/credit/app/services/media-library",
+    expectedFinalPath: "/credit/app/services/media-library",
+    expectedStatus: 200,
+    anyIndicators: ["Media library", "Create post", "Folders"],
+    expectedBehavior: "Media Library route loads for the credit workspace and shows the media-first composer shell.",
   },
   {
     type: "credit-detail",

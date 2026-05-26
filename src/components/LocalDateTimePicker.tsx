@@ -8,16 +8,18 @@ function clamp(n: number, min: number, max: number) {
   return Math.min(Math.max(n, min), max);
 }
 
-function computeFixedPopoverStyleForRect(rect: DOMRect, opts?: { gap?: number; padding?: number; minMaxHeight?: number }) {
+function computeFixedPopoverStyleForRect(rect: DOMRect, opts?: { gap?: number; padding?: number; minMaxHeight?: number; preferredWidth?: number }) {
   const gap = opts?.gap ?? 8;
   const padding = opts?.padding ?? 12;
   const minMaxHeight = opts?.minMaxHeight ?? 180;
+  const preferredWidth = Math.max(rect.width, opts?.preferredWidth ?? rect.width);
 
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
-  const width = Math.min(rect.width, vw - padding * 2);
-  const left = clamp(rect.left, padding, vw - padding - width);
+  const width = Math.min(preferredWidth, vw - padding * 2);
+  const anchorCenter = rect.left + (rect.width / 2);
+  const left = clamp(anchorCenter - (width / 2), padding, vw - padding - width);
 
   const spaceBelow = vh - rect.bottom - padding - gap;
   const spaceAbove = rect.top - padding - gap;
@@ -28,7 +30,11 @@ function computeFixedPopoverStyleForRect(rect: DOMRect, opts?: { gap?: number; p
     : ({ left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(minMaxHeight, spaceAbove) } satisfies CSSProperties);
 }
 
-function useFixedPopoverStyle(open: boolean, rootRef: RefObject<HTMLElement | null>) {
+function useFixedPopoverStyle(
+  open: boolean,
+  rootRef: RefObject<HTMLElement | null>,
+  opts?: { gap?: number; padding?: number; minMaxHeight?: number; preferredWidth?: number },
+) {
   const [style, setStyle] = useState<CSSProperties | null>(null);
 
   useEffect(() => {
@@ -42,7 +48,7 @@ function useFixedPopoverStyle(open: boolean, rootRef: RefObject<HTMLElement | nu
       if (!el) return;
       const rect = el.getBoundingClientRect();
       setStyle({
-        ...computeFixedPopoverStyleForRect(rect),
+        ...computeFixedPopoverStyleForRect(rect, opts),
         zIndex: popupZIndexForAnchor(el),
       });
     };
@@ -64,7 +70,7 @@ function useFixedPopoverStyle(open: boolean, rootRef: RefObject<HTMLElement | nu
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
     };
-  }, [open, rootRef]);
+  }, [open, opts?.gap, opts?.minMaxHeight, opts?.padding, opts?.preferredWidth, rootRef]);
 
   return style;
 }
@@ -157,6 +163,48 @@ function makeMonthGrid(month: Date) {
   return days;
 }
 
+type Meridiem = "AM" | "PM";
+
+const COMPOSER_TIME_PRESETS = [
+  { label: "9:00 AM", hm: "09:00" },
+  { label: "12:00 PM", hm: "12:00" },
+  { label: "3:00 PM", hm: "15:00" },
+  { label: "6:00 PM", hm: "18:00" },
+] as const;
+
+function toMeridiemTimeParts(hm: string) {
+  const parsed = parseHm(hm) || { h: 9, m: 0 };
+  const meridiem: Meridiem = parsed.h >= 12 ? "PM" : "AM";
+  const hour = parsed.h % 12 || 12;
+  return {
+    hour,
+    minute: pad2(parsed.m),
+    meridiem,
+  };
+}
+
+function fromMeridiemTimeParts(hour: number, minute: string, meridiem: Meridiem) {
+  const safeHour = clamp(Math.round(hour) || 12, 1, 12);
+  const safeMinute = ["00", "15", "30", "45"].includes(minute) ? minute : "00";
+  let normalizedHour = safeHour % 12;
+  if (meridiem === "PM") normalizedHour += 12;
+  return `${pad2(normalizedHour)}:${safeMinute}`;
+}
+
+function wrapHour(hour: number, delta: number) {
+  return ((hour - 1 + delta + 120) % 12) + 1;
+}
+
+function formatDateTimeButtonLabel(date: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export function LocalDateTimePicker(props: {
   value: string;
   onChange: (v: string) => void;
@@ -181,8 +229,6 @@ export function LocalDateTimePicker(props: {
   } = props;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-
   const parsedValue = useMemo(() => {
     const raw = String(value || "").trim();
     const m = /^(\d{4}-\d{2}-\d{2})[T\s](\d{1,2}:\d{2})/.exec(raw);
@@ -195,9 +241,12 @@ export function LocalDateTimePicker(props: {
   const [open, setOpen] = useState(false);
   const [nowSeed, setNowSeed] = useState(0);
 
-  const fixedPopoverStyle = useFixedPopoverStyle(open && !popoverClassName, rootRef);
-
-  const [step, setStep] = useState<"date" | "time">("date");
+  const fixedPopoverStyle = useFixedPopoverStyle(open && !popoverClassName, rootRef, {
+    gap: 12,
+    minMaxHeight: 420,
+    padding: 20,
+    preferredWidth: 680,
+  });
 
   const [draftYmd, setDraftYmd] = useState<string>(() => parsedValue?.ymd || formatYmd(new Date()));
   const [draftHm, setDraftHm] = useState<string>(() => parsedValue?.hm || "09:00");
@@ -208,7 +257,6 @@ export function LocalDateTimePicker(props: {
     setDraftYmd(parsedValue?.ymd || formatYmd(new Date()));
     setDraftHm(parsedValue?.hm || "09:00");
     setViewMonth(startOfMonth(parsedValue?.date || new Date()));
-    setStep("date");
   }, [open, parsedValue?.date, parsedValue?.hm, parsedValue?.ymd]);
 
   useEffect(() => {
@@ -229,7 +277,6 @@ export function LocalDateTimePicker(props: {
   }, [disablePast, minDateTime, nowSeed, open]);
 
   const minYmd = effectiveMinDateTime ? formatYmd(effectiveMinDateTime) : null;
-  const minHm = effectiveMinDateTime ? formatHm(effectiveMinDateTime) : null;
 
   useEffect(() => {
     if (!open) return;
@@ -253,30 +300,43 @@ export function LocalDateTimePicker(props: {
   }, [open]);
 
   const displayLabel = (() => {
-    if (parsedValue?.date) return parsedValue.date.toLocaleString();
+    if (parsedValue?.date) return formatDateTimeButtonLabel(parsedValue.date);
     return "";
   })();
 
   const grid = useMemo(() => makeMonthGrid(viewMonth), [viewMonth]);
   const viewMonthKey = `${viewMonth.getFullYear()}-${viewMonth.getMonth()}`;
 
-  const timeOptions = useMemo(() => {
-    const opts: string[] = [];
-    for (let h = 0; h < 24; h += 1) {
-      for (let m = 0; m < 60; m += 15) {
-        opts.push(`${pad2(h)}:${pad2(m)}`);
-      }
-    }
-    return opts;
-  }, []);
-
   const draftDate = useMemo(() => dateFromParts(draftYmd, draftHm), [draftHm, draftYmd]);
   const canSet = Boolean(draftDate && (!effectiveMinDateTime || draftDate >= effectiveMinDateTime));
+  const draftTimeParts = useMemo(() => toMeridiemTimeParts(draftHm), [draftHm]);
+  const minuteOptions = ["00", "15", "30", "45"] as const;
+  const backdropZIndex = typeof fixedPopoverStyle?.zIndex === "number" ? Math.max(1, fixedPopoverStyle.zIndex - 1) : 40;
+
+  const closePopover = () => {
+    window.requestAnimationFrame(() => setOpen(false));
+  };
+
+  const setDraftTimeParts = (patch: Partial<{ hour: number; minute: string; meridiem: Meridiem }>) => {
+    const nextHour = patch.hour ?? draftTimeParts.hour;
+    const nextMinute = patch.minute ?? draftTimeParts.minute;
+    const nextMeridiem = patch.meridiem ?? draftTimeParts.meridiem;
+    setDraftHm(fromMeridiemTimeParts(nextHour, nextMinute, nextMeridiem));
+  };
 
   return (
     <div ref={rootRef} className="relative">
+      {open ? (
+        <button
+          type="button"
+          aria-label="Close scheduler"
+          className="fixed inset-0 bg-zinc-950/10 backdrop-blur-[1px]"
+          style={{ zIndex: backdropZIndex }}
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
+
       <button
-        ref={buttonRef}
         type="button"
         disabled={disabled}
         className={
@@ -304,60 +364,49 @@ export function LocalDateTimePicker(props: {
         <div
           className={
             (popoverClassName ||
-              "fixed overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg")
+              "fixed overflow-hidden rounded-[30px] border border-zinc-200 bg-white shadow-2xl")
           }
           style={popoverClassName ? undefined : fixedPopoverStyle ?? { visibility: "hidden" }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
-            <button
-              type="button"
-              className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-              onClick={() => setViewMonth((m) => addMonths(m, -1))}
-              disabled={dateFirst && step === "time"}
-            >
-              Prev
-            </button>
-            <div className="text-sm font-semibold text-zinc-900" key={viewMonthKey}>
-              {monthLabel(viewMonth)}
+          <div className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Schedule</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-900">{draftDate ? formatDateTimeButtonLabel(draftDate) : "Pick a date and time"}</div>
             </div>
-            <button
-              type="button"
-              className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-              onClick={() => setViewMonth((m) => addMonths(m, 1))}
-              disabled={dateFirst && step === "time"}
-            >
-              Next
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={() => setViewMonth((m) => addMonths(m, -1))}
+              >
+                Prev
+              </button>
+              <div className="min-w-32 text-center text-sm font-semibold text-zinc-900" key={viewMonthKey}>
+                {monthLabel(viewMonth)}
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={() => setViewMonth((m) => addMonths(m, 1))}
+              >
+                Next
+              </button>
+            </div>
           </div>
 
-          {dateFirst ? (
-            <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-white px-3 py-2">
-              <div className="text-xs font-semibold text-zinc-600">{step === "date" ? "Select date" : "Select time"}</div>
-              {step === "time" ? (
-                <button
-                  type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                  onClick={() => setStep("date")}
-                >
-                  Back
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {!dateFirst || step === "date" ? (
-            <>
-              <div className="grid grid-cols-7 gap-1 p-3 text-center text-[11px] font-semibold text-zinc-500">
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                  <div key={d}>{d}</div>
+          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_272px]">
+            <div>
+              <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-zinc-500">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((dayLabel) => (
+                  <div key={dayLabel} className="py-2">{dayLabel}</div>
                 ))}
               </div>
 
-              <div className="grid grid-cols-7 gap-1 px-3 pb-3">
-                {grid.map((d) => {
-                  const ymd = formatYmd(d);
-                  const inMonth = d.getMonth() === viewMonth.getMonth();
+              <div className="mt-1 grid grid-cols-7 gap-1">
+                {grid.map((day) => {
+                  const ymd = formatYmd(day);
+                  const inMonth = day.getMonth() === viewMonth.getMonth();
                   const selected = ymd === draftYmd;
                   const isToday = ymd === formatYmd(new Date());
                   const disabledByMin = Boolean(minYmd && ymd < minYmd);
@@ -368,7 +417,7 @@ export function LocalDateTimePicker(props: {
                       type="button"
                       disabled={disabledByMin}
                       className={
-                        "h-9 rounded-xl border text-sm transition " +
+                        "h-11 rounded-2xl border text-sm transition " +
                         (disabledByMin
                           ? "cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-300"
                           : selected
@@ -382,91 +431,162 @@ export function LocalDateTimePicker(props: {
                         setDraftYmd(ymd);
                         const next = dateFromParts(ymd, draftHm);
                         if (next) setViewMonth(startOfMonth(next));
-                        if (dateFirst) setStep("time");
                       }}
-                      title={d.toLocaleDateString()}
+                      title={day.toLocaleDateString()}
                     >
                       <div className="flex items-center justify-center gap-1">
-                        <span>{d.getDate()}</span>
+                        <span>{day.getDate()}</span>
                         {isToday ? <span className={selected ? "text-white" : "text-emerald-600"}>•</span> : null}
                       </div>
                     </button>
                   );
                 })}
               </div>
-            </>
-          ) : null}
-
-          {!dateFirst || step === "time" ? (
-            <div className={"border-t border-zinc-200 p-3" + (dateFirst ? " border-t-0" : "")}>
-            <div className="text-xs font-semibold text-zinc-600">Time</div>
-            <div className="mt-2 max-h-40 overflow-auto rounded-2xl border border-zinc-200 p-1">
-              <div className="grid grid-cols-4 gap-1">
-                {timeOptions.map((hm) => {
-                  const selected = hm === draftHm;
-                  const disabledByMin = Boolean(minYmd && minHm && draftYmd === minYmd && hm < minHm);
-                  return (
-                    <button
-                      key={hm}
-                      type="button"
-                      disabled={disabledByMin}
-                      className={
-                        "rounded-xl px-2 py-2 text-xs font-semibold transition " +
-                        (disabledByMin
-                          ? "cursor-not-allowed bg-white text-zinc-300"
-                          : selected
-                            ? "bg-zinc-900 text-white"
-                            : "bg-white text-zinc-700 hover:bg-zinc-50")
-                      }
-                      onClick={() => {
-                        if (disabledByMin) return;
-                        setDraftHm(hm);
-                      }}
-                    >
-                      {hm}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
 
-            <div className="mt-3 flex items-center justify-between gap-2">
+            <div className="rounded-[26px] bg-zinc-50 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Time</div>
+
+              <div className="mt-3">
+                <div className="text-xs font-medium text-zinc-600">Quick picks</div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {COMPOSER_TIME_PRESETS.map((preset) => {
+                    const selected = preset.hm === draftHm;
+                    return (
+                      <button
+                        key={preset.hm}
+                        type="button"
+                        className={
+                          "min-h-11 rounded-2xl border px-3 py-2 text-xs font-semibold transition " +
+                          (selected
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100")
+                        }
+                        onClick={() => setDraftHm(preset.hm)}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-3.5">
+                <div className="grid gap-3 sm:grid-cols-[116px_minmax(0,1fr)]">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Hour</div>
+                    <div className="mt-2 flex items-center justify-between rounded-2xl bg-zinc-50 px-2 py-2">
+                      <button
+                        type="button"
+                        className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-base font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={() => setDraftTimeParts({ hour: wrapHour(draftTimeParts.hour, -1) })}
+                      >
+                        -
+                      </button>
+                      <div className="min-w-12 text-center text-[2rem] font-semibold leading-none text-zinc-900">{pad2(draftTimeParts.hour)}</div>
+                      <button
+                        type="button"
+                        className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-base font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={() => setDraftTimeParts({ hour: wrapHour(draftTimeParts.hour, 1) })}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">AM / PM</div>
+                    <div className="mt-2 grid grid-cols-2 rounded-2xl bg-zinc-100 p-1">
+                      {(["AM", "PM"] as const).map((value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={
+                            "flex min-h-11 items-center justify-center rounded-[18px] px-3 text-sm font-semibold transition " +
+                            (draftTimeParts.meridiem === value
+                              ? "bg-zinc-900 text-white shadow-sm"
+                              : "text-zinc-700 hover:bg-white")
+                          }
+                          onClick={() => setDraftTimeParts({ meridiem: value })}
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Minutes</div>
+                  <div className="mt-2 grid grid-cols-4 gap-2">
+                    {minuteOptions.map((minute) => (
+                      <button
+                        key={minute}
+                        type="button"
+                        className={
+                          "min-h-11 rounded-2xl px-3 py-2 text-sm font-semibold transition " +
+                          (draftTimeParts.minute === minute
+                            ? "bg-zinc-900 text-white"
+                            : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                        }
+                        onClick={() => setDraftTimeParts({ minute })}
+                      >
+                        :{minute}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 px-4 py-3">
+            <div className="text-xs text-zinc-500">
+              {effectiveMinDateTime
+                ? `Earliest ${formatDateTimeButtonLabel(effectiveMinDateTime)}`
+                : draftDate
+                  ? formatDateTimeButtonLabel(draftDate)
+                  : ""}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                 onClick={() => {
-                  const now = new Date();
-                  const next = effectiveMinDateTime && effectiveMinDateTime > now ? effectiveMinDateTime : now;
-                  setDraftYmd(formatYmd(next));
-                  setDraftHm(formatHm(next));
-                  setViewMonth(startOfMonth(next));
-                  if (dateFirst) setStep("time");
+                  setDraftYmd(parsedValue?.ymd || formatYmd(new Date()));
+                  setDraftHm(parsedValue?.hm || "09:00");
+                  setViewMonth(startOfMonth(parsedValue?.date || new Date()));
+                  closePopover();
                 }}
               >
-                Now
+                Cancel
               </button>
-
-              <div className="text-xs text-zinc-500">{draftDate ? draftDate.toLocaleString() : ""}</div>
-
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={() => {
+                  onChange("");
+                  closePopover();
+                }}
+              >
+                Clear
+              </button>
               <button
                 type="button"
                 disabled={!canSet}
-                className={
-                  "rounded-xl px-4 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 " +
-                  "bg-(--color-brand-blue)"
-                }
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => {
                   if (!draftDate) return;
                   if (effectiveMinDateTime && draftDate < effectiveMinDateTime) return;
                   onChange(toLocalDateTimeValue(draftDate));
-                  setOpen(false);
+                  closePopover();
                 }}
               >
-                Set
+                Apply
               </button>
             </div>
-            </div>
-          ) : null}
+          </div>
         </div>
       ) : null}
     </div>

@@ -922,11 +922,20 @@ model PortalMediaGrowthProfile {
   distributionProvider String?
   providerConnectionState String?
   providerPublishState String?
+  providerDestinationType String?
+  providerDestinationId String?
+  providerDestinationLabel String?
   providerAccountLabel String?
+  providerScheduledForAt DateTime?
+  providerQueuedAt DateTime?
+  providerPendingAt DateTime?
   queueOrder Int?
   dailyPostCap Int?
+  providerStatus String?
   providerPostId String?
   providerLastError String?
+  providerRetryEligible Boolean?
+  providerRetryAt DateTime?
   providerLastAttemptAt DateTime?
   providerPublishedAt DateTime?
   metricsImpressions Int?
@@ -947,6 +956,8 @@ model PortalMediaGrowthProfile {
   @@index([ownerId, postedAt])
   @@index([ownerId, distributionProvider])
   @@index([ownerId, providerPublishState])
+  @@index([ownerId, providerScheduledForAt])
+  @@index([ownerId, providerPublishState, providerScheduledForAt])
 }
 
 enum PortalLeadScrapeKind {

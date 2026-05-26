@@ -17,6 +17,7 @@
     "lint": "npm run check:copy && npm run check:paths && eslint",
     "test:twilio-mms-smoke": "node scripts/twilio-mms-smoke.mjs",
     "test:auth-access-validation": "node scripts/auth-access-validation.js",
+    "test:critical-surface-invariants": "node scripts/critical-surface-invariants.cjs",
     "test:route-browser-smoke": "node scripts/route-browser-smoke.js",
     "test:journey-browser-smoke": "node scripts/journey-browser-smoke.js",
     "postinstall": "prisma generate",

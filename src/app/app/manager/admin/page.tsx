@@ -50,6 +50,12 @@ export default async function ManagerAdminPage() {
             >
               Open Recovery Console
             </Link>
+            <Link
+              href="/app/manager/admin/provider-publishing"
+              className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-brand-ink transition hover:bg-zinc-50"
+            >
+              Open Provider Queue View
+            </Link>
           </div>
         </div>
 
