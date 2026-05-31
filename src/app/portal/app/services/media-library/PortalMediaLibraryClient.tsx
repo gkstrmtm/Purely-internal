@@ -23,7 +23,12 @@ import {
 } from "@/lib/mediaGrowthInvariants";
 import type { PortalMetaProviderReadiness } from "@/lib/portalMetaProviderReadiness";
 import { PORTAL_VARIANT_HEADER, portalVariantFromPathname } from "@/lib/portalVariant";
-import { buildProviderSetupWizardHref, portalBaseFromWorkspaceVariant } from "@/lib/providerSetupWizard";
+import {
+  buildMediaLibraryComposerReturnHref,
+  buildMetaConnectRequestHref,
+  buildProviderSetupWizardHref,
+  portalBaseFromWorkspaceVariant,
+} from "@/lib/providerSetupWizard";
 import { hostedFunnelPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -36,6 +41,21 @@ type Folder = {
   shareUrl: string;
   downloadUrl?: string;
   color?: string | null;
+};
+
+type PendingMediaLibraryReturnContext = {
+  itemId: string | null;
+  openComposer: boolean;
+  metaConnection: string | null;
+  metaMessage: string | null;
+};
+
+type ComposerReturnNoticeTone = "emerald" | "amber" | "rose";
+
+type ComposerReturnNotice = {
+  tone: ComposerReturnNoticeTone;
+  title: string;
+  message: string;
 };
 
 type Item = {
@@ -98,8 +118,6 @@ type ComposerReadinessItem = {
 type WorkspaceVariant = "portal" | "credit";
 
 type ComposerPlatformKind = "instagram" | "facebook" | "youtube" | "manual";
-
-type PreviewComposerSection = "guidance" | "settings" | "schedule" | "handoff" | "history";
 
 type ComposerPlatformBehavior = {
   kind: ComposerPlatformKind;
@@ -231,6 +249,32 @@ type AllFoldersRes =
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+async function fetchJsonWithTimeout<T>(input: RequestInfo | URL, init?: RequestInit, timeoutMs?: number | null) {
+  let controller: AbortController | null = null;
+  let timeoutId: number | null = null;
+
+  if (typeof timeoutMs === "number" && timeoutMs > 0) {
+    controller = new AbortController();
+    timeoutId = window.setTimeout(() => controller?.abort(), timeoutMs);
+  }
+
+  try {
+    const response = await fetch(input, {
+      ...init,
+      signal: controller?.signal,
+    });
+    const json = (await response.json().catch(() => null)) as T | null;
+    return { response, json };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The request took too long. Please try again.");
+    }
+    throw error;
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+  }
 }
 
 function MoreDotsIcon() {
@@ -668,6 +712,33 @@ function clearMetaDestinationBlocker(profile: MediaGrowthProfile): MediaGrowthPr
   };
 }
 
+function simplifyComposerWorkflowState(profile: MediaGrowthProfile): MediaGrowthState {
+  if (profile.workflowState === "posted_manually" || profile.postedAtIso) return "posted_manually";
+  if (profile.workflowState === "used_in_campaign") return "used_in_campaign";
+  return profile.plannedForIso ? "planned" : "needs_review";
+}
+
+function buildComposerSavePartial(
+  current: MediaGrowthProfile,
+  partial?: Partial<MediaGrowthProfile>,
+): Partial<MediaGrowthProfile> {
+  const nextPlannedForIso = partial && Object.prototype.hasOwnProperty.call(partial, "plannedForIso")
+    ? partial.plannedForIso ?? null
+    : current.plannedForIso;
+  const nextProfile = {
+    ...current,
+    ...partial,
+    plannedForIso: nextPlannedForIso,
+    providerScheduledForIso: nextPlannedForIso,
+  } as MediaGrowthProfile;
+
+  return {
+    ...partial,
+    workflowState: simplifyComposerWorkflowState(nextProfile),
+    providerScheduledForIso: nextPlannedForIso,
+  };
+}
+
 function resolveVariantCopy(variant: WorkspaceVariant) {
   if (variant === "credit") {
     return {
@@ -740,7 +811,7 @@ function resolveComposerPlatformBehavior(profile: MediaGrowthProfile, variant: W
       return {
         kind,
         label: "Instagram",
-        captionFieldLabel: "Instagram caption",
+        captionFieldLabel: "Caption",
         captionPlaceholder: "Write the Instagram caption. Keep the next step native to Instagram instead of treating the caption like a clickable link post.",
       guidanceTitle: "Instagram should read like Instagram, not a generic link post.",
         guidanceBody: "Lead with the proof, then tell people to use the link in bio, send a DM, or use the profile booking button if it is configured. Do not write the caption like Instagram will turn a URL into a clean clickable CTA.",
@@ -765,7 +836,7 @@ function resolveComposerPlatformBehavior(profile: MediaGrowthProfile, variant: W
       return {
         kind,
         label: "Facebook",
-        captionFieldLabel: "Facebook post copy",
+        captionFieldLabel: "Caption",
         captionPlaceholder: "Write the Facebook post copy and any direct CTA language.",
         guidanceTitle: "Facebook can support a more direct link CTA.",
         guidanceBody: "Facebook post copy can point more directly to the destination, but the preview should still show the link honestly as part of the post instead of implying any hidden provider magic.",
@@ -815,7 +886,7 @@ function resolveComposerPlatformBehavior(profile: MediaGrowthProfile, variant: W
       return {
         kind: "manual",
         label: "Manual / other",
-        captionFieldLabel: "Draft copy",
+        captionFieldLabel: "Caption",
         captionPlaceholder: "Write the draft copy, posting notes, or manual handoff copy here.",
         guidanceTitle: "This stays a local planning draft.",
         guidanceBody: "Use the copy and link fields to prepare the post honestly for the real channel or handoff you will use. Do not let the preview imply direct posting capability that does not exist.",
@@ -1251,6 +1322,45 @@ function composerStatusToneClass(tone: ComposerPostStatusTone) {
   }
 }
 
+function composerReturnNoticeClass(tone: ComposerReturnNoticeTone) {
+  switch (tone) {
+    case "emerald":
+      return "border-emerald-200 bg-emerald-50 text-emerald-900";
+    case "amber":
+      return "border-amber-200 bg-amber-50 text-amber-900";
+    default:
+      return "border-rose-200 bg-rose-50 text-rose-900";
+  }
+}
+
+function buildComposerReturnNotice(metaConnection: string | null, metaMessage: string | null): ComposerReturnNotice | null {
+  const status = String(metaConnection || "").trim();
+  const message = String(metaMessage || "").trim();
+  if (!status && !message) return null;
+
+  if (status === "connected") {
+    return {
+      tone: "emerald",
+      title: "Instagram account connected",
+      message: message || "You can finish this post with the updated Instagram connection.",
+    };
+  }
+
+  if (status === "cancelled" || status === "missing_code" || status === "needs_permissions") {
+    return {
+      tone: "amber",
+      title: status === "needs_permissions" ? "More Instagram setup is required" : "Instagram setup not completed",
+      message: message || "Finish the Instagram connection before using this account for posting.",
+    };
+  }
+
+  return {
+    tone: "rose",
+    title: "Instagram setup needs attention",
+    message: message || "The Instagram connection could not be completed from this session.",
+  };
+}
+
 function composerChecklistStatusClass(status: ComposerChecklistStatus) {
   switch (status) {
     case "ready":
@@ -1332,8 +1442,11 @@ export function PortalMediaLibraryClient() {
   const hasLoadedOnceRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
 
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [pendingReturnContext, setPendingReturnContext] = useState<PendingMediaLibraryReturnContext | null>(null);
+  const [composerReturnNotice, setComposerReturnNotice] = useState<ComposerReturnNotice | null>(null);
 
   useEffect(() => {
     if (error) toastNotify.error(error);
@@ -1389,10 +1502,82 @@ export function PortalMediaLibraryClient() {
   const [selectedGrowthProfile, setSelectedGrowthProfile] = useState<MediaGrowthProfile | null>(null);
   const [growthContext, setGrowthContext] = useState<MediaGrowthContext | null>(null);
   const [metaReadiness, setMetaReadiness] = useState<PortalMetaProviderReadiness | null>(null);
+  const [metaReadinessLoading, setMetaReadinessLoading] = useState(false);
+  const [metaReadinessError, setMetaReadinessError] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [detailSaving, setDetailSaving] = useState(false);
   const [cropModalOpen, setCropModalOpen] = useState(false);
-  const [previewComposerSection, setPreviewComposerSection] = useState<PreviewComposerSection | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    const nextView = String(url.searchParams.get("view") || "").trim();
+    if (nextView === "library" || nextView === "calendar") setViewMode(nextView);
+
+    const nextFolderId = String(url.searchParams.get("folderId") || "").trim();
+    if (nextFolderId) setFolderId(nextFolderId);
+
+    const itemId = String(url.searchParams.get("itemId") || "").trim() || null;
+    const openComposer = Boolean(itemId && url.searchParams.get("composer") === "1");
+    const metaConnection = String(url.searchParams.get("metaConnection") || "").trim() || null;
+    const metaMessage = String(url.searchParams.get("metaMessage") || "").trim() || null;
+
+    if (itemId || metaConnection || metaMessage) {
+      setPendingReturnContext({
+        itemId,
+        openComposer,
+        metaConnection,
+        metaMessage,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!pendingReturnContext) return;
+    const nextNotice = buildComposerReturnNotice(pendingReturnContext.metaConnection, pendingReturnContext.metaMessage);
+    if (nextNotice) setComposerReturnNotice(nextNotice);
+    if (pendingReturnContext.metaMessage) {
+      if (pendingReturnContext.metaConnection === "connected") toastNotify.success(pendingReturnContext.metaMessage);
+      else toastNotify.error(pendingReturnContext.metaMessage);
+      return;
+    }
+    if (pendingReturnContext.metaConnection === "connected") {
+      toastNotify.success("Instagram connection updated");
+    }
+  }, [pendingReturnContext, toastNotify]);
+
+  useEffect(() => {
+    if (!pendingReturnContext?.itemId || !pendingReturnContext.openComposer) return;
+    if (previewOpen) return;
+    const matchingItem = items.find((item) => item.id === pendingReturnContext.itemId);
+    if (!matchingItem) return;
+
+    setSelected({ kind: "item", id: matchingItem.id });
+    setPreviewOpen(true);
+
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("itemId");
+      url.searchParams.delete("composer");
+      url.searchParams.delete("metaConnection");
+      url.searchParams.delete("metaMessage");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+
+    setPendingReturnContext((current) => current ? {
+      ...current,
+      itemId: null,
+      openComposer: false,
+      metaConnection: null,
+      metaMessage: null,
+    } : null);
+  }, [items, pendingReturnContext, previewOpen]);
+
+  useEffect(() => {
+    if (!previewOpen) setComposerReturnNotice(null);
+  }, [previewOpen]);
 
   const selectedItem = useMemo(() => {
     if (!selected || selected.kind !== "item") return null;
@@ -1501,54 +1686,41 @@ export function PortalMediaLibraryClient() {
     return previewPlatformBehavior?.manualPostingGuidance || "Post it yourself, then paste the live link here.";
   }, [previewPlatformBehavior]);
 
-  const previewProviderScheduleHelperText = useMemo(() => {
-    if (!previewGrowthProfile) return "Unavailable until a provider path is selected.";
-    if (previewDistributionProvider === "manual") return "Unavailable while manual posting is selected.";
-    if (previewDistributionProvider === "future_youtube") return "Unavailable until YouTube scheduling is supported.";
-    if (previewDistributionProvider === "future_tiktok") return "Unavailable until TikTok scheduling is supported.";
-    if (previewDistributionProvider === "future_linkedin") return "Unavailable until LinkedIn scheduling is supported.";
-    if (previewContinuity?.blocked && (previewDistributionProvider === "instagram_business" || previewDistributionProvider === "facebook_page")) {
-      return "Save the provider target time here, but Purely will keep live Meta posting blocked until provider setup is truly ready.";
-    }
-    return null;
-  }, [previewContinuity?.blocked, previewDistributionProvider, previewGrowthProfile]);
-
-  const previewProviderScheduleDisabled = !previewGrowthProfile
-    || previewDistributionProvider === "manual"
-    || previewDistributionProvider === "future_youtube"
-    || previewDistributionProvider === "future_tiktok"
-    || previewDistributionProvider === "future_linkedin";
-
   const previewSocialSetupHref = useMemo(() => buildProviderSetupWizardHref(portalBase, "meta"), [portalBase]);
   const previewUsesMetaProviderLane = previewDistributionProvider === "facebook_page" || previewDistributionProvider === "instagram_business";
-  const previewMetaDestinationSetupLabel = previewDistributionProvider === "instagram_business"
-    ? "Add Instagram professional account"
-    : "Add Facebook Page";
-  const previewBlockedSetupHref = previewUsesMetaProviderLane && previewContinuity?.blocked ? previewSocialSetupHref : null;
-
-  useEffect(() => {
-    if (!previewOpen) {
-      setPreviewComposerSection(null);
-      return;
+  const previewShowsInstagramSetup = previewPlatformBehavior?.kind === "instagram" || previewDistributionProvider === "instagram_business";
+  const previewComposerPostStatusLabel = useMemo(() => {
+    if (!previewGrowthProfile) return "Draft post";
+    return previewGrowthProfile.plannedForIso ? "Scheduled post" : "Draft post";
+  }, [previewGrowthProfile]);
+  const previewMetaReturnHref = useMemo(() => {
+    return buildMediaLibraryComposerReturnHref({
+      portalBase,
+      itemId: previewItem?.id || null,
+      folderId,
+      viewMode,
+      includeComposer: true,
+    });
+  }, [folderId, portalBase, previewItem?.id, viewMode]);
+  const previewDirectMetaActionHref = useMemo(() => {
+    const inferredMode = previewDistributionProvider === "facebook_page" ? "page_linked_facebook_login" : "instagram_login";
+    const integrationMode = metaReadiness?.integrationMode || inferredMode;
+    if (!metaReadiness?.canStartOAuth) return previewSocialSetupHref;
+    return buildMetaConnectRequestHref(previewMetaReturnHref, integrationMode);
+  }, [metaReadiness?.canStartOAuth, metaReadiness?.integrationMode, previewDistributionProvider, previewMetaReturnHref, previewSocialSetupHref]);
+  const previewMetaDestinationSetupLabel = useMemo(() => {
+    const usesInstagramLogin = metaReadiness?.integrationMode === "instagram_login" || previewDistributionProvider === "instagram_business";
+    if (metaReadiness?.actionHref) {
+      if (metaReadiness.status === "reconnect_required" || metaReadiness.status === "needs_permissions") {
+        return usesInstagramLogin ? "Reconnect Instagram account" : "Reconnect Meta account";
+      }
+      if (metaReadiness.status === "not_connected") {
+        return usesInstagramLogin ? "Connect Instagram account" : "Connect Meta account";
+      }
     }
-
-    setPreviewComposerSection(previewBlockedSetupHref ? "settings" : null);
-  }, [previewBlockedSetupHref, previewItem?.id, previewOpen]);
-
-  const togglePreviewComposerSection = useCallback((section: PreviewComposerSection) => {
-    setPreviewComposerSection((current) => (current === section ? null : section));
-  }, []);
-
-  const workflowStateOptions = useMemo(() => ([
-    { value: "needs_review", label: "Needs review" },
-    { value: "needs_caption", label: "Needs copy" },
-    { value: "needs_approval", label: "Review before posting" },
-    { value: "approved", label: "Approved" },
-    { value: "ready_to_use", label: "Ready to use" },
-    { value: "planned", label: "Planned" },
-    { value: "posted_manually", label: "Manual" },
-    { value: "used_in_campaign", label: "Used in campaign" },
-  ] satisfies Array<{ value: MediaGrowthState; label: string }>), []);
+    return usesInstagramLogin ? "Configure Instagram account" : "Open Facebook setup";
+  }, [metaReadiness?.actionHref, metaReadiness?.integrationMode, metaReadiness?.status, previewDistributionProvider]);
+  const previewBlockedSetupHref = previewUsesMetaProviderLane && previewContinuity?.blocked ? previewDirectMetaActionHref : null;
 
   const targetPlatformOptions = useMemo(() => {
     const base: Array<{ value: string; label: string }> = [
@@ -1564,21 +1736,21 @@ export function PortalMediaLibraryClient() {
   const distributionProviderOptions = useMemo(() => {
     const options: Array<{ value: DistributionProviderKey; label: string; hint?: string }> = [{
       value: "manual",
-      label: "Post manually",
-      hint: "Keep the post inside Purely, then publish it yourself.",
+      label: "Draft only / post manually",
+      hint: "Keep the draft inside Purely, then publish it yourself when you are ready.",
     }];
 
     if (previewCanonicalTargetPlatform === "instagram_post" || previewCanonicalTargetPlatform === "instagram_story") {
       options.push({
         value: "instagram_business",
-        label: "Schedule through provider",
-        hint: "Use the Instagram provider lane when the real provider path is available.",
+        label: "Use Instagram account",
+        hint: "Connect and choose the Instagram account that should receive this post.",
       });
     } else if (previewCanonicalTargetPlatform === "facebook_post") {
       options.push({
         value: "facebook_page",
-        label: "Schedule through provider",
-        hint: "Use the Facebook provider lane when the real provider path is available.",
+        label: "Use Facebook Page",
+        hint: "Connect and choose the Facebook Page that should receive this post.",
       });
     } else if (previewCanonicalTargetPlatform === "youtube_video") {
       options.push({
@@ -1609,13 +1781,24 @@ export function PortalMediaLibraryClient() {
 
   const previewMetaDestinationBlockers = useMemo(() => {
     if (!previewUsesMetaProviderLane || !metaReadiness) return [] as string[];
+    if (metaReadiness.primaryDiagnostic) {
+      return [
+        metaReadiness.primaryDiagnostic.message,
+        metaReadiness.primaryDiagnostic.detail,
+        ...metaReadiness.primaryDiagnostic.guidance,
+      ];
+    }
     if (metaReadiness.targetAccountBlockers.length) return metaReadiness.targetAccountBlockers;
     if (previewMetaDestinationOptions.length) return [] as string[];
     if (metaReadiness.status === "not_connected") {
-      return ["Connect Meta in Integrations before Purely can list available destinations for this provider lane."];
+      return [metaReadiness.integrationMode === "instagram_login"
+        ? "Connect Instagram in Integrations before Purely can list the professional account for this provider lane."
+        : "Connect Meta in Integrations before Purely can list available destinations for this provider lane."];
     }
     if (metaReadiness.status === "reconnect_required") {
-      return ["Reconnect Meta in Integrations before Purely can refresh available destinations for this provider lane."];
+      return [metaReadiness.integrationMode === "instagram_login"
+        ? "Reconnect Instagram in Integrations before Purely can refresh the professional account for this provider lane."
+        : "Reconnect Meta in Integrations before Purely can refresh available destinations for this provider lane."];
     }
     return [
       previewDistributionProvider === "instagram_business"
@@ -1623,6 +1806,9 @@ export function PortalMediaLibraryClient() {
         : "No Facebook Page was hydrated for this connected workspace yet.",
     ];
   }, [metaReadiness, previewDistributionProvider, previewMetaDestinationOptions.length, previewUsesMetaProviderLane]);
+  const previewPrimaryMetaDestinationBlocker = useMemo(() => {
+    return previewMetaDestinationBlockers[0] || null;
+  }, [previewMetaDestinationBlockers]);
 
   const previewMetaDestinationOptionsForDropdown = useMemo(() => {
     if (!previewUsesMetaProviderLane) return [] as Array<{ value: string; label: string; hint?: string }>;
@@ -1738,14 +1924,18 @@ export function PortalMediaLibraryClient() {
         return {
           label: "Resolve setup",
           disabled: false,
-          helper: providerBlockerMessage || metaReadiness?.setupMessage || "Open setup to reconnect Meta, confirm permissions, and choose a destination.",
+          helper: providerBlockerMessage || metaReadiness?.setupMessage || (metaReadiness?.integrationMode === "instagram_login"
+            ? "Open setup to reconnect Instagram, confirm permissions, and choose the professional account."
+            : "Open setup to reconnect Meta, confirm permissions, and choose a destination."),
           href: previewBlockedSetupHref,
         };
       }
       return {
         label: "Queue post",
         disabled: true,
-        helper: providerBlockerMessage || metaReadiness?.setupMessage || "Auto-posting is not ready yet.",
+        helper: providerBlockerMessage || metaReadiness?.setupMessage || (metaReadiness?.integrationMode === "instagram_login"
+          ? "Instagram auto-posting is not ready yet."
+          : "Auto-posting is not ready yet."),
       };
     }
 
@@ -1757,12 +1947,23 @@ export function PortalMediaLibraryClient() {
   }, [detailLoading, detailSaving, metaReadiness, previewBlockedSetupHref, previewContinuity, previewDistributionProvider, previewGrowthProfile, previewItem]);
 
   const loadMetaReadiness = useCallback(async () => {
-    const res = await fetch("/api/portal/media/providers/meta/readiness", { cache: "no-store" });
-    const json = (await res.json().catch(() => null)) as MetaReadinessRes | null;
-    if (!res.ok || !json || json.ok !== true) {
-      throw new Error(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load provider readiness");
+    setMetaReadinessLoading(true);
+    setMetaReadinessError(null);
+
+    try {
+      const { response, json } = await fetchJsonWithTimeout<MetaReadinessRes>("/api/portal/media/providers/meta/readiness", { cache: "no-store" });
+      if (!response.ok || !json || json.ok !== true) {
+        throw new Error(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load provider readiness");
+      }
+      setMetaReadiness(json.readiness);
+    } catch (err) {
+      setMetaReadiness(null);
+      const message = err instanceof Error ? err.message : "Failed to load provider readiness";
+      setMetaReadinessError(message);
+      throw err;
+    } finally {
+      setMetaReadinessLoading(false);
     }
-    setMetaReadiness(json.readiness);
   }, []);
 
   useEffect(() => {
@@ -1807,18 +2008,19 @@ export function PortalMediaLibraryClient() {
       setSelectedGrowthProfile(null);
       setGrowthContext(null);
       setDetailLoading(false);
+      setDetailError(null);
       return;
     }
 
     let cancelled = false;
     setDetailLoading(true);
+    setDetailError(null);
     setSelectedItemDetail(null);
     setSelectedGrowthProfile(null);
 
-    void fetch(`/api/portal/media/items/${encodeURIComponent(selectedItem.id)}`, { cache: "no-store" })
-      .then(async (res) => {
-        const json = (await res.json().catch(() => null)) as ItemDetailRes | null;
-        if (!res.ok || !json || json.ok !== true) {
+    void fetchJsonWithTimeout<ItemDetailRes>(`/api/portal/media/items/${encodeURIComponent(selectedItem.id)}`, { cache: "no-store" })
+      .then(({ response, json }) => {
+        if (!response.ok || !json || json.ok !== true) {
           throw new Error(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load asset details");
         }
         if (cancelled) return;
@@ -1827,7 +2029,11 @@ export function PortalMediaLibraryClient() {
         setGrowthContext(json.context);
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load asset details");
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : "Failed to load asset details";
+          setDetailError(message);
+          setError(message);
+        }
       })
       .finally(() => {
         if (!cancelled) setDetailLoading(false);
@@ -1844,23 +2050,30 @@ export function PortalMediaLibraryClient() {
     else setRefreshing(true);
 
     setError(null);
+    setLibraryError(null);
     let didLoad = false;
 
     const url = new URL("/api/portal/media/list", window.location.origin);
     if (nextFolderId) url.searchParams.set("folderId", nextFolderId);
 
     try {
-      const res = await fetch(url.toString(), { cache: "no-store" });
-      const json = (await res.json().catch(() => null)) as ListRes | null;
-      if (!res.ok || !json || json.ok !== true) {
-        setError(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load media library");
+      const { response, json } = await fetchJsonWithTimeout<ListRes>(url.toString(), { cache: "no-store" });
+      if (!response.ok || !json || json.ok !== true) {
+        const message = typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load media library";
+        setError(message);
+        setLibraryError(message);
         return;
       }
 
+      setBreadcrumbs(Array.isArray(json.breadcrumbs) ? json.breadcrumbs : []);
       setFolders(Array.isArray(json.folders) ? json.folders : []);
       setItems(Array.isArray(json.items) ? json.items : []);
 
       didLoad = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load media library";
+      setError(message);
+      setLibraryError(message);
     } finally {
       if (didLoad) hasLoadedOnceRef.current = true;
       setLoading(false);
@@ -2314,11 +2527,15 @@ export function PortalMediaLibraryClient() {
     return json.growthProfile;
   }
 
-  async function saveSelectedGrowthProfile(partial?: Partial<MediaGrowthProfile>) {
+  async function saveSelectedGrowthProfile(partial?: Partial<MediaGrowthProfile>, options?: { preserveWorkflowState?: boolean }) {
     const itemId = previewItem?.id;
     const current = previewGrowthProfile;
     if (!itemId || !current) return;
-    await saveGrowthProfileForItem(itemId, current, partial);
+    await saveGrowthProfileForItem(
+      itemId,
+      current,
+      options?.preserveWorkflowState ? partial : buildComposerSavePartial(current, partial),
+    );
   }
 
   async function queueProviderPublishForSelectedItem() {
@@ -2326,7 +2543,7 @@ export function PortalMediaLibraryClient() {
     const current = previewGrowthProfile;
     if (!itemId || !current) return;
 
-    const savedProfile = await saveGrowthProfileForItem(itemId, current, undefined, null);
+    const savedProfile = await saveGrowthProfileForItem(itemId, current, buildComposerSavePartial(current), null);
     if (!savedProfile) return;
 
     setDetailSaving(true);
@@ -2930,7 +3147,7 @@ export function PortalMediaLibraryClient() {
             className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
           >
             <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-base leading-none">+</span>
-            {uploading ? "Uploading..." : "Upload"}
+            {uploading ? "Uploading" : "Upload"}
           </button>
           <button
             type="button"
@@ -2985,11 +3202,30 @@ export function PortalMediaLibraryClient() {
             {refreshing ? (
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
                 <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-                Refreshing...
+                Refreshing
               </div>
             ) : null}
             {loading ? (
-              <div className="text-sm text-zinc-600">Loading...</div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
+                <div className="flex items-center gap-3">
+                  <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+                  <span>Loading media library</span>
+                </div>
+              </div>
+            ) : libraryError ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+                <div className="font-semibold">Media Library could not be loaded.</div>
+                <div className="mt-2">{libraryError}</div>
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() => void load(folderId)}
+                    className="inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                  >
+                    Try again
+                  </button>
+                </div>
+              </div>
             ) : viewMode === "calendar" ? (
               <div className="space-y-6">
                 <div className="rounded-3xl border border-zinc-200 bg-white p-4">
@@ -3546,8 +3782,17 @@ export function PortalMediaLibraryClient() {
                         )
                       ) : null}
                     </div>
-                    <div className="mt-1 text-sm text-zinc-500">Prepare this media with platform-aware copy, preview, and CTA guidance.</div>
+                    <div className="mt-1 text-sm text-zinc-500">Write the caption, choose the destination, and schedule the post without the extra builder clutter.</div>
                     <div className="mt-1 truncate text-xs text-zinc-500">{previewItem.fileName} | {previewItem.mimeType} | {formatBytes(previewItem.fileSize)}</div>
+                    {composerReturnNotice ? (
+                      <div
+                        data-meta-return-notice="true"
+                        className={classNames("mt-3 rounded-2xl border px-4 py-3", composerReturnNoticeClass(composerReturnNotice.tone))}
+                      >
+                        <div className="text-sm font-semibold">{composerReturnNotice.title}</div>
+                        <div className="mt-1 text-xs leading-5 opacity-90">{composerReturnNotice.message}</div>
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     type="button"
@@ -3790,100 +4035,79 @@ export function PortalMediaLibraryClient() {
                     </details>
                   </div>
 
-                  <div className="rounded-[30px] bg-zinc-50/85 p-4 sm:p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-zinc-900">{previewPlatformBehavior?.captionFieldLabel || "Caption"}</div>
-                      {detailLoading ? <div className="text-xs text-zinc-500">Loading...</div> : null}
-                    </div>
-
-                    {previewPlatformBehavior ? (
-                      <div className="mt-3 border-t border-zinc-200/80 pt-3">
-                        <button
-                          type="button"
-                          onClick={() => togglePreviewComposerSection("guidance")}
-                          className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
-                        >
-                          <span>{previewPlatformBehavior.label} guidance</span>
-                          <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
-                            {previewComposerSection === "guidance" ? "Hide" : "Show"}
-                          </span>
-                        </button>
-                        {previewComposerSection === "guidance" ? (
-                          <div className="mt-3 space-y-2 text-sm text-zinc-700">
-                            <div className="font-semibold text-zinc-900">{previewPlatformBehavior.guidanceTitle}</div>
-                            <div className="leading-6 text-zinc-600">{previewPlatformBehavior.guidanceBody}</div>
-                            <div className="text-xs leading-5 text-zinc-500">{previewPlatformBehavior.guidanceDetail}</div>
+                  <div className="space-y-4">
+                    <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">{previewPlatformBehavior?.captionFieldLabel || "Caption"}</div>
+                          <div className="mt-1 text-xs leading-5 text-zinc-500">
+                            {previewIsInstagramComposer
+                              ? "Write it like a native Instagram caption. Keep the next step in bio, profile, or DMs instead of faking a post CTA."
+                              : previewPlatformBehavior?.guidanceDetail || "Write the post exactly how it should read in the real channel."}
                           </div>
-                        ) : null}
+                        </div>
+                        {detailLoading ? <div className="text-xs text-zinc-500">Syncing details</div> : null}
                       </div>
-                    ) : null}
 
-                    <textarea
-                      value={previewGrowthProfile.captionDraft || ""}
-                      onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, captionDraft: e.target.value || null })}
-                      placeholder={previewPlatformBehavior?.captionPlaceholder || "Write the caption, draft copy, or post copy here."}
-                      className="mt-3 min-h-44 w-full rounded-[28px] border border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-900 placeholder:text-zinc-500"
-                    />
+                      {detailError ? (
+                        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                          <div className="font-semibold">Could not refresh the latest post details.</div>
+                          <div className="mt-1 text-xs leading-5 text-amber-800">{detailError}. You can keep editing the current asset snapshot and save again.</div>
+                        </div>
+                      ) : null}
 
-                    <div className="mt-4 flex flex-wrap gap-2 border-t border-zinc-200/80 pt-4">
-                      <button
-                        type="button"
-                        disabled={detailSaving || detailLoading}
-                        onClick={() => void saveSelectedGrowthProfile()}
-                        className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                      >
-                        {detailSaving ? "Saving..." : "Save"}
-                      </button>
-                      {previewProviderQueueAction.href ? (
-                        <a
-                          href={previewProviderQueueAction.href}
-                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                        >
-                          {previewProviderQueueAction.label}
-                        </a>
-                      ) : (
+                      <textarea
+                        value={previewGrowthProfile.captionDraft || ""}
+                        onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, captionDraft: e.target.value || null })}
+                        placeholder={previewPlatformBehavior?.captionPlaceholder || "Write the caption, draft copy, or post copy here."}
+                        className="mt-4 min-h-44 w-full rounded-[28px] border border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-900 placeholder:text-zinc-500"
+                      />
+
+                      <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          disabled={previewProviderQueueAction.disabled}
-                          onClick={() => void queueProviderPublishForSelectedItem()}
-                          className={classNames(
-                            "inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold",
-                            previewProviderQueueAction.disabled
-                              ? "border-zinc-200 bg-zinc-100 text-zinc-400"
-                              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                          )}
+                          disabled={detailSaving || detailLoading}
+                          onClick={() => void saveSelectedGrowthProfile()}
+                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                         >
-                          {previewProviderQueueAction.label}
+                          {detailSaving ? "Saving" : "Save"}
                         </button>
-                      )}
-                    </div>
+                        {previewProviderQueueAction.href ? (
+                          <a
+                            href={previewProviderQueueAction.href}
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          >
+                            {previewProviderQueueAction.label}
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={previewProviderQueueAction.disabled}
+                            onClick={() => void queueProviderPublishForSelectedItem()}
+                            className={classNames(
+                              "inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold",
+                              previewProviderQueueAction.disabled
+                                ? "border-zinc-200 bg-zinc-100 text-zinc-400"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            {previewProviderQueueAction.label}
+                          </button>
+                        )}
+                      </div>
 
-                    <div className="mt-2 text-xs text-zinc-500">{previewProviderQueueAction.helper}</div>
-                    {previewUsesMetaProviderLane && previewContinuity?.blocked ? (
-                      <a
-                        href={previewSocialSetupHref}
-                        className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Open social publishing setup
-                      </a>
-                    ) : null}
+                      <div className="mt-2 text-xs text-zinc-500">{previewProviderQueueAction.helper}</div>
+                    </section>
 
-                    <div className="mt-4 border-t border-zinc-200/80 pt-4">
-                      <button
-                        type="button"
-                        onClick={() => togglePreviewComposerSection("settings")}
-                        className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
-                      >
-                        <span>Post settings</span>
-                        <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
-                          {previewComposerSection === "settings" ? "Hide" : "Show"}
-                        </span>
-                      </button>
-                      {previewComposerSection === "settings" ? (
-                        <div className="mt-4 space-y-4">
-                          <div className="grid gap-4 xl:grid-cols-3">
-                            <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Post type</div>
+                    <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Post type and account</div>
+                        <div className="mt-1 text-xs leading-5 text-zinc-500">Choose the post format, how it should go out, and connect the Instagram account here when this workflow should publish through Instagram.</div>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+                        <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Format</div>
                           <div className="mt-2">
                             <PortalListboxDropdown
                               value={previewCanonicalTargetPlatform}
@@ -3910,11 +4134,10 @@ export function PortalMediaLibraryClient() {
                               buttonClassName={workflowDropdownButtonClass}
                             />
                           </div>
-                          <div className="mt-3 text-xs leading-5 text-zinc-500">Choose the native format first.</div>
                         </label>
 
-                            <label className="block">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Publishing method</div>
+                        <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Posting path</div>
                           <div className="mt-2">
                             <PortalListboxDropdown
                               value={previewDistributionProvider}
@@ -3937,156 +4160,149 @@ export function PortalMediaLibraryClient() {
                               buttonClassName={workflowDropdownButtonClass}
                             />
                           </div>
-                          <div className="mt-3 text-xs leading-5 text-zinc-500">Only use provider mode when setup is real.</div>
                         </label>
 
-                            <label className="block">
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Post status</div>
-                          <div className="mt-2">
-                            <PortalListboxDropdown
-                              value={previewGrowthProfile.workflowState}
-                              onChange={(value) => setSelectedGrowthProfile({ ...previewGrowthProfile, workflowState: value as MediaGrowthState })}
-                              options={workflowStateOptions}
-                              buttonClassName={workflowDropdownButtonClass}
-                            />
-                          </div>
-                          <div className="mt-3 text-xs leading-5 text-zinc-500">Planning state stays separate from provider readiness.</div>
-                        </label>
-                          </div>
-                          <div className="border-t border-zinc-200/80 pt-4">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Destination setup</div>
-                                <div className="mt-1 text-sm font-semibold text-zinc-900">Choose the real destination lane before you queue anything</div>
-                                <div className="mt-1 text-xs leading-5 text-zinc-500">
-                                  {previewUsesMetaProviderLane
-                                    ? "Pick the Instagram professional account or Facebook Page that should actually receive this post."
-                                    : "Manual and future-only lanes do not need a provider destination here."}
-                                </div>
-                              </div>
-                              {previewUsesMetaProviderLane ? (
-                                <a
-                                  href={previewSocialSetupHref}
-                                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                                >
-                                  {previewMetaDestinationSetupLabel}
-                                </a>
-                              ) : null}
-                            </div>
+                          <div className="mt-2 text-sm font-semibold text-zinc-900">{previewComposerPostStatusLabel}</div>
+                          <div className="mt-1 text-xs leading-5 text-zinc-500">Set one schedule to make this a scheduled post. Clear the schedule to keep it as a draft.</div>
+                        </div>
+                      </div>
 
-                            {previewUsesMetaProviderLane ? (
-                              <div className="mt-3 space-y-3">
-                                <PortalListboxDropdown
-                                  value={previewSelectedMetaDestination?.value || ""}
-                                  onChange={(value) => {
-                                    const nextOption = previewMetaDestinationOptions.find((option) => option.value === value) || null;
-                                    const baseProfile = clearMetaDestinationBlocker(previewGrowthProfile);
-                                    setSelectedGrowthProfile({
-                                      ...baseProfile,
-                                      providerDestinationType: nextOption?.destinationType || null,
-                                      providerDestinationId: nextOption?.destinationId || null,
-                                      providerDestinationLabel: nextOption?.destinationLabel || null,
-                                      providerAccountLabel: nextOption?.accountLabel || null,
-                                    });
-                                  }}
-                                  options={previewMetaDestinationOptionsForDropdown}
-                                  buttonClassName={workflowDropdownButtonClass}
-                                />
-                                <div>
-                                  <div className="text-xs font-medium text-zinc-600">Current lane</div>
-                                  <div className="mt-1 text-sm font-semibold text-zinc-900">{previewSelectedMetaDestination?.destinationLabel || "No destination selected yet"}</div>
-                                  <div className="mt-1 text-xs leading-5 text-zinc-500">
-                                    {previewSelectedMetaDestination?.hint || "Select a real Meta destination before you try to validate or queue the provider lane."}
-                                  </div>
-                                </div>
-                                {previewMetaDestinationBlockers.length ? (
-                                  <div className="space-y-2 text-xs leading-5 text-amber-700">
-                                    {previewMetaDestinationBlockers.map((blocker) => (
-                                      <div key={blocker} className="flex items-start gap-2">
-                                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-                                        <span>{blocker}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="text-xs leading-5 text-emerald-700">
-                                    Destination is selected and ready to carry into validation.
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="mt-3 text-sm text-zinc-700">
-                                <div className="font-semibold text-zinc-900">{previewDestinationSummary?.label || "Manual / external channel"}</div>
-                                <div className="mt-1 text-xs leading-5 text-zinc-500">{previewDestinationSummary?.detail || "Purely keeps the planning context here without triggering anything live."}</div>
-                              </div>
-                            )}
+                      <div className="mt-4 rounded-2xl bg-zinc-50 p-4">
+                        <div>
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                              {previewUsesMetaProviderLane ? "Destination" : "Destination"}
+                            </div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-900">
+                              {previewUsesMetaProviderLane ? "Choose destination" : (previewDestinationSummary?.label || "Manual / external channel")}
+                            </div>
+                            <div className="mt-1 text-xs leading-5 text-zinc-500">
+                              {previewUsesMetaProviderLane
+                                ? "Connect or switch the account here first, then choose the destination for this post."
+                                : (previewDestinationSummary?.detail || "Purely keeps the plan here without triggering a live provider action.")}
+                            </div>
                           </div>
                         </div>
-                      ) : null}
-                    </div>
 
-                    <div className="mt-4 border-t border-zinc-200/80 pt-4">
-                      <button
-                        type="button"
-                        onClick={() => togglePreviewComposerSection("schedule")}
-                        className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
-                      >
-                        <span>Schedule</span>
-                        <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
-                          {previewComposerSection === "schedule" ? "Hide" : "Show"}
-                        </span>
-                      </button>
-                      {previewComposerSection === "schedule" ? (
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {previewShowsInstagramSetup ? (
+                          <div className="mt-3 rounded-2xl border border-brand-blue/20 bg-white px-4 py-4">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-blue">Instagram account</div>
+                                <div className="mt-1 text-sm font-semibold text-zinc-900">{metaReadiness?.connectedAccountLabel || "No Instagram account connected yet"}</div>
+                                <div className="mt-1 text-xs leading-5 text-zinc-500">
+                                  {metaReadiness?.connectedAccountLabel
+                                    ? "This is the Instagram account Purely can see right now. If it is the wrong business or creator account, reconfigure it here before choosing the destination below."
+                                    : "If this post should publish through Instagram, connect the business or creator account here first."
+                                  }
+                                </div>
+                              </div>
+                              <a
+                                href={previewDirectMetaActionHref}
+                                className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                              >
+                                {previewMetaDestinationSetupLabel}
+                              </a>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {previewUsesMetaProviderLane ? (
+                          <div className="mt-3 space-y-3">
+                            {metaReadinessLoading ? (
+                              <div className="flex items-center gap-2 text-xs font-semibold text-zinc-500">
+                                <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+                                Loading destinations
+                              </div>
+                            ) : null}
+                            {metaReadinessError ? (
+                              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+                                {metaReadinessError}
+                              </div>
+                            ) : null}
+                            <PortalListboxDropdown
+                              value={previewSelectedMetaDestination?.value || ""}
+                              onChange={(value) => {
+                                const nextOption = previewMetaDestinationOptions.find((option) => option.value === value) || null;
+                                const baseProfile = clearMetaDestinationBlocker(previewGrowthProfile);
+                                setSelectedGrowthProfile({
+                                  ...baseProfile,
+                                  providerDestinationType: nextOption?.destinationType || null,
+                                  providerDestinationId: nextOption?.destinationId || null,
+                                  providerDestinationLabel: nextOption?.destinationLabel || null,
+                                  providerAccountLabel: nextOption?.accountLabel || null,
+                                });
+                              }}
+                              options={previewMetaDestinationOptionsForDropdown}
+                              buttonClassName={workflowDropdownButtonClass}
+                            />
+                            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Current destination</div>
+                              <div className="mt-1 text-sm font-semibold text-zinc-900">{previewSelectedMetaDestination?.destinationLabel || "No destination selected yet"}</div>
+                              <div className="mt-1 text-xs leading-5 text-zinc-500">
+                                {previewSelectedMetaDestination?.hint || "Select the account you want this post to use."}
+                              </div>
+                            </div>
+                            {previewPrimaryMetaDestinationBlocker ? (
+                              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+                                {previewPrimaryMetaDestinationBlocker}
+                              </div>
+                            ) : (
+                              <div className="text-xs leading-5 text-emerald-700">Destination is selected and ready to carry into validation.</div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    </section>
+
+                    <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Post timing</div>
+                        <div className="mt-1 text-xs leading-5 text-zinc-500">Leave this as a draft or give it one schedule. There is no extra planning-state step in this popup.</div>
+                      </div>
+                      <div className="mt-4 grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Current status</div>
+                          <div className="mt-2 text-sm font-semibold text-zinc-900">{previewComposerPostStatusLabel}</div>
+                          <div className="mt-1 text-xs leading-5 text-zinc-500">
+                            {previewGrowthProfile.plannedForIso
+                              ? `${formatCalendarDay(previewGrowthProfile.plannedForIso)} at ${formatCalendarTime(previewGrowthProfile.plannedForIso)}`
+                              : "No schedule is set yet."}
+                          </div>
+                        </div>
+
                         <label className="block">
-                          <div className="text-xs font-medium text-zinc-600">Plan for</div>
+                          <div className="text-xs font-medium text-zinc-600">Schedule post</div>
                           <div className="mt-2">
                             <LocalDateTimePicker
-                            value={toDateTimeLocalValue(previewGrowthProfile.plannedForIso)}
-                              onChange={(value) => setSelectedGrowthProfile({ ...previewGrowthProfile, plannedForIso: fromDateTimeLocalValue(value) })}
+                              value={toDateTimeLocalValue(previewGrowthProfile.plannedForIso)}
+                              onChange={(value) => setSelectedGrowthProfile({
+                                ...previewGrowthProfile,
+                                ...buildComposerSavePartial(previewGrowthProfile, { plannedForIso: fromDateTimeLocalValue(value) }),
+                                plannedForIso: fromDateTimeLocalValue(value),
+                              })}
                               placeholder="Choose date and time"
                               buttonClassName="h-12 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-left text-sm text-zinc-900 hover:bg-zinc-50"
                             />
                           </div>
+                          <div className="mt-2 text-xs text-zinc-500">Clear the schedule to keep this post as a draft.</div>
                         </label>
+                      </div>
+                    </section>
 
-                        <label className="block">
-                          <div className="text-xs font-medium text-zinc-600">Provider publish time</div>
-                          <div className="mt-2">
-                            <LocalDateTimePicker
-                            value={toDateTimeLocalValue(previewGrowthProfile.providerScheduledForIso)}
-                              onChange={(value) => setSelectedGrowthProfile({ ...previewGrowthProfile, providerScheduledForIso: fromDateTimeLocalValue(value) })}
-                              placeholder={previewProviderScheduleDisabled ? "Unavailable" : "Choose date and time"}
-                              disabled={previewProviderScheduleDisabled}
-                              buttonClassName={classNames(
-                                "h-12 w-full rounded-2xl border px-4 text-left text-sm hover:bg-zinc-50",
-                                previewProviderScheduleDisabled
-                                  ? "border-zinc-200 bg-zinc-100 text-zinc-400 hover:bg-zinc-100"
-                                  : "border-zinc-200 bg-white text-zinc-900",
-                              )}
-                            />
-                          </div>
-                          {previewProviderScheduleHelperText ? (
-                            <div className="mt-2 text-xs text-zinc-500">{previewProviderScheduleHelperText}</div>
-                          ) : null}
-                        </label>
+                    <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">{previewIsInstagramComposer ? "Link in bio / DM handoff" : "Link and destination"}</div>
+                        <div className="mt-1 text-xs leading-5 text-zinc-500">
+                          {previewIsInstagramComposer
+                            ? "Keep the CTA native to Instagram. Save the follow-up path here for bio, profile, DMs, or internal tracking."
+                            : "Set the visible CTA, linked booking route, or funnel destination for this post."}
                         </div>
-                      ) : null}
-                    </div>
+                      </div>
 
-                    <div className="mt-4 border-t border-zinc-200/80 pt-4">
-                      <button
-                        type="button"
-                        onClick={() => togglePreviewComposerSection("handoff")}
-                        className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
-                      >
-                        <span>{previewIsInstagramComposer ? "Instagram handoff" : "Destination / CTA"}</span>
-                        <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
-                          {previewComposerSection === "handoff" ? "Hide" : "Show"}
-                        </span>
-                      </button>
-                      {previewComposerSection === "handoff" ? (
-                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         {!previewIsInstagramComposer ? (
                           <label className="block">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewPlatformBehavior?.ctaLabelFieldLabel || "CTA label"}</div>
@@ -4100,10 +4316,11 @@ export function PortalMediaLibraryClient() {
                         ) : (
                           <div className="sm:col-span-2 rounded-2xl bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Instagram next step</div>
-                            <div className="mt-2 font-semibold text-zinc-900">Keep the CTA native to Instagram</div>
-                            <div className="mt-1 text-xs leading-5 text-zinc-500">Tell people to use the link in bio, send a DM/message, or use the profile booking button if it is configured. Save any URL here for planning only, not as a fake post CTA.</div>
+                            <div className="mt-2 font-semibold text-zinc-900">Keep it native</div>
+                            <div className="mt-1 text-xs leading-5 text-zinc-500">Tell people to use the link in bio, send a DM, or tap the profile booking button if it exists.</div>
                           </div>
                         )}
+
                         <label className="block sm:col-span-2">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewPlatformBehavior?.linkFieldLabel || "Direct link"}</div>
                           <input
@@ -4113,12 +4330,8 @@ export function PortalMediaLibraryClient() {
                             className="mt-2 h-12 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
                           />
                           <div className="mt-2 text-xs leading-5 text-zinc-500">{previewPlatformBehavior?.linkFieldHelper || "Use the best destination for this post."}</div>
-                          <div className="mt-1 text-xs leading-5 text-zinc-500">
-                            {previewIsInstagramComposer
-                              ? "Optional. Use this only for internal reference, link-in-bio planning, DM follow-up, or a profile booking handoff."
-                              : "Leave this blank if you want the post to use the linked funnel route or saved booking / intake handoff below."}
-                          </div>
                         </label>
+
                         <label className="block sm:col-span-2">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewIsInstagramComposer ? (previewPlatformBehavior?.savedLinkLabel || "Profile booking / bio reference") : "Saved booking / intake link"}</div>
                           <div className="mt-2">
@@ -4138,12 +4351,8 @@ export function PortalMediaLibraryClient() {
                               buttonClassName={workflowDropdownButtonClass}
                             />
                           </div>
-                          <div className="mt-2 text-xs leading-5 text-zinc-500">
-                            {previewIsInstagramComposer
-                              ? "Optional. Use the reusable booking or intake handoff from Booking settings when the Instagram profile button or bio path should carry the follow-up."
-                              : "Use the reusable booking or intake handoff from Booking settings. This stays separate from a direct override link."}
-                          </div>
                         </label>
+
                         <label className="block">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Funnel destination</div>
                           <div className="mt-2">
@@ -4165,7 +4374,6 @@ export function PortalMediaLibraryClient() {
                               buttonClassName={workflowDropdownButtonClass}
                             />
                           </div>
-                          <div className="mt-2 text-xs leading-5 text-zinc-500">Pick the offer funnel this post should send people into. If you do not pick a page, Purely uses the funnel's main entry page.</div>
                         </label>
 
                         <label className="block">
@@ -4187,66 +4395,62 @@ export function PortalMediaLibraryClient() {
                               buttonClassName={workflowDropdownButtonClass}
                             />
                           </div>
-                          <div className="mt-2 text-xs leading-5 text-zinc-500">Optional. Choose a specific page inside that funnel if this post should land deeper than the main entry page.</div>
                         </label>
-                        <div className="sm:col-span-2 rounded-2xl bg-zinc-50 px-4 py-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewIsInstagramComposer ? "Internal follow-up path" : "Resolved destination"}</div>
-                          <div className="mt-2 text-sm font-semibold text-zinc-900">{previewResolvedDestinationMeta?.sourceLabel || "No destination selected"}</div>
-                          <div className="mt-1 break-all text-xs leading-5 text-zinc-500">
-                            {previewResolvedLinkHref
-                              || previewResolvedDestinationMeta?.detail
-                              || (previewIsInstagramComposer
-                                ? "Keep the follow-up path here for bio, DM, profile booking, or internal tracking. It does not appear as a clickable Instagram CTA."
-                                : "Add a direct link, saved booking handoff, or linked funnel route before posting.")}
-                          </div>
-                        </div>
-                        </div>
-                      ) : null}
-                    </div>
+                      </div>
 
-                    <div className="mt-4 border-t border-zinc-200/80 pt-4">
-                      <button
-                        type="button"
-                        onClick={() => togglePreviewComposerSection("history")}
-                        className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
-                      >
-                        <span>Result / history</span>
-                        <span className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">
-                          {previewComposerSection === "history" ? "Hide" : "Show"}
-                        </span>
-                      </button>
-                      {previewComposerSection === "history" ? (
-                        <>
-                      <label className="mt-3 block">
+                      <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{previewIsInstagramComposer ? "Resolved follow-up path" : "Resolved destination"}</div>
+                        <div className="mt-2 text-sm font-semibold text-zinc-900">{previewResolvedDestinationMeta?.sourceLabel || "No destination selected"}</div>
+                        <div className="mt-1 break-all text-xs leading-5 text-zinc-500">
+                          {previewResolvedLinkHref
+                            || previewResolvedDestinationMeta?.detail
+                            || (previewIsInstagramComposer
+                              ? "Keep the follow-up path here for bio, DM, profile booking, or internal tracking."
+                              : "Add a direct link, saved booking handoff, or linked funnel route before posting.")}
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Result</div>
+                        <div className="mt-1 text-xs leading-5 text-zinc-500">Use this after the post goes live outside Purely, or when you want to keep a result URL attached to the asset.</div>
+                      </div>
+
+                      <label className="mt-4 block">
                         <div className="text-xs font-medium text-zinc-600">Live post URL</div>
                         <input
                           value={previewGrowthProfile.postedUrl || ""}
                           onChange={(e) => setSelectedGrowthProfile({ ...previewGrowthProfile, postedUrl: e.target.value || null })}
                           placeholder="https://live-post-url"
-                          className="h-12 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
+                          className="mt-2 h-12 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
                         />
                       </label>
 
-                      <div className="mt-2 text-xs text-zinc-500">
+                      <div className="mt-3 text-xs text-zinc-500">
                         {previewGrowthProfile.postedAtIso
                           ? `Marked as posted outside Purely on ${formatCalendarDay(previewGrowthProfile.postedAtIso)} at ${formatCalendarTime(previewGrowthProfile.postedAtIso)}.`
                           : previewManualPostingGuidance}
                       </div>
-                      <div className="mt-1 text-xs text-zinc-500">Use this after you post outside Purely. Purely stores the live URL you save here, but does not detect the manual post automatically.</div>
-
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
                           disabled={detailSaving || detailLoading}
-                          onClick={() => void saveSelectedGrowthProfile({ workflowState: "posted_manually", postedAtIso: previewGrowthProfile.postedAtIso || new Date().toISOString(), providerPublishState: "manual_only" })}
+                          onClick={() => void saveSelectedGrowthProfile({ workflowState: "posted_manually", postedAtIso: previewGrowthProfile.postedAtIso || new Date().toISOString(), providerPublishState: "manual_only" }, { preserveWorkflowState: true })}
                           className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-60"
                         >
                           Mark as posted outside Purely
                         </button>
+                        {previewUsesMetaProviderLane && previewContinuity?.blocked ? (
+                          <a
+                            href={previewDirectMetaActionHref}
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          >
+                            {previewMetaDestinationSetupLabel}
+                          </a>
+                        ) : null}
                       </div>
-                        </>
-                      ) : null}
-                    </div>
+                    </section>
                   </div>
                 </div>
               </div>
@@ -4292,7 +4496,7 @@ export function PortalMediaLibraryClient() {
               disabled={creatingFolder || !newFolderName.trim()}
               className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
             >
-              {creatingFolder ? "Creating..." : "Create folder"}
+              {creatingFolder ? "Creating" : "Create folder"}
             </button>
           </div>
         </div>

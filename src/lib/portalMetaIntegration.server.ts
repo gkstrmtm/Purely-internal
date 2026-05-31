@@ -4,27 +4,29 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { decryptStringV1, encryptStringV1, isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
+import {
+  derivePortalMetaDiagnostics,
+  getMetaRequiredScopesForMode,
+  getMetaRequestedScopesForMode,
+  getPortalMetaFutureInstagramLoginMode,
+} from "@/lib/portalMetaDiagnostics";
+import {
+  DEFAULT_META_INTEGRATION_MODE,
+  LEGACY_META_INTEGRATION_MODE,
+  normalizePortalMetaIntegrationMode,
+  type PortalMetaIntegrationMode,
+} from "@/lib/portalMetaModes";
 import type { MetaProviderStatus, PortalMetaProviderReadiness, PortalMetaTargetAccount } from "@/lib/portalMetaProviderReadiness";
+import { buildProviderSetupWizardHref, portalBaseFromWorkspaceVariant } from "@/lib/providerSetupWizard";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 const META_SERVICE_SLUG = "media-library";
 const META_CONNECT_PATH = "/api/portal/integrations/meta/connect";
 const META_DISCONNECT_PATH = "/api/portal/integrations/meta/disconnect";
 const META_CALLBACK_PATH = "/api/portal/integrations/meta/callback";
-const META_BASE_SCOPES = ["public_profile", "email"] as const;
-const META_DISCOVERY_REQUIRED_SCOPES = ["pages_show_list", "instagram_basic"] as const;
-const META_PUBLISH_REQUIRED_SCOPES = ["instagram_basic", "instagram_content_publish"] as const;
-const META_REQUESTED_SCOPES = Array.from(new Set([
-  ...META_BASE_SCOPES,
-  ...META_DISCOVERY_REQUIRED_SCOPES,
-  ...META_PUBLISH_REQUIRED_SCOPES,
-]));
-const META_REQUIRED_SCOPES = Array.from(new Set([
-  ...META_DISCOVERY_REQUIRED_SCOPES,
-  ...META_PUBLISH_REQUIRED_SCOPES,
-]));
 const META_OAUTH_STATE_MAX_AGE_MS = 10 * 60 * 1000;
 const META_GRAPH_VERSION = "v23.0";
+const META_INSTAGRAM_GRAPH_VERSION = "v25.0";
 
 type MetaServiceData = Record<string, unknown>;
 
@@ -56,6 +58,7 @@ type StoredMetaConnectionEnvelope = {
 
 type StoredMetaConnectionBundle = {
   provider: "meta";
+  integrationMode: PortalMetaIntegrationMode;
   status: Extract<MetaProviderStatus, "connected" | "needs_permissions" | "reconnect_required">;
   connectedMetaUserId: string | null;
   connectedMetaUserName: string | null;
@@ -78,6 +81,7 @@ type MetaOAuthStatePayload = {
   memberId: string;
   portalVariant: string;
   nextPath: string;
+  integrationMode: PortalMetaIntegrationMode;
   nonce: string;
   issuedAtMs: number;
 };
@@ -86,6 +90,7 @@ type MetaUserProfile = {
   id: string | null;
   name: string | null;
   email: string | null;
+  username: string | null;
 };
 
 type MetaPermissionSnapshot = {
@@ -191,6 +196,7 @@ function parseStoredBundle(raw: unknown): StoredMetaConnectionBundle | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const value = raw as Record<string, unknown>;
   const status = normalizeString(value.status);
+  const integrationMode = normalizePortalMetaIntegrationMode(value.integrationMode, LEGACY_META_INTEGRATION_MODE);
   if (
     value.provider !== "meta" ||
     (status !== "connected" && status !== "needs_permissions" && status !== "reconnect_required")
@@ -205,6 +211,7 @@ function parseStoredBundle(raw: unknown): StoredMetaConnectionBundle | null {
 
   return {
     provider: "meta",
+    integrationMode,
     status,
     connectedMetaUserId: normalizeString(value.connectedMetaUserId),
     connectedMetaUserName: normalizeString(value.connectedMetaUserName),
@@ -293,6 +300,24 @@ function readConfiguredRedirectUrl() {
   }
 }
 
+function readConfiguredInstagramBusinessLoginUrl() {
+  const raw = String(
+    process.env.META_INSTAGRAM_BUSINESS_LOGIN_URL
+      || process.env.META_INSTAGRAM_LOGIN_EMBED_URL
+      || process.env.INSTAGRAM_BUSINESS_LOGIN_URL
+      || "",
+  ).trim();
+  if (!raw) return null;
+
+  try {
+    const url = new URL(raw);
+    if (!/instagram\.com$/i.test(url.hostname)) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
 function getMetaOauthConfig() {
   return {
     appId: String(process.env.META_APP_ID || "").trim(),
@@ -302,6 +327,7 @@ function getMetaOauthConfig() {
 }
 
 function buildConnectedAccountLabel(profile: MetaUserProfile) {
+  if (profile.username) return `@${profile.username}`;
   if (profile.name && profile.email) return `${profile.name} (${profile.email})`;
   if (profile.name) return profile.name;
   if (profile.email) return profile.email;
@@ -316,7 +342,10 @@ function buildTargetAccountStatus(status: MetaProviderStatus): MetaProviderStatu
   return "coming_soon";
 }
 
-function buildTargetAccountReason(account: StoredMetaTargetAccount) {
+function buildTargetAccountReason(account: StoredMetaTargetAccount, integrationMode: PortalMetaIntegrationMode) {
+  if (integrationMode === "instagram_login") {
+    return account.reason || "Connected directly through Instagram Login for the selected professional account.";
+  }
   if (account.kind === "facebook_page") {
     return account.reason || "Available Facebook Page destination for the connected Meta account.";
   }
@@ -326,7 +355,7 @@ function buildTargetAccountReason(account: StoredMetaTargetAccount) {
   return account.reason || "Available Instagram professional account for the connected Meta account.";
 }
 
-function mapStoredTargetAccount(account: StoredMetaTargetAccount): PortalMetaTargetAccount {
+function mapStoredTargetAccount(account: StoredMetaTargetAccount, integrationMode: PortalMetaIntegrationMode): PortalMetaTargetAccount {
   return {
     key: account.key,
     kind: account.kind,
@@ -339,12 +368,32 @@ function mapStoredTargetAccount(account: StoredMetaTargetAccount): PortalMetaTar
     pageId: account.pageId,
     pageLabel: account.pageLabel,
     username: account.username,
-    reason: buildTargetAccountReason(account),
+    reason: buildTargetAccountReason(account, integrationMode),
   };
 }
 
-function buildPlaceholderTargetAccounts(status: MetaProviderStatus): PortalMetaTargetAccount[] {
+function buildPlaceholderTargetAccounts(status: MetaProviderStatus, integrationMode: PortalMetaIntegrationMode): PortalMetaTargetAccount[] {
   const targetStatus = buildTargetAccountStatus(status);
+  if (integrationMode === "instagram_login") {
+    return [
+      {
+        key: "instagram_professional",
+        kind: "instagram_professional",
+        label: "Instagram professional account",
+        status: targetStatus,
+        connected: false,
+        placeholder: true,
+        destinationType: "instagram_business",
+        destinationId: null,
+        pageId: null,
+        pageLabel: null,
+        username: null,
+        reason: status === "not_connected"
+          ? "Connect the Instagram professional account you want Purely to publish to."
+          : "Instagram destination discovery depends on the saved Instagram Login connection and approved permissions.",
+      },
+    ];
+  }
   return [
     {
       key: "facebook_page",
@@ -387,9 +436,54 @@ export function getDefaultMetaSettingsPath(portalVariant?: string | null) {
     : "/portal/app/services/media-library";
 }
 
-export function buildMetaConnectHref(portalVariant?: string | null) {
-  const nextPath = getDefaultMetaSettingsPath(portalVariant);
-  return `${META_CONNECT_PATH}?next=${encodeURIComponent(nextPath)}`;
+export function getDefaultMetaReturnPath(portalVariant?: string | null) {
+  return buildProviderSetupWizardHref(portalBaseFromWorkspaceVariant(portalVariant), "meta");
+}
+
+export function normalizeMetaReturnPath(raw: string | null | undefined, portalVariant?: string | null) {
+  const portalBase = portalBaseFromWorkspaceVariant(portalVariant);
+  const fallback = getDefaultMetaReturnPath(portalVariant);
+  const value = String(raw || "").trim();
+  if (!value.startsWith("/") || value.startsWith("//")) return fallback;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value, "http://purely.local");
+  } catch {
+    return fallback;
+  }
+
+  if (parsed.pathname === `${portalBase}/app/settings/integrations`) {
+    return buildProviderSetupWizardHref(portalBase, "meta");
+  }
+
+  if (parsed.pathname !== `${portalBase}/app/services/media-library`) {
+    return fallback;
+  }
+
+  const next = new URL(parsed.pathname, "http://purely.local");
+  const view = String(parsed.searchParams.get("view") || "").trim();
+  if (view === "library" || view === "calendar") next.searchParams.set("view", view);
+
+  const folderId = String(parsed.searchParams.get("folderId") || "").trim();
+  if (folderId) next.searchParams.set("folderId", folderId);
+
+  const itemId = String(parsed.searchParams.get("itemId") || "").trim();
+  if (itemId) {
+    next.searchParams.set("itemId", itemId);
+    if (parsed.searchParams.get("composer") === "1") next.searchParams.set("composer", "1");
+  }
+
+  return `${next.pathname}${next.search}`;
+}
+
+export function buildMetaConnectHref(
+  portalVariant?: string | null,
+  integrationMode: PortalMetaIntegrationMode = DEFAULT_META_INTEGRATION_MODE,
+  nextPath?: string | null,
+) {
+  const normalizedNextPath = normalizeMetaReturnPath(nextPath, portalVariant);
+  return `${META_CONNECT_PATH}?next=${encodeURIComponent(normalizedNextPath)}&mode=${encodeURIComponent(integrationMode)}`;
 }
 
 export function getMetaDisconnectHref() {
@@ -405,12 +499,14 @@ export function createMetaOAuthState(input: {
   memberId: string;
   portalVariant?: string | null;
   nextPath: string;
+  integrationMode?: PortalMetaIntegrationMode | null;
 }) {
   const payload: MetaOAuthStatePayload = {
     ownerId: String(input.ownerId || "").trim(),
     memberId: String(input.memberId || "").trim(),
     portalVariant: String(input.portalVariant || "portal").trim() || "portal",
-    nextPath: safeNextPath(input.nextPath, getDefaultMetaSettingsPath(input.portalVariant)),
+    nextPath: normalizeMetaReturnPath(input.nextPath, input.portalVariant),
+    integrationMode: normalizePortalMetaIntegrationMode(input.integrationMode, DEFAULT_META_INTEGRATION_MODE),
     nonce: crypto.randomBytes(18).toString("base64url"),
     issuedAtMs: Date.now(),
   };
@@ -440,6 +536,7 @@ export function readMetaOAuthState(raw: string | null | undefined): MetaOAuthSta
       typeof parsed.memberId !== "string" ||
       typeof parsed.portalVariant !== "string" ||
       typeof parsed.nextPath !== "string" ||
+      (parsed.integrationMode !== undefined && typeof parsed.integrationMode !== "string") ||
       typeof parsed.nonce !== "string" ||
       typeof parsed.issuedAtMs !== "number"
     ) {
@@ -454,7 +551,8 @@ export function readMetaOAuthState(raw: string | null | undefined): MetaOAuthSta
       ownerId: parsed.ownerId,
       memberId: parsed.memberId,
       portalVariant: parsed.portalVariant,
-      nextPath: safeNextPath(parsed.nextPath, getDefaultMetaSettingsPath(parsed.portalVariant)),
+      nextPath: normalizeMetaReturnPath(parsed.nextPath, parsed.portalVariant),
+      integrationMode: normalizePortalMetaIntegrationMode(parsed.integrationMode, LEGACY_META_INTEGRATION_MODE),
       nonce: parsed.nonce,
       issuedAtMs: parsed.issuedAtMs,
     };
@@ -463,25 +561,108 @@ export function readMetaOAuthState(raw: string | null | undefined): MetaOAuthSta
   }
 }
 
-export function getMetaProviderConnectUrl(input: { state: string }) {
+export function getMetaProviderConnectUrl(input: { state: string; integrationMode: PortalMetaIntegrationMode }) {
   const config = getMetaOauthConfig();
   if (!config.appId || !config.appSecret) {
     throw new PortalMetaIntegrationError("Meta OAuth is not configured for this environment.", 500, "meta_oauth_not_configured");
   }
 
-  const url = new URL(`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`);
+  const url = input.integrationMode === "instagram_login"
+    ? (readConfiguredInstagramBusinessLoginUrl() || new URL("https://www.instagram.com/oauth/authorize"))
+    : new URL(`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`);
+
   url.searchParams.set("client_id", config.appId);
   url.searchParams.set("redirect_uri", config.redirectUri);
   url.searchParams.set("state", input.state);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", META_REQUESTED_SCOPES.join(","));
+  url.searchParams.set("scope", getMetaRequestedScopesForMode(input.integrationMode).join(","));
   return url.toString();
 }
 
-async function exchangeCodeForAccessToken(code: string) {
+function normalizeDelimitedScopes(value: unknown): string[] {
+  if (Array.isArray(value)) return dedupeStringArray(value.map((entry) => String(entry || "")));
+  const raw = normalizeString(value);
+  return raw ? dedupeStringArray(raw.split(",")) : [];
+}
+
+function extractPrimaryObject(body: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!body) return null;
+  if (Array.isArray(body.data)) {
+    const first = body.data[0];
+    return first && typeof first === "object" && !Array.isArray(first) ? first as Record<string, unknown> : null;
+  }
+  return body;
+}
+
+async function exchangeInstagramLoginLongLivedToken(shortLivedAccessToken: string) {
+  const config = getMetaOauthConfig();
+  const url = new URL("https://graph.instagram.com/access_token");
+  url.searchParams.set("grant_type", "ig_exchange_token");
+  url.searchParams.set("client_secret", config.appSecret);
+  url.searchParams.set("access_token", shortLivedAccessToken);
+
+  const response = await fetch(url.toString(), { cache: "no-store" });
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  const accessToken = normalizeString(body?.access_token);
+  if (!response.ok || !accessToken) {
+    throw new PortalMetaIntegrationError(
+      buildMetaGraphError(body, "Could not exchange the Instagram Login token for a long-lived token."),
+      400,
+      "meta_token_exchange_failed",
+    );
+  }
+
+  const expiresInRaw = typeof body?.expires_in === "number" || typeof body?.expires_in === "string"
+    ? Number(body.expires_in)
+    : NaN;
+
+  return {
+    accessToken,
+    tokenType: normalizeString(body?.token_type),
+    accessTokenExpiresAtIso: Number.isFinite(expiresInRaw) && expiresInRaw > 0
+      ? new Date(Date.now() + expiresInRaw * 1000).toISOString()
+      : null,
+  };
+}
+
+async function exchangeCodeForAccessToken(code: string, integrationMode: PortalMetaIntegrationMode) {
   const config = getMetaOauthConfig();
   if (!config.appId || !config.appSecret) {
     throw new PortalMetaIntegrationError("Meta OAuth is not configured for this environment.", 500, "meta_oauth_not_configured");
+  }
+
+  if (integrationMode === "instagram_login") {
+    const form = new FormData();
+    form.set("client_id", config.appId);
+    form.set("client_secret", config.appSecret);
+    form.set("grant_type", "authorization_code");
+    form.set("redirect_uri", config.redirectUri);
+    form.set("code", code);
+
+    const tokenRes = await fetch("https://api.instagram.com/oauth/access_token", {
+      method: "POST",
+      body: form,
+      cache: "no-store",
+    });
+    const tokenBody = (await tokenRes.json().catch(() => null)) as Record<string, unknown> | null;
+    const tokenRecord = extractPrimaryObject(tokenBody);
+    const shortLivedAccessToken = normalizeString(tokenRecord?.access_token) || normalizeString(tokenBody?.access_token);
+    if (!tokenRes.ok || !shortLivedAccessToken) {
+      throw new PortalMetaIntegrationError(
+        normalizeString(tokenBody?.error_message) || buildMetaGraphError(tokenBody, "Could not connect Instagram Login."),
+        400,
+        "meta_token_exchange_failed",
+      );
+    }
+
+    const longLived = await exchangeInstagramLoginLongLivedToken(shortLivedAccessToken);
+    return {
+      accessToken: longLived.accessToken,
+      tokenType: longLived.tokenType,
+      accessTokenExpiresAtIso: longLived.accessTokenExpiresAtIso,
+      grantedScopes: normalizeDelimitedScopes(tokenRecord?.permissions),
+      appUserId: normalizeString(tokenRecord?.user_id) || normalizeString(tokenBody?.user_id),
+    };
   }
 
   const tokenUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token`);
@@ -512,10 +693,38 @@ async function exchangeCodeForAccessToken(code: string) {
     accessTokenExpiresAtIso: Number.isFinite(expiresInRaw) && expiresInRaw > 0
       ? new Date(Date.now() + expiresInRaw * 1000).toISOString()
       : null,
+    grantedScopes: [] as string[],
+    appUserId: null,
   };
 }
 
-async function fetchMetaUserProfile(accessToken: string): Promise<MetaUserProfile> {
+async function fetchMetaUserProfile(accessToken: string, integrationMode: PortalMetaIntegrationMode): Promise<MetaUserProfile> {
+  if (integrationMode === "instagram_login") {
+    const profileUrl = new URL(`https://graph.instagram.com/${META_INSTAGRAM_GRAPH_VERSION}/me`);
+    profileUrl.searchParams.set("fields", "user_id,username");
+    profileUrl.searchParams.set("access_token", accessToken);
+
+    const profileRes = await fetch(profileUrl.toString(), { cache: "no-store" });
+    const profileBody = (await profileRes.json().catch(() => null)) as Record<string, unknown> | null;
+    const profileRecord = extractPrimaryObject(profileBody);
+    const userId = normalizeString(profileRecord?.user_id) || normalizeString(profileBody?.user_id);
+    const username = normalizeString(profileRecord?.username) || normalizeString(profileBody?.username);
+    if (!profileRes.ok || !userId) {
+      throw new PortalMetaIntegrationError(
+        buildMetaGraphError(profileBody, "Could not read Instagram account details."),
+        400,
+        "meta_profile_fetch_failed",
+      );
+    }
+
+    return {
+      id: userId,
+      name: username,
+      email: null,
+      username,
+    };
+  }
+
   const profileUrl = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/me`);
   profileUrl.searchParams.set("fields", "id,name,email");
   profileUrl.searchParams.set("access_token", accessToken);
@@ -535,6 +744,7 @@ async function fetchMetaUserProfile(accessToken: string): Promise<MetaUserProfil
     id: normalizeString(profileBody?.id),
     name: normalizeString(profileBody?.name),
     email: normalizeString(profileBody?.email),
+    username: null,
   };
 }
 
@@ -562,7 +772,7 @@ async function fetchPermissionSnapshot(accessToken: string): Promise<MetaPermiss
   const grantedScopes = Array.from(granted).sort();
   return {
     grantedScopes,
-    missingRequiredScopes: META_REQUIRED_SCOPES.filter((scope) => !granted.has(scope)),
+    missingRequiredScopes: getMetaRequiredScopesForMode(LEGACY_META_INTEGRATION_MODE).filter((scope) => !granted.has(scope)),
     tokenInvalid: !res?.ok && (errorCode === 190 || /access token/i.test(errorMessage)),
     errorMessage: res?.ok ? null : errorMessage,
   };
@@ -651,7 +861,69 @@ async function fetchMetaTargetAccounts(accessToken: string): Promise<MetaTargetA
   };
 }
 
+function buildInstagramLoginTargetSnapshot(profile: MetaUserProfile): MetaTargetAccountSnapshot {
+  if (!profile.id) {
+    return {
+      accounts: [],
+      blockers: ["Instagram Login did not return a professional account ID for this connection."],
+    };
+  }
+
+  return {
+    accounts: [
+      {
+        key: `instagram_professional:${profile.id}`,
+        kind: "instagram_professional",
+        destinationType: "instagram_business",
+        destinationId: profile.id,
+        label: profile.username ? `@${profile.username}` : (profile.name || `Instagram ${profile.id}`),
+        pageId: null,
+        pageLabel: null,
+        username: profile.username,
+        reason: "Connected directly through Instagram Login.",
+      },
+    ],
+    blockers: [],
+  };
+}
+
 async function refreshStoredMetaConnection(ownerId: string, bundle: StoredMetaConnectionBundle, secret: StoredMetaConnectionSecret) {
+  if (bundle.integrationMode === "instagram_login") {
+    const profile = await fetchMetaUserProfile(secret.accessToken, bundle.integrationMode).catch(() => null);
+    const requiredScopes = getMetaRequiredScopesForMode(bundle.integrationMode);
+    const grantedScopes = dedupeStringArray(secret.grantedScopes);
+    const missingRequiredScopes = requiredScopes.filter((scope) => !grantedScopes.includes(scope));
+    const targetSnapshot = profile ? buildInstagramLoginTargetSnapshot(profile) : {
+      accounts: [],
+      blockers: ["Reconnect Instagram before Purely can verify the saved professional account again."],
+    };
+    const nowIso = new Date().toISOString();
+    const nextStatus: StoredMetaConnectionBundle["status"] = !profile
+      ? "reconnect_required"
+      : missingRequiredScopes.length
+        ? "needs_permissions"
+        : "connected";
+    const nextBundle: StoredMetaConnectionBundle = {
+      ...bundle,
+      status: nextStatus,
+      connectedMetaUserId: profile?.id ?? bundle.connectedMetaUserId,
+      connectedMetaUserName: profile?.username ?? profile?.name ?? bundle.connectedMetaUserName,
+      connectedMetaUserEmail: null,
+      connectedAccountLabel: profile ? buildConnectedAccountLabel(profile) : bundle.connectedAccountLabel,
+      permissionGaps: profile ? missingRequiredScopes : [],
+      targetAccounts: profile ? targetSnapshot.accounts : [],
+      targetAccountBlockers: targetSnapshot.blockers,
+      lastCheckedAtIso: nowIso,
+      accessTokenExpiresAtIso: secret.accessTokenExpiresAtIso,
+    };
+
+    await storeMetaConnection(ownerId, nextBundle, {
+      ...secret,
+      grantedScopes,
+    });
+    return { bundle: nextBundle, secret: { ...secret, grantedScopes } };
+  }
+
   const permissionSnapshot = await fetchPermissionSnapshot(secret.accessToken);
   const targetSnapshot = await fetchMetaTargetAccounts(secret.accessToken);
   const nowIso = new Date().toISOString();
@@ -727,23 +999,34 @@ async function readMetaConnectionSecret(bundle: StoredMetaConnectionBundle): Pro
   }
 }
 
-export async function completeMetaOauthConnection(input: { ownerId: string; code: string }) {
+export async function completeMetaOauthConnection(input: { ownerId: string; code: string; integrationMode?: PortalMetaIntegrationMode | null }) {
   if (!isPortalEncryptionConfigured()) {
     throw new PortalMetaIntegrationError("Secure integration storage is not configured on this server.", 500, "meta_encryption_missing");
   }
 
-  const token = await exchangeCodeForAccessToken(input.code);
-  const profile = await fetchMetaUserProfile(token.accessToken);
-  const permissionSnapshot = await fetchPermissionSnapshot(token.accessToken);
-  const targetSnapshot = await fetchMetaTargetAccounts(token.accessToken);
+  const integrationMode = input.integrationMode || DEFAULT_META_INTEGRATION_MODE;
+  const token = await exchangeCodeForAccessToken(input.code, integrationMode);
+  const profile = await fetchMetaUserProfile(token.accessToken, integrationMode);
+  const permissionSnapshot = integrationMode === "instagram_login"
+    ? {
+        grantedScopes: dedupeStringArray(token.grantedScopes),
+        missingRequiredScopes: getMetaRequiredScopesForMode(integrationMode).filter((scope) => !token.grantedScopes.includes(scope)),
+        tokenInvalid: false,
+        errorMessage: null,
+      }
+    : await fetchPermissionSnapshot(token.accessToken);
+  const targetSnapshot = integrationMode === "instagram_login"
+    ? buildInstagramLoginTargetSnapshot(profile)
+    : await fetchMetaTargetAccounts(token.accessToken);
   const nowIso = new Date().toISOString();
   const status: StoredMetaConnectionBundle["status"] = permissionSnapshot.missingRequiredScopes.length ? "needs_permissions" : "connected";
 
   const bundle: StoredMetaConnectionBundle = {
     provider: "meta",
+    integrationMode,
     status,
     connectedMetaUserId: profile.id,
-    connectedMetaUserName: profile.name,
+    connectedMetaUserName: profile.username || profile.name,
     connectedMetaUserEmail: profile.email,
     connectedAccountLabel: buildConnectedAccountLabel(profile),
     permissionGaps: permissionSnapshot.missingRequiredScopes,
@@ -767,7 +1050,7 @@ export async function completeMetaOauthConnection(input: { ownerId: string; code
 
 export async function getPortalMetaProviderReadiness(
   ownerId: string,
-  opts?: { portalVariant?: string | null; isOwnerSession?: boolean },
+  opts?: { portalVariant?: string | null; isOwnerSession?: boolean; preferredMode?: PortalMetaIntegrationMode | null },
 ): Promise<PortalMetaProviderReadiness> {
   const config = getMetaOauthConfig();
   const oauthConfigured = Boolean(config.appId && config.appSecret);
@@ -777,31 +1060,43 @@ export async function getPortalMetaProviderReadiness(
   const existing = await readMediaSetupRow(ownerId).catch(() => null);
   const current = parseMetaServiceData(existing?.dataJson);
   const bundle = getStoredBundle(current);
+  const integrationMode = bundle?.integrationMode || normalizePortalMetaIntegrationMode(opts?.preferredMode, DEFAULT_META_INTEGRATION_MODE);
 
   let status: MetaProviderStatus = "coming_soon";
   let permissionGaps: string[] = [];
+  let grantedScopes: string[] = [];
   let connectedAccountLabel: string | null = null;
   let connectedMetaUserId: string | null = null;
   let connectedMetaUserName: string | null = null;
   let connectedMetaUserEmail: string | null = null;
-  let targetAccounts: PortalMetaTargetAccount[] = buildPlaceholderTargetAccounts(status);
+  let targetAccounts: PortalMetaTargetAccount[] = buildPlaceholderTargetAccounts(status, integrationMode);
   let targetAccountBlockers: string[] = [];
   let disconnectHref: string | null = null;
-  let setupMessage = "Meta direct publishing is still blocked. Manual posting remains available from Media Library.";
+  let setupMessage = integrationMode === "instagram_login"
+    ? "Connect the Instagram professional account you want Purely to publish to. Manual posting remains available from Media Library."
+    : "Meta direct publishing is still blocked. Manual posting remains available from Media Library.";
 
   if (disabledByEnv) {
     status = "disabled";
-    setupMessage = "Meta connection is disabled in this environment. Manual posting remains available while the connection shell stays off.";
+    setupMessage = integrationMode === "instagram_login"
+      ? "Instagram Login is disabled in this environment. Manual posting remains available while the connection shell stays off."
+      : "Meta connection is disabled in this environment. Manual posting remains available while the connection shell stays off.";
   } else if (!oauthConfigured) {
     status = "coming_soon";
-    setupMessage = "Meta app credentials are not fully configured yet. Manual posting remains available while the connection shell is completed.";
+    setupMessage = integrationMode === "instagram_login"
+      ? "Instagram Login credentials are not fully configured yet. Manual posting remains available while the connection shell is completed."
+      : "Meta app credentials are not fully configured yet. Manual posting remains available while the connection shell is completed.";
   } else if (!encryptionConfigured) {
     status = "coming_soon";
-    setupMessage = "Secure integration storage is not configured on this server yet. Manual posting remains available until secure Meta storage is ready.";
+    setupMessage = integrationMode === "instagram_login"
+      ? "Secure integration storage is not configured on this server yet. Manual posting remains available until secure Instagram storage is ready."
+      : "Secure integration storage is not configured on this server yet. Manual posting remains available until secure Meta storage is ready.";
   } else if (!bundle) {
     status = "not_connected";
-    setupMessage = "Connect Meta to let Purely verify your account first. Posting and metrics will stay off until the next permission step is ready.";
-    targetAccounts = buildPlaceholderTargetAccounts(status);
+    setupMessage = integrationMode === "instagram_login"
+      ? "Connect the Instagram professional account you want Purely to publish to. This account must be Business or Creator."
+      : "Connect Meta to let Purely verify your account first. Posting and metrics will stay off until the next permission step is ready.";
+    targetAccounts = buildPlaceholderTargetAccounts(status, integrationMode);
   } else {
     const decrypted = await readMetaConnectionSecret(bundle);
     const expiresAtMs = bundle.accessTokenExpiresAtIso ? new Date(bundle.accessTokenExpiresAtIso).getTime() : 0;
@@ -817,11 +1112,13 @@ export async function getPortalMetaProviderReadiness(
     disconnectHref = getMetaDisconnectHref();
 
     if (decrypted && !expired) {
+      grantedScopes = decrypted.grantedScopes;
       const refreshed = await refreshStoredMetaConnection(ownerId, bundle, decrypted).catch(() => null);
       if (refreshed) {
         activeBundle = refreshed.bundle;
         status = refreshed.bundle.status;
         permissionGaps = refreshed.bundle.permissionGaps;
+        grantedScopes = refreshed.secret.grantedScopes;
         connectedAccountLabel = refreshed.bundle.connectedAccountLabel;
         connectedMetaUserId = refreshed.bundle.connectedMetaUserId;
         connectedMetaUserName = refreshed.bundle.connectedMetaUserName;
@@ -830,17 +1127,23 @@ export async function getPortalMetaProviderReadiness(
     }
 
     targetAccounts = activeBundle.targetAccounts.length
-      ? activeBundle.targetAccounts.map((account) => mapStoredTargetAccount(account))
+      ? activeBundle.targetAccounts.map((account) => mapStoredTargetAccount(account, activeBundle.integrationMode))
       : [];
     targetAccountBlockers = activeBundle.targetAccountBlockers;
 
     if (status === "connected") {
-      setupMessage = "Meta account connected. Purely can verify your Meta account now, but posting and metrics stay disabled until the next permission step is ready.";
+      setupMessage = activeBundle.integrationMode === "instagram_login"
+        ? "Instagram professional account connected. Purely can verify the account now, but publishing and metrics stay disabled until approval and the full contract are ready."
+        : "Meta account connected. Purely can verify your Meta account now, but posting and metrics stay disabled until the next permission step is ready.";
     } else if (status === "needs_permissions") {
-      setupMessage = "Meta account connected, but the current permission set is still incomplete. Purely can verify the account now, while posting and metrics stay disabled until the next permission step is ready.";
+      setupMessage = activeBundle.integrationMode === "instagram_login"
+        ? "Instagram connected, but the Instagram Login permission set is still incomplete. Publishing stays disabled until Meta approval and valid permissions are in place."
+        : "Meta account connected, but the current permission set is still incomplete. Purely can verify the account now, while posting and metrics stay disabled until the next permission step is ready.";
     } else {
-      setupMessage = "Your saved Meta connection needs to be reconnected before Purely can verify it again. Posting and metrics remain disabled, and manual posting stays available now.";
-      targetAccounts = buildPlaceholderTargetAccounts(status);
+      setupMessage = activeBundle.integrationMode === "instagram_login"
+        ? "Reconnect the Instagram professional account before Purely can verify it again. Publishing and metrics remain disabled, and manual posting stays available now."
+        : "Your saved Meta connection needs to be reconnected before Purely can verify it again. Posting and metrics remain disabled, and manual posting stays available now.";
+      targetAccounts = buildPlaceholderTargetAccounts(status, activeBundle.integrationMode);
     }
   }
 
@@ -848,32 +1151,66 @@ export async function getPortalMetaProviderReadiness(
     setupMessage = `${setupMessage} Only the account owner can start or disconnect the Meta connection from this workspace.`;
   }
 
-  const connectHref = buildMetaConnectHref(opts?.portalVariant);
+  const connectHref = buildMetaConnectHref(opts?.portalVariant, integrationMode);
   const canStartOAuth = isOwnerSession && oauthConfigured && encryptionConfigured && !disabledByEnv && status !== "connected";
+  const pageDestinationCount = targetAccounts.filter((account) => account.destinationType === "facebook_page" && account.connected && !account.placeholder).length;
+  const instagramDestinationCount = targetAccounts.filter((account) => account.destinationType === "instagram_business" && account.connected && !account.placeholder).length;
+  const diagnostics = derivePortalMetaDiagnostics({
+    mode: integrationMode,
+    connected: status === "connected" || status === "needs_permissions",
+    grantedScopes,
+    permissionGaps,
+    pageDestinationCount,
+    instagramDestinationCount,
+    targetAccountBlockers,
+  });
+  const primaryDiagnostic = diagnostics[0] || null;
+  const providerLabel = integrationMode === "instagram_login" ? "Instagram" : "Meta";
   const actionLabel = status === "connected"
     ? "Connected"
     : status === "reconnect_required"
-      ? "Reconnect Meta"
+      ? `Reconnect ${providerLabel}`
       : status === "needs_permissions"
-        ? "Reconnect Meta"
+        ? `Reconnect ${providerLabel}`
         : status === "not_connected"
-          ? "Connect Meta"
+          ? `Connect ${providerLabel}`
           : status === "disabled"
             ? "Disabled"
             : "Coming soon";
-  const explanation = permissionGaps.length
-    ? `Connection is saved, but Meta still owes approved permissions before publishing can proceed. Missing: ${permissionGaps.join(", ")}. Manual posting remains available now.`
+  const explanation = primaryDiagnostic
+    ? `${primaryDiagnostic.message} ${primaryDiagnostic.detail} Manual posting remains available now.`
     : targetAccountBlockers[0]
       ? `${targetAccountBlockers[0]} Manual posting remains available while Purely keeps live Meta publishing disabled.`
-      : "Connection lets Purely verify your Meta account first. Posting and metrics will be enabled after permissions and app review are ready. Manual posting remains available now.";
+      : integrationMode === "instagram_login"
+        ? "Connection lets Purely verify the Instagram professional account first. Publishing still requires Meta approval and valid permissions. Manual posting remains available now."
+        : "Connection lets Purely verify your Meta account first. Posting and metrics will be enabled after permissions and app review are ready. Manual posting remains available now.";
+
+  if (primaryDiagnostic) {
+    setupMessage = primaryDiagnostic.message;
+  }
 
   if (!targetAccounts.length && status !== "connected" && status !== "needs_permissions") {
-    targetAccounts = buildPlaceholderTargetAccounts(status);
+    targetAccounts = buildPlaceholderTargetAccounts(status, integrationMode);
   }
 
   return {
     provider: "meta",
     ownerScoped: true,
+    integrationMode,
+    availableModes: [
+      {
+        mode: "instagram_login",
+        label: "Instagram Login",
+        description: "Connect the Instagram professional account directly with Instagram Login.",
+        recommended: true,
+      },
+      {
+        mode: "page_linked_facebook_login",
+        label: "Page-linked Facebook Login",
+        description: "Legacy Facebook Login flow that discovers Instagram through managed Facebook Pages.",
+        recommended: false,
+      },
+    ],
     status,
     oauthConfigured,
     encryptionConfigured,
@@ -886,6 +1223,7 @@ export async function getPortalMetaProviderReadiness(
     connectedMetaUserId,
     connectedMetaUserName,
     connectedMetaUserEmail,
+    grantedScopes,
     permissionGaps,
     publishingAvailable: false,
     metricsAvailable: false,
@@ -896,6 +1234,11 @@ export async function getPortalMetaProviderReadiness(
     explanation,
     targetAccounts,
     targetAccountBlockers,
+    diagnostics,
+    primaryDiagnostic,
+    futureModes: {
+      instagramLogin: getPortalMetaFutureInstagramLoginMode(),
+    },
     capabilities: {
       publish: {
         available: false,
@@ -909,9 +1252,17 @@ export async function getPortalMetaProviderReadiness(
       },
     },
     education: [
-      "Each business connects its own Meta assets.",
-      "Connection verifies the Meta account first.",
-      "Posting and metrics stay disabled until permissions and app review are ready.",
+      ...(integrationMode === "instagram_login"
+        ? [
+            "Connect the Instagram professional account you want Purely to publish to.",
+            "This account must be Business or Creator.",
+            "Publishing still requires Meta approval and valid permissions.",
+          ]
+        : [
+            "Each business connects its own Meta assets.",
+            "Connection verifies the Meta account first.",
+            "Posting and metrics stay disabled until permissions and app review are ready.",
+          ]),
       "Purely will never post without your approval.",
       "Manual posting remains available now.",
     ],

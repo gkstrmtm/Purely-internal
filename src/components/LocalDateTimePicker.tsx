@@ -20,14 +20,18 @@ function computeFixedPopoverStyleForRect(rect: DOMRect, opts?: { gap?: number; p
   const width = Math.min(preferredWidth, vw - padding * 2);
   const anchorCenter = rect.left + (rect.width / 2);
   const left = clamp(anchorCenter - (width / 2), padding, vw - padding - width);
+  const maxViewportHeight = Math.max(160, vh - padding * 2);
+  const preferredMaxHeight = Math.min(minMaxHeight, maxViewportHeight);
 
   const spaceBelow = vh - rect.bottom - padding - gap;
   const spaceAbove = rect.top - padding - gap;
   const preferDown = spaceBelow >= 260 || spaceBelow >= spaceAbove;
+  const availableSpace = Math.max(0, preferDown ? spaceBelow : spaceAbove);
+  const nextMaxHeight = Math.min(preferredMaxHeight, availableSpace);
 
   return preferDown
-    ? ({ left, top: rect.bottom + gap, width, maxHeight: Math.max(minMaxHeight, spaceBelow) } satisfies CSSProperties)
-    : ({ left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(minMaxHeight, spaceAbove) } satisfies CSSProperties);
+    ? ({ left, top: rect.bottom + gap, width, maxHeight: nextMaxHeight } satisfies CSSProperties)
+    : ({ left, bottom: vh - rect.top + gap, width, maxHeight: nextMaxHeight } satisfies CSSProperties);
 }
 
 function useFixedPopoverStyle(
@@ -364,7 +368,7 @@ export function LocalDateTimePicker(props: {
         <div
           className={
             (popoverClassName ||
-              "fixed overflow-hidden rounded-[30px] border border-zinc-200 bg-white shadow-2xl")
+              "fixed flex min-h-0 flex-col overflow-hidden rounded-[30px] border border-zinc-200 bg-white shadow-2xl")
           }
           style={popoverClassName ? undefined : fixedPopoverStyle ?? { visibility: "hidden" }}
           onMouseDown={(e) => e.stopPropagation()}
@@ -395,7 +399,8 @@ export function LocalDateTimePicker(props: {
             </div>
           </div>
 
-          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_272px]">
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_272px]">
             <div>
               <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-zinc-500">
                 {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((dayLabel) => (
@@ -537,6 +542,7 @@ export function LocalDateTimePicker(props: {
                   </div>
                 </div>
               </div>
+            </div>
             </div>
           </div>
 

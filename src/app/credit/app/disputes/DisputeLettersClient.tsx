@@ -91,6 +91,16 @@ type TemplateConfig = {
   nextTemplateKey: string;
 };
 
+type PortalMeResponse =
+  | {
+      ok: true;
+      role: "OWNER" | "ADMIN" | "MEMBER";
+    }
+  | {
+      ok: false;
+      error?: string;
+    };
+
 type FixedMenuStyle = { left: number; top: number; maxHeight: number };
 type ComposerMode = "AI" | "CUSTOM";
 
@@ -347,6 +357,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const router = useRouter();
   const searchParams = useSearchParams();
   const routeSet = useMemo(() => routesFor(pathname), [pathname]);
+  const isCreditWorkspace = pathname.startsWith("/credit");
+  const [portalRole, setPortalRole] = useState<"OWNER" | "ADMIN" | "MEMBER" | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [letters, setLetters] = useState<LetterLite[]>([]);
@@ -419,10 +431,46 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     return "Generate PDF to create a downloadable document. This does not file the dispute.";
   }, [pdfDownloadUrl, pdfExportAt]);
   const workflowNextStep = useMemo(() => {
-    if (!selectedLetter) return "Open a draft, review the client details, then generate a PDF only when the letter is ready to leave Purely.";
-    if (selectedLetter.status === "DRAFT") return "Review the draft, confirm the recipient and evidence, then generate a PDF before you send anything outside Purely.";
-    if (selectedLetter.status === "GENERATED") return "The PDF step is complete. Send the letter outside Purely, then create a task for response timing and mark mailed manually when that step actually happens.";
-    return "This letter is already marked mailed manually. Use tasks for response deadlines and use reporting only for shared workspace counts, not dispute-milestone reporting.";
+    const clientScoped = isCreditWorkspace && portalRole !== "OWNER" && portalRole !== "ADMIN";
+    if (!selectedLetter) {
+      return clientScoped
+        ? "Open a letter to review the current draft, PDF status, and mailed status for this dispute."
+        : "Open a draft, review the client details, then generate a PDF only when the letter is ready to leave Purely.";
+    }
+    if (selectedLetter.status === "DRAFT") {
+      return clientScoped
+        ? "This draft is still being reviewed. Check the recipient, disputed items, and supporting details before expecting it to move forward."
+        : "Review the draft, confirm the recipient and evidence, then generate a PDF before you send anything outside Purely.";
+    }
+    if (selectedLetter.status === "GENERATED") {
+      return clientScoped
+        ? "The PDF step is complete. This letter is ready for external sending once the team finishes that handoff."
+        : "The PDF step is complete. Send the letter outside Purely, then create a task for response timing and mark mailed manually when that step actually happens.";
+    }
+    return clientScoped
+      ? "This letter is already marked mailed manually. Use this view to track dispute progress and mailed status."
+      : "This letter is already marked mailed manually. Use tasks for response deadlines and use reporting only for shared workspace counts, not dispute-milestone reporting.";
+  }, [isCreditWorkspace, portalRole, selectedLetter]);
+  const showInternalWorkflowLinks = !isCreditWorkspace || portalRole === "OWNER" || portalRole === "ADMIN";
+  const isClientReadonlyView = isCreditWorkspace && !showInternalWorkflowLinks;
+  const clientCompanyName = String(selectedLetter?.businessName || "").trim() || "Your credit company";
+  const clientLetterProgressSummary = useMemo(() => {
+    if (!selectedLetter) {
+      return `${clientCompanyName} has not finished preparing this dispute letter yet.`;
+    }
+    if (selectedLetter.status === "SENT") {
+      return `${clientCompanyName} has marked this dispute letter as mailed and is now waiting for the next response or report movement.`;
+    }
+    if (selectedLetter.status === "GENERATED") {
+      return `${clientCompanyName} has finished the letter draft and export prep. The next visible update will be when it is sent or marked mailed.`;
+    }
+    return `${clientCompanyName} is still drafting and reviewing this dispute letter before anything is sent out.`;
+  }, [clientCompanyName, selectedLetter]);
+  const clientLetterStatusHeadline = useMemo(() => {
+    if (!selectedLetter) return "In progress";
+    if (selectedLetter.status === "SENT") return "Sent by your credit team";
+    if (selectedLetter.status === "GENERATED") return "Ready for sending";
+    return "Draft in progress";
   }, [selectedLetter]);
   const selectedContact = useMemo(() => contacts.find((entry) => entry.id === contactId) || selectedLetter?.contact || null, [contactId, contacts, selectedLetter?.contact]);
   const selectedContactSignature = useMemo(() => readContactCustomValue(selectedContact?.customVariables, "signature"), [selectedContact?.customVariables]);
@@ -493,6 +541,30 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       setContactsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isCreditWorkspace) {
+      setPortalRole(null);
+      return;
+    }
+
+    void (async () => {
+      const res = await fetch("/api/portal/me", {
+        cache: "no-store",
+        headers: { "x-pa-app": "portal", "x-portal-variant": "credit" },
+      }).catch(() => null);
+      if (cancelled || !res?.ok) return;
+      const json = (await res.json().catch(() => null)) as PortalMeResponse | null;
+      if (cancelled || !json || json.ok !== true) return;
+      setPortalRole(json.role);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isCreditWorkspace]);
 
   const loadLetters = useCallback(async () => {
     setLettersLoading(true);
@@ -1102,7 +1174,9 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             </button>
 
             <div className="mt-3">
-              {editingSubject ? (
+              {isClientReadonlyView ? (
+                <div className="text-left text-2xl font-bold text-zinc-900">{subject.trim() || "Dispute letter"}</div>
+              ) : editingSubject ? (
                 <input
                   value={subject}
                   onChange={(event) => setSubject(event.target.value)}
@@ -1135,13 +1209,14 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                   {subject.trim() || "Dispute letter"}
                 </button>
               )}
-              <div className="mt-1 text-xs font-semibold text-zinc-500">Click the title to rename. Save draft to preserve the reviewed version.</div>
+              <div className="mt-1 text-xs font-semibold text-zinc-500">{isClientReadonlyView ? "Letter preview only. Purely manages the draft, PDF, and mailed updates." : "Click the title to rename. Save draft to preserve the reviewed version."}</div>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
               {selectedLetter ? <span className={classNames("rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses(selectedLetter.status))}>{statusLabel(selectedLetter.status)}</span> : null}
               <span>{selectedLetter ? `Updated ${formatDateTime(selectedLetter.updatedAt)}` : letterLoading ? "Loading letter…" : "No letter selected"}</span>
             </div>
           </div>
+          {!isClientReadonlyView ? (
           <div className="flex flex-wrap gap-2">
             {pdfDownloadUrl ? (
               <a
@@ -1168,88 +1243,113 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void saveLetter()} className={SECONDARY_BUTTON_CLASS}>{working === "save" ? "Saving..." : "Save draft"}</button>
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void markLetterMailed()} className={PRIMARY_BUTTON_CLASS}>{working === "mail" ? "Marking..." : "Mark as mailed manually"}</button>
           </div>
+          ) : null}
         </div>
         {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
-        {placeholderWarningText ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{placeholderWarningText}</div> : null}
+        {!isClientReadonlyView && placeholderWarningText ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{placeholderWarningText}</div> : null}
         <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-zinc-800">
-          <div className="font-semibold text-zinc-900">Workflow boundary</div>
-          <div className="mt-1">Every letter stays a draft until you review it. Generating a PDF creates an exportable document from the saved draft only. If you need to email or mail the letter, do that outside Purely. Purely does not submit the dispute to a bureau or furnisher for you.</div>
+          <div className="font-semibold text-zinc-900">{isClientReadonlyView ? `${clientCompanyName} is handling this letter` : "Workflow boundary"}</div>
+          <div className="mt-1">
+            {isClientReadonlyView
+              ? `This page shows the current letter draft and mailed status for your dispute. ${clientCompanyName} handles the editing, mailing prep, and dispute follow-through.`
+              : "Every letter stays a draft until you review it. Generating a PDF creates an exportable document from the saved draft only. If you need to email or mail the letter, do that outside Purely. Purely does not submit the dispute to a bureau or furnisher for you."}
+          </div>
         </div>
         <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_320px]">
           <section className="rounded-3xl border border-zinc-200 bg-white p-6">
             <label className="block">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Draft letter</div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{isClientReadonlyView ? "Letter preview" : "Draft letter"}</div>
               <RichTextMarkdownEditor
                 ref={editorRef}
                 markdown={bodyText}
                 onChange={(nextValue) => setBodyText(normalizeDisputeLetterText(nextValue, { contactName: selectedLetter?.contact?.name || "", signature: readContactSignature(selectedLetter?.contact?.customVariables) || selectedLetter?.contact?.name || "", email: selectedLetter?.contact?.email || "", phone: selectedLetter?.contact?.phone || "", address: readContactAddress(selectedLetter?.contact?.customVariables) }))}
                 onDropMarkdown={readSignatureDropMarkdown}
-                placeholder="Write the dispute letter..."
+                placeholder={isClientReadonlyView ? "Letter preview" : "Write the dispute letter..."}
+                disabled={isClientReadonlyView}
+                hideToolbar={isClientReadonlyView}
               />
             </label>
-            <div className="mt-3 text-xs text-zinc-500">Formatting and inserted contact signatures carry into the PDF export. Generate the PDF only after this draft is reviewed.</div>
+            <div className="mt-3 text-xs text-zinc-500">{isClientReadonlyView ? `This preview reflects the latest saved draft from ${clientCompanyName}.` : "Formatting and inserted contact signatures carry into the PDF export. Generate the PDF only after this draft is reviewed."}</div>
           </section>
           <aside className="space-y-4">
-            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-              <div className="text-sm font-semibold text-zinc-900">Merge fields</div>
-              <div className="mt-2 text-sm text-zinc-600">Insert supported placeholders into the draft. Purely resolves them only when the source data actually exists.</div>
-              {activePlaceholderUsages.length ? (
-                <div className="mt-3 space-y-2 text-sm text-zinc-700">
-                  {activePlaceholderUsages.map((entry) => (
-                    <div key={entry.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-semibold text-zinc-900">{entry.token}</div>
-                        <div className={classNames("rounded-full px-2.5 py-1 text-[11px] font-semibold", entry.unresolved ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800")}>{entry.unresolved ? "Needs data" : "Ready"}</div>
+            {isClientReadonlyView ? null : (
+              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                <div className="text-sm font-semibold text-zinc-900">Merge fields</div>
+                <div className="mt-2 text-sm text-zinc-600">Insert supported placeholders into the draft. Purely resolves them only when the source data actually exists.</div>
+                {activePlaceholderUsages.length ? (
+                  <div className="mt-3 space-y-2 text-sm text-zinc-700">
+                    {activePlaceholderUsages.map((entry) => (
+                      <div key={entry.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-semibold text-zinc-900">{entry.token}</div>
+                          <div className={classNames("rounded-full px-2.5 py-1 text-[11px] font-semibold", entry.unresolved ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800")}>{entry.unresolved ? "Needs data" : "Ready"}</div>
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-500">{entry.description}</div>
+                        <div className="mt-2 text-xs text-zinc-700">{entry.value || "No value available yet for this draft."}</div>
                       </div>
-                      <div className="mt-1 text-xs text-zinc-500">{entry.description}</div>
-                      <div className="mt-2 text-xs text-zinc-700">{entry.value || "No value available yet for this draft."}</div>
-                    </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">No merge fields in this draft yet.</div>
+                )}
+                {placeholderInspection.unsupportedTokens.length ? (
+                  <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">Unsupported merge fields: {placeholderInspection.unsupportedTokens.join(", ")}</div>
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {DISPUTE_LETTER_PLACEHOLDER_DEFS.map((entry) => (
+                    <button
+                      key={entry.key}
+                      type="button"
+                      onClick={() => editorRef.current?.insertMarkdown(`${entry.token} `)}
+                      className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-100"
+                      title={entry.description}
+                    >
+                      {entry.token}
+                    </button>
                   ))}
                 </div>
-              ) : (
-                <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">No merge fields in this draft yet.</div>
-              )}
-              {placeholderInspection.unsupportedTokens.length ? (
-                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">Unsupported merge fields: {placeholderInspection.unsupportedTokens.join(", ")}</div>
-              ) : null}
-              <div className="mt-3 flex flex-wrap gap-2">
-                {DISPUTE_LETTER_PLACEHOLDER_DEFS.map((entry) => (
-                  <button
-                    key={entry.key}
-                    type="button"
-                    onClick={() => editorRef.current?.insertMarkdown(`${entry.token} `)}
-                    className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-100"
-                    title={entry.description}
-                  >
-                    {entry.token}
-                  </button>
-                ))}
-              </div>
-            </section>
+              </section>
+            )}
             <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-              <div className="text-sm font-semibold text-zinc-900">Workflow status</div>
-              <div className="mt-2 text-sm text-zinc-600">Drafting, PDF export, manual mailed tracking, and external submission are separate steps.</div>
-              <div className="mt-3 grid gap-3 text-sm text-zinc-700">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current status</div>
-                  <div className="mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold text-zinc-900">{selectedLetter ? statusLabel(selectedLetter.status) : "Not available"}</div>
-                  <div className="mt-2 text-xs text-zinc-600">{selectedLetter ? statusHelperText(selectedLetter.status) : "No letter loaded."}</div>
+              <div className="text-sm font-semibold text-zinc-900">{isClientReadonlyView ? "Letter progress" : "Workflow status"}</div>
+              <div className="mt-2 text-sm text-zinc-600">{isClientReadonlyView ? `${clientCompanyName} is handling the dispute workflow. This section shows the current stage only.` : "Drafting, PDF export, manual mailed tracking, and external submission are separate steps."}</div>
+              {isClientReadonlyView ? (
+                <div className="mt-3 grid gap-3 text-sm text-zinc-700">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current stage</div>
+                    <div className="mt-2 text-base font-semibold text-zinc-900">{clientLetterStatusHeadline}</div>
+                    <div className="mt-2 text-sm text-zinc-600">{clientLetterProgressSummary}</div>
+                  </div>
+                  {selectedLetter?.status === "SENT" ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mailed status</div>
+                      <div className="mt-2 text-sm text-zinc-600">{clientCompanyName} has marked this dispute letter as mailed. This status is used to track the file internally while waiting for the next update.</div>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Draft created</div>
-                  <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.generatedAt ? formatDateTime(selectedLetter.generatedAt) : "Not available"}</div>
+              ) : (
+                <div className="mt-3 grid gap-3 text-sm text-zinc-700">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current status</div>
+                    <div className="mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold text-zinc-900">{selectedLetter ? statusLabel(selectedLetter.status) : "Not available"}</div>
+                    <div className="mt-2 text-xs text-zinc-600">{selectedLetter ? statusHelperText(selectedLetter.status) : "No letter loaded."}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Draft created</div>
+                    <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.generatedAt ? formatDateTime(selectedLetter.generatedAt) : "Not available"}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">PDF export</div>
+                    <div className="mt-2 font-medium text-zinc-900">{pdfExportAt ? formatDateTime(pdfExportAt) : "Not generated yet"}</div>
+                    <div className="mt-2 text-xs text-zinc-600">{pdfExportHelperText}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Marked mailed manually</div>
+                    <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.sentAt ? formatDateTime(selectedLetter.sentAt) : "Not marked yet"}</div>
+                    <div className="mt-2 text-xs text-zinc-600">Manual status only. This is not proof that a bureau, furnisher, or collector received the letter.</div>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">PDF export</div>
-                  <div className="mt-2 font-medium text-zinc-900">{pdfExportAt ? formatDateTime(pdfExportAt) : "Not generated yet"}</div>
-                  <div className="mt-2 text-xs text-zinc-600">{pdfExportHelperText}</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Marked mailed manually</div>
-                  <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.sentAt ? formatDateTime(selectedLetter.sentAt) : "Not marked yet"}</div>
-                  <div className="mt-2 text-xs text-zinc-600">Manual status only. This is not proof that a bureau, furnisher, or collector received the letter.</div>
-                </div>
-              </div>
+              )}
             </section>
             <section className="rounded-3xl border border-sky-200 bg-sky-50 p-5">
               <div className="text-sm font-semibold text-zinc-900">Next handoff</div>
@@ -1264,26 +1364,32 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                     Credit reports
                   </button>
                 )}
-                <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
-                  Contacts
-                </button>
-                <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
-                  Tasks
-                </button>
-                <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
-                  Reporting
-                </button>
+                {showInternalWorkflowLinks ? (
+                  <>
+                    <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
+                      Contacts
+                    </button>
+                    <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
+                      Tasks
+                    </button>
+                    <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
+                      Reporting
+                    </button>
+                  </>
+                ) : null}
               </div>
             </section>
-            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-              <div className="text-sm font-semibold text-zinc-900">Review before sending</div>
-              <div className="mt-2 text-sm text-zinc-600">Confirm the draft below before you generate a PDF, email it, or mark it as mailed manually.</div>
-              <ul className="mt-3 space-y-2 text-sm text-zinc-700">
-                {LETTER_REVIEW_CHECKLIST.map((item) => (
-                  <li key={item} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">{item}</li>
-                ))}
-              </ul>
-            </section>
+            {isClientReadonlyView ? null : (
+              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                <div className="text-sm font-semibold text-zinc-900">Review before sending</div>
+                <div className="mt-2 text-sm text-zinc-600">Confirm the draft below before you generate a PDF, email it, or mark it as mailed manually.</div>
+                <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                  {LETTER_REVIEW_CHECKLIST.map((item) => (
+                    <li key={item} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">{item}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <section className="rounded-3xl border border-zinc-200 bg-white p-5">
               <div className="text-sm font-semibold text-zinc-900">Contact</div>
               {selectedLetter?.contact ? (
@@ -1297,25 +1403,29 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                       emptyLabel="No signature stored yet"
                     />
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={insertSignatureIntoLetter} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-100">
-                      Add signature to letter
-                    </button>
-                    <div
-                      draggable
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData("application/x-pa-dispute-signature", CONTACT_SIGNATURE_SNIPPET);
-                        event.dataTransfer.setData("text/plain", CONTACT_SIGNATURE_SNIPPET);
-                        event.dataTransfer.effectAllowed = "copy";
-                      }}
-                      className="inline-flex cursor-grab items-center rounded-2xl border border-dashed border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-600 active:cursor-grabbing"
-                      title="Drag into the letter editor"
-                    >
-                      Drag signature into letter
-                    </div>
-                  </div>
-                  {selectedContactSignatureImage || selectedContactSignatureText ? (
-                    <div className="mt-2 text-[11px] text-zinc-500">Use the button or drag target to place the contact signature exactly where it should appear in the PDF.</div>
+                  {!isClientReadonlyView ? (
+                    <>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="button" onClick={insertSignatureIntoLetter} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-100">
+                          Add signature to letter
+                        </button>
+                        <div
+                          draggable
+                          onDragStart={(event) => {
+                            event.dataTransfer.setData("application/x-pa-dispute-signature", CONTACT_SIGNATURE_SNIPPET);
+                            event.dataTransfer.setData("text/plain", CONTACT_SIGNATURE_SNIPPET);
+                            event.dataTransfer.effectAllowed = "copy";
+                          }}
+                          className="inline-flex cursor-grab items-center rounded-2xl border border-dashed border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-600 active:cursor-grabbing"
+                          title="Drag into the letter editor"
+                        >
+                          Drag signature into letter
+                        </div>
+                      </div>
+                      {selectedContactSignatureImage || selectedContactSignatureText ? (
+                        <div className="mt-2 text-[11px] text-zinc-500">Use the button or drag target to place the contact signature exactly where it should appear in the PDF.</div>
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
               ) : (
@@ -1334,12 +1444,18 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Dispute letters</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Create AI or blank/custom dispute letter drafts, review them, export PDFs, and manually track when you email or mail them. Purely does not submit disputes to bureaus or furnishers.</p>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">
+            {showInternalWorkflowLinks
+              ? "Create AI or blank/custom dispute letter drafts, review them, export PDFs, and manually track when you email or mail them. Purely does not submit disputes to bureaus or furnishers."
+              : "Review dispute letter drafts, PDF status, and mailed progress for the disputes tied to your credit file."}
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={handleOpenComposer} className={PRIMARY_BUTTON_CLASS}>+ AI draft</button>
-          <button type="button" onClick={handleOpenBlankComposer} className={SECONDARY_BUTTON_CLASS}>+ Blank/custom draft</button>
-        </div>
+        {showInternalWorkflowLinks ? (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={handleOpenComposer} className={PRIMARY_BUTTON_CLASS}>+ AI draft</button>
+            <button type="button" onClick={handleOpenBlankComposer} className={SECONDARY_BUTTON_CLASS}>+ Blank/custom draft</button>
+          </div>
+        ) : null}
       </div>
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-zinc-800">
@@ -1348,11 +1464,19 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       </div>
       <div className="mt-4 rounded-3xl border border-sky-200 bg-sky-50 p-4 text-sm text-zinc-800">
         <div className="font-semibold text-zinc-900">Workflow handoff</div>
-        <div className="mt-1 max-w-3xl">Use dispute letters for the draft, PDF, and mailed-manual states only. Use credit reports to review the source items, tasks to track response deadlines or missing documentation, and reporting only for shared workspace activity that is already in the reporting contract.</div>
+        <div className="mt-1 max-w-3xl">
+          {showInternalWorkflowLinks
+            ? "Use dispute letters for the draft, PDF, and mailed-manual states only. Use credit reports to review the source items, tasks to track response deadlines or missing documentation, and reporting only for shared workspace activity that is already in the reporting contract."
+            : "Use dispute letters to review the current draft, PDF, and mailed-manual states for items already being worked by the team."}
+        </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" onClick={() => { window.location.href = routeSet.reportsHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Credit reports</button>
-          <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Tasks</button>
-          <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Reporting</button>
+          {showInternalWorkflowLinks ? (
+            <>
+              <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Tasks</button>
+              <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Reporting</button>
+            </>
+          ) : null}
         </div>
       </div>
       <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -1457,7 +1581,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             <tbody>
               {filteredLetters.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-zinc-600">{lettersLoading ? "Loading letters…" : "No dispute letter drafts yet. Start by drafting a letter, then review it before generating a PDF or sending it outside Purely."}</td>
+                  <td colSpan={4} className="px-4 py-10 text-center text-zinc-600">{lettersLoading ? "Loading letters…" : isClientReadonlyView ? "No dispute letters are on file yet. Once Purely starts a letter, you will be able to track its current status here." : "No dispute letter drafts yet. Start by drafting a letter, then review it before generating a PDF or sending it outside Purely."}</td>
                 </tr>
               ) : (
                 filteredLetters.map((letter) => (

@@ -661,7 +661,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       if (!salesStatusLoaded) {
         return {
           title: "Payments & sales reporting",
-          status: "Checking setup…",
+          status: "Checking setup",
           tone: "neutral" as const,
           description: "Connect Stripe or another supported processor so Sales Reporting can read real transaction data.",
         };
@@ -729,7 +729,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       if (!bookingIntegrationsLoaded) {
         return {
           title: "Booking providers",
-          status: "Checking setup…",
+          status: "Checking setup",
           tone: "neutral" as const,
           description: "Zoom and Google Meet connections are reused by Booking and Funnel Builder.",
         };
@@ -766,7 +766,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       if (!apiKeysLoaded) {
         return {
           title: "API keys",
-          status: "Checking setup…",
+          status: "Checking setup",
           tone: "neutral" as const,
           description: "Manage the full-access key and any scoped keys for external integrations.",
         };
@@ -792,7 +792,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       if (mailboxLoading) {
         return {
           title: "Business email",
-          status: "Checking setup…",
+          status: "Checking setup",
           tone: "neutral" as const,
           description: "This address is used for mailbox replies and other business-email flows.",
         };
@@ -1742,7 +1742,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       ) : null}
 
                       {!funnelDomainsLoaded ? (
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">Loading domains…</div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">Loading domains</div>
                       ) : funnelDomains.length ? (
                         <div className="space-y-3">
                           {funnelDomains.map((domain) => {

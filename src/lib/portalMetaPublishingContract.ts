@@ -1,7 +1,7 @@
-export const META_INSTAGRAM_FEED_REQUIRED_SCOPES = [
-  "instagram_basic",
-  "instagram_content_publish",
-] as const;
+import type { PortalMetaIntegrationMode } from "@/lib/portalMetaModes";
+import { DEFAULT_META_INTEGRATION_MODE } from "@/lib/portalMetaModes";
+import { getMetaPublishRequiredScopesForMode } from "@/lib/portalMetaDiagnostics";
+import type { PortalMetaDiagnostic } from "@/lib/portalMetaProviderReadiness";
 
 export type MetaInstagramFeedDryRunBlockerCode =
   | "meta_provider_not_ready"
@@ -37,12 +37,14 @@ export type MetaInstagramFeedDryRunBlocker = {
 export type MetaInstagramFeedPublishSnapshot = {
   connection: {
     state: MetaConnectionState;
+    mode: PortalMetaIntegrationMode | null;
     connectedAccountLabel: string | null;
     connectedMetaUserId: string | null;
     hasAccessToken: boolean;
     accessTokenExpiresAtIso: string | null;
     grantedScopes: string[];
     permissionGaps: string[];
+    primaryDiagnostic: PortalMetaDiagnostic | null;
   };
   profile: {
     distributionProvider: string | null;
@@ -120,7 +122,8 @@ export function inspectMetaInstagramFeedPublishDryRun(
   snapshot: MetaInstagramFeedPublishSnapshot,
 ): MetaInstagramFeedDryRunResult {
   const blockers: MetaInstagramFeedDryRunBlocker[] = [];
-  const requiredScopes = normalizeScopes(META_INSTAGRAM_FEED_REQUIRED_SCOPES);
+  const connectionMode = snapshot.connection.mode || DEFAULT_META_INTEGRATION_MODE;
+  const requiredScopes = normalizeScopes(getMetaPublishRequiredScopesForMode(connectionMode));
   const grantedScopes = normalizeScopes(snapshot.connection.grantedScopes || []);
   const missingScopes = requiredScopes.filter((scope) => !grantedScopes.includes(scope));
   const provider = normalizeString(snapshot.profile.distributionProvider);
@@ -144,7 +147,9 @@ export function inspectMetaInstagramFeedPublishDryRun(
     blockers.push({
       code: "meta_connection_missing",
       field: "connection",
-      message: "Connect a Meta account before trying to validate or publish an Instagram feed post from Media Library.",
+      message: connectionMode === "instagram_login"
+        ? "Connect the Instagram professional account before trying to validate or publish an Instagram feed post from Media Library."
+        : "Connect a Meta account before trying to validate or publish an Instagram feed post from Media Library.",
     });
   }
 
@@ -158,15 +163,22 @@ export function inspectMetaInstagramFeedPublishDryRun(
     blockers.push({
       code: "meta_reconnect_required",
       field: "connection",
-      message: "Reconnect Meta before publishing. The saved access token is missing, expired, or no longer valid for provider work.",
+      message: connectionMode === "instagram_login"
+        ? "Reconnect Instagram before publishing. The saved access token is missing, expired, or no longer valid for provider work."
+        : "Reconnect Meta before publishing. The saved access token is missing, expired, or no longer valid for provider work.",
     });
   }
 
   if (snapshot.connection.state === "needs_permissions" || missingScopes.length > 0) {
+    const diagnosticMessage = snapshot.connection.primaryDiagnostic
+      ? `${snapshot.connection.primaryDiagnostic.message} ${snapshot.connection.primaryDiagnostic.detail} ${snapshot.connection.primaryDiagnostic.guidance.join(" ")}`.trim()
+      : null;
     blockers.push({
       code: "meta_publish_scopes_missing",
       field: "permissions",
-      message: `The saved Meta connection does not include the Instagram publish scope set yet. Purely needs ${requiredScopes.join(", ")} before an Instagram feed post can proceed.`,
+      message: diagnosticMessage || (connectionMode === "instagram_login"
+        ? `The saved Instagram Login connection does not include the Instagram publish scope set yet. Purely needs ${requiredScopes.join(", ")} before an Instagram feed post can proceed.`
+        : `The saved Meta connection does not include the Instagram publish scope set yet. Purely needs ${requiredScopes.join(", ")} before an Instagram feed post can proceed.`),
     });
   }
 

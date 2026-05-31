@@ -126,6 +126,20 @@ export default async function CreditAppCatchallPage({
   if (!session.ok) redirect("/credit/login");
 
   const slug = (await params).slug || [];
+  const ownerId = session.session.user.id;
+  const memberId = session.session.user.memberId || ownerId;
+  const isRestrictedCreditMemberSession = memberId !== ownerId;
+  const restrictedCreditMemberHref = "/credit/app/services/credit-reports";
+
+  if (isRestrictedCreditMemberSession) {
+    if (slug.length === 0) redirect(restrictedCreditMemberHref);
+    if (slug[0] !== "services") redirect(restrictedCreditMemberHref);
+
+    const requestedService = String(slug[1] || "").toLowerCase();
+    if (requestedService !== "credit-reports" && requestedService !== "dispute-letters") {
+      redirect(restrictedCreditMemberHref);
+    }
+  }
 
   if (slug.length === 0) {
     return (

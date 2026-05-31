@@ -310,6 +310,7 @@ type RichTextMarkdownEditorProps = {
   onChange: (markdown: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  hideToolbar?: boolean;
   onDropMarkdown?: (dataTransfer: DataTransfer) => string | null;
 };
 
@@ -318,6 +319,7 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
   onChange,
   placeholder,
   disabled,
+  hideToolbar,
   onDropMarkdown,
 }, ref) {
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -565,6 +567,7 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white">
+      {hideToolbar ? null : (
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
         <button type="button" className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-100" onClick={() => run("undo")} disabled={disabled}>
           Undo
@@ -650,6 +653,7 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
           Link
         </button>
       </div>
+      )}
 
       <div
         ref={editorRef}

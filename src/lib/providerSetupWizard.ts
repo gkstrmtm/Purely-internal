@@ -1,3 +1,5 @@
+import type { PortalMetaIntegrationMode } from "@/lib/portalMetaModes";
+
 export type ProviderSetupCategory = "communication" | "booking" | "payment" | "social" | "credit";
 
 export type ProviderSetupStatus =
@@ -51,4 +53,32 @@ export function buildProviderSetupWizardHref(portalBase: "/portal" | "/credit", 
   const setup = key ? `?setup=${encodeURIComponent(key)}` : "";
   const hash = key ? `#provider-setup-${encodeURIComponent(key)}` : "#provider-setup-wizard";
   return `${portalBase}/app/settings/integrations${setup}${hash}`;
+}
+
+export function buildMetaConnectRequestHref(nextPath: string, integrationMode: PortalMetaIntegrationMode) {
+  return `/api/portal/integrations/meta/connect?next=${encodeURIComponent(nextPath)}&mode=${encodeURIComponent(integrationMode)}`;
+}
+
+export function buildMediaLibraryComposerReturnHref(input: {
+  portalBase: "/portal" | "/credit";
+  itemId?: string | null;
+  folderId?: string | null;
+  viewMode?: "library" | "calendar" | null;
+  includeComposer?: boolean;
+}) {
+  const url = new URL(`${input.portalBase}/app/services/media-library`, "http://purely.local");
+  if (input.viewMode === "library" || input.viewMode === "calendar") {
+    url.searchParams.set("view", input.viewMode);
+  }
+
+  const folderId = String(input.folderId || "").trim();
+  if (folderId) url.searchParams.set("folderId", folderId);
+
+  const itemId = String(input.itemId || "").trim();
+  if (itemId) {
+    url.searchParams.set("itemId", itemId);
+    if (input.includeComposer) url.searchParams.set("composer", "1");
+  }
+
+  return `${url.pathname}${url.search}`;
 }

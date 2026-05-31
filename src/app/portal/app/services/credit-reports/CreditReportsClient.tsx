@@ -57,6 +57,16 @@ type OpportunityPlan = {
   summary: string;
 };
 
+type PortalMeResponse =
+  | {
+      ok: true;
+      role: "OWNER" | "ADMIN" | "MEMBER";
+    }
+  | {
+      ok: false;
+      error?: string;
+    };
+
 type FixedMenuStyle = { left: number; top: number; maxHeight: number };
 
 const REPORT_FILTER_LABELS: Record<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED", string> = {
@@ -122,6 +132,25 @@ function scoreTone(score: number | null) {
   if (score >= 720) return { label: "Strong", accent: "#2563eb" };
   if (score >= 660) return { label: "Building", accent: "#fb7185" };
   return { label: "Needs work", accent: "#f97316" };
+}
+
+function reportItemTone(auditTag: ReportItemLite["auditTag"]) {
+  switch (auditTag) {
+    case "NEGATIVE":
+      return { accent: "#fb7185", tint: "#fff1f2" };
+    case "PENDING":
+      return { accent: "#2563eb", tint: "#eff6ff" };
+    case "POSITIVE":
+    default:
+      return { accent: "#a1a1aa", tint: "#f4f4f5" };
+  }
+}
+
+function utilizationTone(utilization: number | null) {
+  if (utilization === null) return { label: "No data", accent: "#a1a1aa" };
+  if (utilization <= 10) return { label: "Healthy", accent: "#2563eb" };
+  if (utilization <= 30) return { label: "Reduce", accent: "#f97316" };
+  return { label: "Too high", accent: "#ef4444" };
 }
 
 function ringTrack(segments: Array<{ value: number; color: string }>) {
@@ -254,6 +283,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const toast = useToast();
   const routeSet = useMemo(() => reportRoutesFor(pathname), [pathname]);
   const isCreditWorkspace = pathname.startsWith("/credit");
+  const [portalRole, setPortalRole] = useState<"OWNER" | "ADMIN" | "MEMBER" | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -313,6 +343,30 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     setContacts(next);
     setSelectedContactId((prev) => (prev && next.some((contact) => contact.id === prev) ? prev : ""));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isCreditWorkspace) {
+      setPortalRole(null);
+      return;
+    }
+
+    void (async () => {
+      const res = await fetch("/api/portal/me", {
+        cache: "no-store",
+        headers: { "x-pa-app": "portal", "x-portal-variant": "credit" },
+      }).catch(() => null);
+      if (cancelled || !res?.ok) return;
+      const json = (await res.json().catch(() => null)) as PortalMeResponse | null;
+      if (cancelled || !json || json.ok !== true) return;
+      setPortalRole(json.role);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isCreditWorkspace]);
 
   useEffect(() => {
     let cancelled = false;
@@ -411,20 +465,33 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     return { pending, negative, positive, tracked };
   }, [selectedReport]);
   const workflowNextStep = useMemo(() => {
+    const clientScoped = isCreditWorkspace && portalRole !== "OWNER" && portalRole !== "ADMIN";
     if (!selectedReport) {
-      return "Start from the client record, import the latest JSON report, then work item by item before opening any dispute draft.";
+      return clientScoped
+        ? "Start from the latest report, review each flagged item, and open dispute letters when something needs follow-up."
+        : "Start from the client record, import the latest JSON report, then work item by item before opening any dispute draft.";
     }
     if (selectedReportSummary.negative > 0) {
-      return `${selectedReportSummary.negative} item${selectedReportSummary.negative === 1 ? " needs" : "s need"} dispute drafting or follow-up. Review the details here, then push the work into dispute letters and tasks.`;
+      return clientScoped
+        ? `${selectedReportSummary.negative} item${selectedReportSummary.negative === 1 ? " needs" : "s need"} dispute drafting or follow-up. Review the details here, then move into dispute letters for the next step.`
+        : `${selectedReportSummary.negative} item${selectedReportSummary.negative === 1 ? " needs" : "s need"} dispute drafting or follow-up. Review the details here, then push the work into dispute letters and tasks.`;
     }
     if (selectedReportSummary.pending > 0) {
       return `${selectedReportSummary.pending} item${selectedReportSummary.pending === 1 ? " is" : "s are"} still waiting on review. Clear those before treating the file as ready for the next credit move.`;
     }
     if (selectedReportSummary.tracked > 0) {
-      return "The report is already tied to dispute activity. Use letters for mailed-state tracking and tasks for any response deadlines or document collection.";
+      return clientScoped
+        ? "The report is already tied to dispute activity. Use dispute letters to track what has already been drafted or mailed."
+        : "The report is already tied to dispute activity. Use letters for mailed-state tracking and tasks for any response deadlines or document collection.";
     }
-    return "This report reads clean right now. Keep the contact record current, use tasks for any manual follow-up, and use reporting only for shared workspace counts.";
-  }, [selectedReport, selectedReportSummary]);
+    return clientScoped
+      ? "This report reads clean right now. Use it as your live view of what has been reviewed and what still needs attention."
+      : "This report reads clean right now. Keep the contact record current, use tasks for any manual follow-up, and use reporting only for shared workspace counts.";
+  }, [isCreditWorkspace, portalRole, selectedReport, selectedReportSummary]);
+  const showInternalWorkflowLinks = !isCreditWorkspace || portalRole === "OWNER" || portalRole === "ADMIN";
+  const isClientReadonlyView = isCreditWorkspace && !showInternalWorkflowLinks;
+  const utilizationValue = selectedReport?.creditSnapshot?.utilizationPercent ?? null;
+  const utilizationStatus = utilizationTone(utilizationValue);
   const filteredItems = useMemo(() => {
     const items = selectedReport?.items || [];
     const query = itemQuery.trim().toLowerCase();
@@ -593,8 +660,12 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Credit reports</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-600">
             {mode === "detail"
-              ? "Review imported report items, update the internal tags, and draft dispute letters for the entries that need follow-up."
-              : "Import report JSON, review items internally, and open dispute letters when something needs work. Live provider pull still needs a configured provider API key and connection."}
+              ? showInternalWorkflowLinks
+                ? "Review imported report items, update the internal tags, and draft dispute letters for the entries that need follow-up."
+                : "Review the imported report items and track which entries still need dispute follow-up."
+              : showInternalWorkflowLinks
+                ? "Import report JSON, review items internally, and open dispute letters when something needs work. Live provider pull still needs a configured provider API key and connection."
+                : "Review your imported credit reports and open dispute letters when something needs attention."}
           </p>
         </div>
         {mode === "detail" ? (
@@ -615,13 +686,15 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         ) : (
           <div className="flex items-center gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{reports.length} saved</div>
-            <button
-              type="button"
-              onClick={() => setNewReportOpen(true)}
-              className={PRIMARY_BUTTON_CLASS}
-            >
-              Import report
-            </button>
+            {showInternalWorkflowLinks ? (
+              <button
+                type="button"
+                onClick={() => setNewReportOpen(true)}
+                className={PRIMARY_BUTTON_CLASS}
+              >
+                Import report
+              </button>
+            ) : null}
           </div>
         )}
       </div>
@@ -635,13 +708,21 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="max-w-3xl">
                   <div className="text-sm font-semibold text-zinc-900">Credit workflow lane</div>
-                  <div className="mt-1 text-sm text-zinc-700">Use this order in the beta workspace: confirm the client record first, import the latest JSON report, review negative and pending items, then move live follow-up into dispute letters and tasks. Reporting stays honest about shared activity only.</div>
+                  <div className="mt-1 text-sm text-zinc-700">
+                    {showInternalWorkflowLinks
+                      ? "Use this order in the beta workspace: confirm the client record first, import the latest JSON report, review negative and pending items, then move live follow-up into dispute letters and tasks. Reporting stays honest about shared activity only."
+                      : "Use this order here: review the latest imported report, check any negative or pending items, and open dispute letters when something needs action."}
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className={SECONDARY_BUTTON_CLASS}>Contacts</button>
                   <button type="button" onClick={() => { window.location.href = routeSet.disputeHref; }} className={SECONDARY_BUTTON_CLASS}>Dispute letters</button>
-                  <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className={SECONDARY_BUTTON_CLASS}>Tasks</button>
-                  <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className={SECONDARY_BUTTON_CLASS}>Reporting</button>
+                  {showInternalWorkflowLinks ? (
+                    <>
+                      <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className={SECONDARY_BUTTON_CLASS}>Contacts</button>
+                      <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className={SECONDARY_BUTTON_CLASS}>Tasks</button>
+                      <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className={SECONDARY_BUTTON_CLASS}>Reporting</button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -651,7 +732,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report queue</div>
-                <div className="mt-1 text-sm text-zinc-600">Search by contact or provider, then open the report to review items and move dispute work into letters.</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {isClientReadonlyView
+                    ? "Search by contact or provider, then open the report to understand what changed and what the team is already working through."
+                    : "Search by contact or provider, then open the report to review items and move dispute work into letters."}
+                </div>
               </div>
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{loading ? "Loading" : `${filteredReports.length} reports`}</div>
             </div>
@@ -938,10 +1023,14 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   <div className="mt-1">{workflowNextStep}</div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className={SECONDARY_BUTTON_CLASS}>Contacts</button>
                   <button type="button" onClick={() => { window.location.href = routeSet.disputeHref; }} className={SECONDARY_BUTTON_CLASS}>Dispute letters</button>
-                  <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className={SECONDARY_BUTTON_CLASS}>Tasks</button>
-                  <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className={SECONDARY_BUTTON_CLASS}>Reporting</button>
+                  {showInternalWorkflowLinks ? (
+                    <>
+                      <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className={SECONDARY_BUTTON_CLASS}>Contacts</button>
+                      <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className={SECONDARY_BUTTON_CLASS}>Tasks</button>
+                      <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className={SECONDARY_BUTTON_CLASS}>Reporting</button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -991,28 +1080,49 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
                 <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current score</div>
-                  <div className="mt-2 flex items-end justify-between gap-3">
-                    <div className="text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.currentScore ?? "--"}</div>
-                    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: scoreTone(selectedReport.creditSnapshot?.currentScore ?? null).accent }}>{scoreTone(selectedReport.creditSnapshot?.currentScore ?? null).label}</div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="text-3xl font-bold leading-none text-zinc-900">{selectedReport.creditSnapshot?.currentScore ?? "--"}</div>
+                    <span
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-full"
+                      style={{ backgroundColor: `${scoreTone(selectedReport.creditSnapshot?.currentScore ?? null).accent}12`, color: scoreTone(selectedReport.creditSnapshot?.currentScore ?? null).accent }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                        <path d="M2 8.5L4.7 5.8L6.5 7.6L10 4.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M7.8 4.1H10V6.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
                   </div>
+                  <div className="mt-2 text-xs text-zinc-500">Snapshot from the latest imported report</div>
                 </div>
                 <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Target score</div>
-                  <div className="mt-2 text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.targetScore ?? "--"}</div>
-                  <div className="mt-1 text-xs text-zinc-500">Gap: {selectedReport.creditSnapshot?.scoreDelta ?? 0}</div>
+                  <div className="mt-3 text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.targetScore ?? "--"}</div>
+                  <div className="mt-2 text-xs text-zinc-500">Gap: {selectedReport.creditSnapshot?.scoreDelta ?? 0}</div>
                 </div>
                 <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Utilization</div>
-                  <div className="mt-2 text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.utilizationPercent ?? 0}%</div>
-                  <div className="mt-1 text-xs text-zinc-500">Keep this under 10% if possible</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Utilization</div>
+                    <div className="shrink-0 whitespace-nowrap text-right text-xs font-semibold uppercase tracking-wide leading-none" style={{ color: utilizationStatus.accent }}>
+                      {utilizationStatus.label}
+                    </div>
+                  </div>
+                  <div className="mt-3 text-3xl font-bold text-zinc-900">{utilizationValue ?? 0}%</div>
+                  <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-600">Target under 10%</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    {utilizationValue === null
+                      ? "Utilization will appear once a live report snapshot is available."
+                      : utilizationValue <= 10
+                        ? "This is sitting in the healthy range for the current file."
+                        : `About ${Math.max(utilizationValue - 10, 0)}% above the target range right now.`}
+                  </div>
                 </div>
                 <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Primary goal</div>
-                  <div className="mt-2 text-sm font-semibold text-zinc-900">{selectedReport.creditSnapshot?.goals?.[0] || "Set a score and funding goal"}</div>
-                  <div className="mt-1 text-xs text-zinc-500">{selectedReport.creditSnapshot?.nextMilestone || "Use this report to drive the next action."}</div>
+                  <div className="mt-3 text-sm font-semibold leading-6 text-zinc-900">{selectedReport.creditSnapshot?.goals?.[0] || "Set a score and funding goal"}</div>
+                  <div className="mt-2 text-xs leading-5 text-zinc-500">{selectedReport.creditSnapshot?.nextMilestone || "Use this report to drive the next action."}</div>
                 </div>
               </div>
             </div>
@@ -1057,7 +1167,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report items</div>
-                <div className="mt-1 text-sm text-zinc-600">Item tags and dispute workflow are internal to Purely until you draft or send a dispute letter.</div>
+                  <div className="mt-1 text-sm text-zinc-600">
+                    {isClientReadonlyView
+                      ? "Each item shows what Purely found, what still needs review, and whether dispute work is already underway."
+                      : "Item tags and dispute workflow are internal to Purely until you draft or send a dispute letter."}
+                  </div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
@@ -1143,7 +1257,9 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               {filteredItems.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">No matching items.</div>
               ) : (
-                filteredItems.map((it) => (
+                filteredItems.map((it) => {
+                  const itemTone = reportItemTone(it.auditTag);
+                  return (
                   <div key={it.id} className="rounded-[26px] border border-zinc-200 bg-white p-4 transition-colors duration-150 hover:border-zinc-300">
                     <div className="flex flex-col gap-4">
                       <button
@@ -1156,7 +1272,10 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                             <div className="truncate text-sm font-semibold text-zinc-900">{it.label}</div>
                             <div className="mt-1 text-xs text-zinc-500">{(it.bureau ? `${it.bureau} • ` : "") + (it.kind || "Uncategorized")}</div>
                           </div>
-                          <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{REPORT_FILTER_LABELS[it.auditTag]}</div>
+                          <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: itemTone.accent }}>
+                            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: itemTone.accent }} />
+                            <span>{REPORT_FILTER_LABELS[it.auditTag]}</span>
+                          </div>
                         </div>
                         <div className="text-xs text-zinc-500">{it.auditReason || itemSummaryText(it)}</div>
                       </button>
@@ -1165,7 +1284,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         <div className="text-sm text-zinc-600">
                           {itemSummaryText(it)}
                         </div>
-                        {it.auditTag === "NEGATIVE" ? (
+                        {!isClientReadonlyView && it.auditTag === "NEGATIVE" ? (
                           <button
                             type="button"
                             onClick={() => openDisputeComposer(it)}
@@ -1173,7 +1292,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                           >
                             Draft dispute letter
                           </button>
-                        ) : it.auditTag === "PENDING" ? (
+                        ) : !isClientReadonlyView && it.auditTag === "PENDING" ? (
                           <button type="button" onClick={() => setPriorityItemOpen(it)} className={SECONDARY_BUTTON_CLASS}>Review item</button>
                         ) : null}
                       </div>
@@ -1181,17 +1300,24 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
                     <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Automatic classification</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{isClientReadonlyView ? "What Purely found" : "Automatic classification"}</div>
                         <div className="mt-2 text-sm font-semibold text-zinc-900">{REPORT_FILTER_LABELS[it.auditTag]}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{it.auditTag === "PENDING" ? "Review the item details, then either move it to dispute or mark that no dispute is needed." : it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
+                        <div className="mt-1 text-sm text-zinc-600">
+                          {it.auditTag === "PENDING"
+                            ? isClientReadonlyView
+                              ? "This item is still being reviewed by the team before any next dispute step is chosen."
+                              : "Review the item details, then either move it to dispute or mark that no dispute is needed."
+                            : it.auditReason || "Classification is derived from the account status and dispute signals in the report."}
+                        </div>
                       </div>
                       <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Internal dispute workflow</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{isClientReadonlyView ? "Dispute status" : "Internal dispute workflow"}</div>
                         <div className="mt-2 text-sm text-zinc-700">{it.disputeStatus || "No dispute letter drafted yet"}</div>
                       </div>
                     </div>
                   </div>
-                ))
+                );
+                })
               )}
             </div>
             </div>
@@ -1249,7 +1375,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
                   <div>{priorityItemOpen.auditReason || itemSummaryText(priorityItemOpen)}</div>
                   {priorityItemOpen.auditTag === "PENDING" ? (
-                    <div>Review the details below. If it belongs in the next letter, open a dispute draft from here.</div>
+                    <div>
+                      {isClientReadonlyView
+                        ? "Review the details below to understand what the team is still checking before the next dispute decision is made."
+                        : "Review the details below. If it belongs in the next letter, open a dispute draft from here."}
+                    </div>
                   ) : null}
                 </div>
 
@@ -1270,11 +1400,14 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     </div>
                   ) : (
                     <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
-                      This item does not have extra imported detail fields on file yet. Use the details above to decide whether it needs a dispute draft.
+                      {isClientReadonlyView
+                        ? "This item does not have extra imported detail fields on file yet. Use the summary above as the current status snapshot for this issue."
+                        : "This item does not have extra imported detail fields on file yet. Use the details above to decide whether it needs a dispute draft."}
                     </div>
                   )}
                 </div>
 
+                {!isClientReadonlyView ? (
                 <div className="mt-6 flex flex-wrap justify-end gap-2">
                   {priorityItemOpen.auditTag === "NEGATIVE" ? (
                     <button type="button" onClick={() => {
@@ -1287,6 +1420,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     </>
                   ) : null}
                 </div>
+                ) : null}
               </div>
             </div>
           ) : null}

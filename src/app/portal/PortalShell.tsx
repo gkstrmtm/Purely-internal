@@ -48,6 +48,7 @@ const PORTAL_SERVICE_TITLE_BY_SLUG = new Map<string, string>(PORTAL_SERVICES.map
 const PORTAL_SERVICE_BY_SLUG = new Map<string, PortalService>(PORTAL_SERVICES.map((s) => [s.slug, s]));
 
 const DASHBOARD_SALES_SHORTCUT_SLUG = "sales-dashboard";
+const CREDIT_MEMBER_VISIBLE_SERVICE_SLUGS = new Set(["credit-reports", "dispute-letters"]);
 
 type Me = {
   user: { email: string; name: string; role: string; businessName?: string | null };
@@ -808,18 +809,23 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const signedInLabel = (me?.user.email ?? "").trim();
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
+  const portalMeLoaded = uiPreview || portalMe !== null;
+  const useRestrictedCreditMemberShell =
+    variant === "credit" && (!portalMeLoaded || (portalMe?.ok === true && portalMe.role === "MEMBER"));
 
   const canViewServiceKey = useCallback(
     (key: PortalServiceKey) => {
+      if (useRestrictedCreditMemberShell) return false;
       if (!portalMe || portalMe.ok !== true) return true;
       const p = (portalMe.permissions as any)?.[key];
       return Boolean(p?.view);
     },
-    [portalMe],
+    [portalMe, useRestrictedCreditMemberShell],
   );
 
   const canViewServiceSlug = useCallback(
     (slug: string) => {
+      if (useRestrictedCreditMemberShell) return CREDIT_MEMBER_VISIBLE_SERVICE_SLUGS.has(slug);
       switch (slug) {
         case "inbox":
           return canViewServiceKey("inbox") || canViewServiceKey("outbox");
@@ -842,7 +848,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           return canViewServiceKey(slug as any);
       }
     },
-    [canViewServiceKey, knownServiceKeys],
+    [canViewServiceKey, knownServiceKeys, useRestrictedCreditMemberShell],
   );
 
   const refreshAds = useCallback(
@@ -1091,6 +1097,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [claimReward, rewardAutoClaimed, rewardCampaign?.id, rewardCredits, rewardEligible, rewardMinWatchSeconds, rewardModalOpen, rewardWatchedSeconds]);
 
   const navItems = useMemo(() => {
+    if (useRestrictedCreditMemberShell) {
+      return [{ href: `${basePath}/app/services`, label: "Credit", key: "services", iconGlyph: <IconServicesGlyph /> }];
+    }
+
     const can = (key: PortalServiceKey) => {
       if (portalMe && portalMe.ok === true) {
         const p = (portalMe.permissions as any)?.[key];
@@ -1111,9 +1121,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         : []),
     ];
     return base;
-  }, [portalMe, basePath]);
+  }, [portalMe, basePath, useRestrictedCreditMemberShell]);
 
   const derivedTopKey = useMemo<"pura" | "dashboard" | "services" | "settings">(() => {
+    if (useRestrictedCreditMemberShell) return "services";
     if (isAiChat) return "pura";
     if (pathname === `${basePath}/app` || pathname === `${basePath}/app/`) return "dashboard";
     if (
@@ -1123,7 +1134,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       return "services";
     }
     return "settings";
-  }, [basePath, isAiChat, pathname]);
+  }, [basePath, isAiChat, pathname, useRestrictedCreditMemberShell]);
 
   const [sidebarModeOverride, setSidebarModeOverride] = useState<null | "pura" | "dashboard" | "services" | "settings">(null);
   useEffect(() => {
@@ -2677,14 +2688,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             {sidebarPanelTopKey === "services" && !showSidebarOverrideInServices ? (
               collapsed ? (
                 <div className="flex min-h-0 flex-1 flex-col items-center gap-1 py-1">
-                  <PortalNavLink
-                    href={`${basePath}/app/services`}
-                    title="See all"
-                    aria-label="See all"
-                    className={sidebarIconButtonClass(pathname === `${basePath}/app/services`)}
-                  >
-                    <IconEyeGlyph />
-                  </PortalNavLink>
+                  {useRestrictedCreditMemberShell ? null : (
+                    <PortalNavLink
+                      href={`${basePath}/app/services`}
+                      title="See all"
+                      aria-label="See all"
+                      className={sidebarIconButtonClass(pathname === `${basePath}/app/services`)}
+                    >
+                      <IconEyeGlyph />
+                    </PortalNavLink>
+                  )}
                   <div className="pa-portal-scroll mt-2 flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto px-1 pb-24">
                     {sidebarServiceGroups.flatMap((group) => {
                       return group.services.flatMap((svc) => {
@@ -2744,20 +2757,22 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </div>
               ) : (
               <div>
-                <div className="space-y-1">
-                  <PortalNavLink
-                    href={`${basePath}/app/services`}
-                    className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
-                      pathname === `${basePath}/app/services` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
-                    )}
-                  >
-                    <span className={sidebarIconChipClass(pathname === `${basePath}/app/services`)} aria-hidden>
-                      <IconEyeGlyph />
-                    </span>
-                    <span className="truncate">See all</span>
-                  </PortalNavLink>
-                </div>
+                {useRestrictedCreditMemberShell ? null : (
+                  <div className="space-y-1">
+                    <PortalNavLink
+                      href={`${basePath}/app/services`}
+                      className={classNames(
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
+                        pathname === `${basePath}/app/services` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <span className={sidebarIconChipClass(pathname === `${basePath}/app/services`)} aria-hidden>
+                        <IconEyeGlyph />
+                      </span>
+                      <span className="truncate">See all</span>
+                    </PortalNavLink>
+                  </div>
+                )}
 
                 <div className="mt-4">
                   <div className="mt-2 space-y-2">

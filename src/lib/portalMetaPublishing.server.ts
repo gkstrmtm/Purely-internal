@@ -218,12 +218,14 @@ export async function validateMetaInstagramFeedPublishDryRun(args: {
   return inspectMetaInstagramFeedPublishDryRun({
     connection: {
       state: normalizeConnectionState(readiness.status),
+      mode: readiness.integrationMode,
       connectedAccountLabel: normalizeString(readiness.connectedAccountLabel),
       connectedMetaUserId: normalizeString(readiness.connectedMetaUserId),
       hasAccessToken: Boolean(connection.secret?.accessToken),
       accessTokenExpiresAtIso: normalizeString(connection.bundle?.accessTokenExpiresAtIso || connection.secret?.accessTokenExpiresAtIso),
       grantedScopes: Array.isArray(connection.secret?.grantedScopes) ? connection.secret.grantedScopes : [],
       permissionGaps: Array.isArray(connection.bundle?.permissionGaps) ? connection.bundle.permissionGaps : [],
+      primaryDiagnostic: readiness.primaryDiagnostic,
     },
     profile: {
       distributionProvider: profile.distributionProvider,

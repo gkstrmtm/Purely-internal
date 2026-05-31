@@ -1,3 +1,5 @@
+import type { PortalMetaIntegrationMode } from "@/lib/portalMetaModes";
+
 export const META_PROVIDER_STATUSES = [
   "coming_soon",
   "not_connected",
@@ -30,9 +32,36 @@ export type PortalMetaCapability = {
   reason: string;
 };
 
+export type PortalMetaDiagnosticCode =
+  | "instagram_publish_permissions_unavailable"
+  | "destination_discovery_unavailable"
+  | "app_setup_incomplete";
+
+export type PortalMetaDiagnostic = {
+  code: PortalMetaDiagnosticCode;
+  message: string;
+  detail: string;
+  guidance: string[];
+  missingScopes: string[];
+};
+
+export type PortalMetaFutureMode = {
+  available: boolean;
+  note: string;
+};
+
+export type PortalMetaIntegrationModeSummary = {
+  mode: PortalMetaIntegrationMode;
+  label: string;
+  description: string;
+  recommended: boolean;
+};
+
 export type PortalMetaProviderReadiness = {
   provider: "meta";
   ownerScoped: true;
+  integrationMode: PortalMetaIntegrationMode;
+  availableModes: PortalMetaIntegrationModeSummary[];
   status: MetaProviderStatus;
   oauthConfigured: boolean;
   encryptionConfigured: boolean;
@@ -45,6 +74,7 @@ export type PortalMetaProviderReadiness = {
   connectedMetaUserId: string | null;
   connectedMetaUserName: string | null;
   connectedMetaUserEmail: string | null;
+  grantedScopes: string[];
   permissionGaps: string[];
   publishingAvailable: boolean;
   metricsAvailable: boolean;
@@ -55,6 +85,11 @@ export type PortalMetaProviderReadiness = {
   explanation: string;
   targetAccounts: PortalMetaTargetAccount[];
   targetAccountBlockers: string[];
+  diagnostics: PortalMetaDiagnostic[];
+  primaryDiagnostic: PortalMetaDiagnostic | null;
+  futureModes: {
+    instagramLogin: PortalMetaFutureMode;
+  };
   capabilities: {
     publish: PortalMetaCapability;
     metrics: PortalMetaCapability;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { createMetaOAuthState, getDefaultMetaSettingsPath, getMetaProviderConnectUrl } from "@/lib/portalMetaIntegration.server";
+import { createMetaOAuthState, normalizeMetaReturnPath, getMetaProviderConnectUrl } from "@/lib/portalMetaIntegration.server";
+import { DEFAULT_META_INTEGRATION_MODE, normalizePortalMetaIntegrationMode } from "@/lib/portalMetaModes";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 
 export const runtime = "nodejs";
@@ -9,12 +10,6 @@ export const revalidate = 0;
 
 const META_STATE_COOKIE = "portal_meta_oauth_state";
 const META_CALLBACK_PATH = "/api/portal/integrations/meta/callback";
-
-function safeNextPath(raw: string | null, fallback: string) {
-  const value = String(raw || "").trim();
-  if (!value.startsWith("/") || value.startsWith("//")) return fallback;
-  return value;
-}
 
 export async function GET(req: Request) {
   const auth = await requireClientSessionForService("media", "edit");
@@ -30,11 +25,12 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-  const nextPath = safeNextPath(url.searchParams.get("next"), getDefaultMetaSettingsPath(portalVariant));
+  const nextPath = normalizeMetaReturnPath(url.searchParams.get("next"), portalVariant);
+  const integrationMode = normalizePortalMetaIntegrationMode(url.searchParams.get("mode"), DEFAULT_META_INTEGRATION_MODE);
 
   try {
-    const state = createMetaOAuthState({ ownerId, memberId, portalVariant, nextPath });
-    const redirectTo = getMetaProviderConnectUrl({ state });
+    const state = createMetaOAuthState({ ownerId, memberId, portalVariant, nextPath, integrationMode });
+    const redirectTo = getMetaProviderConnectUrl({ state, integrationMode });
     const response = NextResponse.redirect(redirectTo, { status: 302 });
     response.cookies.set({
       name: META_STATE_COOKIE,
