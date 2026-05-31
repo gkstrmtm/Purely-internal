@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import type { PortalVariant } from "@/lib/portalVariant";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -20,12 +20,13 @@ type InviteJson = {
 export function PortalInviteAcceptClient({
   token,
   invite,
+  portalVariant,
 }: {
   token: string;
   invite: InviteJson | null;
+  portalVariant?: PortalVariant;
 }) {
   const toast = useToast();
-  const pathname = usePathname();
   const lastAutoToastRef = useRef<string | null>(null);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -72,14 +73,13 @@ export function PortalInviteAcceptClient({
       const res = await fetch("/api/public/portal-invite/accept", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, name: safeName, password }),
+        body: JSON.stringify({ token, name: safeName, password, portalVariant: portalVariant || "portal" }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) {
         throw new Error(String(json?.error || "Failed to accept invite"));
       }
-
-      window.location.href = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
+  window.location.href = portalVariant === "credit" ? "/credit/app/services/credit-reports" : "/portal/app";
     } catch (e: any) {
       setError(String(e?.message || "Failed to accept invite"));
     } finally {
@@ -95,8 +95,8 @@ export function PortalInviteAcceptClient({
         </Link>
 
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
-          <h1 className="text-2xl font-bold text-brand-ink">Accept invite</h1>
-          <p className="mt-2 text-sm text-zinc-600">Join a client portal account.</p>
+          <h1 className="text-2xl font-bold text-brand-ink">{portalVariant === "credit" ? "Set up your credit portal" : "Accept invite"}</h1>
+          <p className="mt-2 text-sm text-zinc-600">{portalVariant === "credit" ? "Create your password to open your Purely Credit account." : "Join a client portal account."}</p>
 
           {!invite ? (
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">Invite not found.</div>
@@ -154,7 +154,7 @@ export function PortalInviteAcceptClient({
 
               <div className="text-center text-xs text-zinc-500">
                 Already have an account?{" "}
-                <Link href="/login?from=%2Fportal%2Fapp" className="font-semibold text-brand-ink hover:underline">
+                <Link href={portalVariant === "credit" ? "/credit/login?from=%2Fcredit%2Fapp%2Fservices%2Fcredit-reports" : "/portal/login?from=%2Fportal%2Fapp"} className="font-semibold text-brand-ink hover:underline">
                   Log in
                 </Link>
               </div>

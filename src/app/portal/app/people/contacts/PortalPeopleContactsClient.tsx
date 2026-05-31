@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { IconEdit, IconFunnel, IconSearch } from "@/app/portal/PortalIcons";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { SignaturePad } from "@/components/SignaturePad";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -78,6 +79,7 @@ type ContactRow = {
   name: string;
   email: string | null;
   phone: string | null;
+  portalAccessStatus?: "missing_email" | "not_provisioned" | "invite_pending" | "active";
   createdAtIso: string | null;
   updatedAtIso: string | null;
   tags: ContactTag[];
@@ -228,6 +230,14 @@ type ContactDetailPayload = {
     name: string;
     email: string | null;
     phone: string | null;
+    portalAccess?: {
+      email: string | null;
+      status: "missing_email" | "not_provisioned" | "invite_pending" | "active";
+      memberUserId: string | null;
+      invitedAtIso: string | null;
+      expiresAtIso: string | null;
+      acceptedAtIso: string | null;
+    } | null;
     customVariables?: Record<string, string> | null;
     createdAtIso: string;
     updatedAtIso: string;
@@ -355,6 +365,79 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function getPeopleClarityState(input: {
+  kind: "lead" | "contact";
+  portalAccessStatus?: ContactRow["portalAccessStatus"];
+}): {
+  label: "Lead" | "Needs access" | "Invite pending" | "Active";
+  tone: string;
+  nextStep: string;
+} {
+  if (input.kind === "lead") {
+    return {
+      label: "Lead",
+      tone: "border-amber-200 bg-amber-50 text-amber-900",
+      nextStep: "Review the lead and link it to a real client record when you're ready to work it.",
+    };
+  }
+
+  if (input.portalAccessStatus === "active") {
+    return {
+      label: "Active",
+      tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
+      nextStep: "Client access is live. You can review their credit-side details and resend access only if needed.",
+    };
+  }
+
+  if (input.portalAccessStatus === "invite_pending") {
+    return {
+      label: "Invite pending",
+      tone: "border-amber-200 bg-amber-50 text-amber-900",
+      nextStep: "The access email has already been sent. The client still needs to open it and create their password.",
+    };
+  }
+
+  return {
+    label: "Needs access",
+    tone: "border-zinc-200 bg-zinc-100 text-zinc-700",
+    nextStep: "This client record is in place, but portal access has not been sent yet.",
+  };
+}
+
+type PortalAccessStatus = NonNullable<NonNullable<ContactDetailPayload["contact"]["portalAccess"]>["status"]>;
+
+function getPortalAccessPresentation(status?: ContactRow["portalAccessStatus"] | PortalAccessStatus | null) {
+  if (status === "active") {
+    return {
+      label: "Access active",
+      dotTone: "bg-emerald-500",
+      body: "The client can sign in to the credit portal with their email and current password.",
+    };
+  }
+
+  if (status === "invite_pending") {
+    return {
+      label: "Access pending",
+      dotTone: "bg-amber-500",
+      body: "A secure access email has already been sent. The client still needs to open it and create their password.",
+    };
+  }
+
+  if (status === "missing_email") {
+    return {
+      label: "Email needed",
+      dotTone: "bg-zinc-400",
+      body: "Add the client email first, then send their secure portal access link from here.",
+    };
+  }
+
+  return {
+    label: "Access not sent",
+    dotTone: "bg-zinc-400",
+    body: "When you send access, the client receives a secure email to create their password and enter the credit portal.",
+  };
+}
+
 function upsertCustomVarRows(rows: CustomVarRow[], entries: Array<{ key: string; value: string }>) {
   const next = [...rows];
   for (const entry of entries) {
@@ -453,6 +536,7 @@ export function PortalPeopleContactsClient() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<ContactDetailPayload["contact"] | null>(null);
+  const [sendingPortalAccess, setSendingPortalAccess] = useState(false);
   const [detailTags, setDetailTags] = useState<ContactTag[]>([]);
   const [tagBusyId, setTagBusyId] = useState<string | null>(null);
   const [createTagOpen, setCreateTagOpen] = useState(false);
@@ -511,6 +595,12 @@ export function PortalPeopleContactsClient() {
     }),
     [detail?.customVariables],
   );
+  const portalAccess = detail?.portalAccess || null;
+  const detailClarityState = useMemo(
+    () => getPeopleClarityState({ kind: "contact", portalAccessStatus: portalAccess?.status }),
+    [portalAccess?.status],
+  );
+  const portalAccessPresentation = useMemo(() => getPortalAccessPresentation(portalAccess?.status), [portalAccess?.status]);
   const editCreditValues = useMemo(
     () => ({
       businessName: getCustomVariableValue(customVariablesFromRows(editCustomVarRows), "business_name"),
@@ -1201,6 +1291,38 @@ export function PortalPeopleContactsClient() {
     }
   }
 
+  async function sendClientPortalAccess() {
+    if (!selectedContactId) return;
+    setSendingPortalAccess(true);
+    try {
+      const res = await fetch(`/api/portal/contacts/${encodeURIComponent(selectedContactId)}/client-access`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ portalVariant: isCreditApp ? "credit" : "portal" }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok) {
+        throw new Error(String(json?.error || "Failed to send client access"));
+      }
+
+      if (json?.emailDelivery?.ok) {
+        toast.success(portalAccess?.status === "invite_pending" ? "Access email resent." : "Access email sent.");
+      } else {
+        const fallbackLink = typeof json?.link === "string" ? String(json.link) : "";
+        if (fallbackLink) {
+          await navigator.clipboard.writeText(fallbackLink).catch(() => null);
+        }
+        toast.error("Access link created, but email delivery failed. The link was copied so you can send it manually.");
+      }
+
+      await openContact(selectedContactId);
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to send client access"));
+    } finally {
+      setSendingPortalAccess(false);
+    }
+  }
+
   function openLeadModal(lead: LeadRow) {
     setActiveLeadId(lead.id);
     setLeadBusinessName(lead.businessName || "");
@@ -1635,7 +1757,12 @@ export function PortalPeopleContactsClient() {
       </div>
 
       {loading ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
+          <div className="flex items-center gap-3">
+            <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+            <span>Loading</span>
+          </div>
+        </div>
       ) : null}
 
       {!loading && !data ? (
@@ -1986,6 +2113,11 @@ export function PortalPeopleContactsClient() {
                             <td className="px-3 py-3 min-w-0">
                               <div className="min-w-0">
                                 <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
+                                <div className="mt-1">
+                                  <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                                    Lead
+                                  </span>
+                                </div>
                               </div>
                             </td>
                             <td className="px-3 py-3 min-w-0">
@@ -2023,6 +2155,16 @@ export function PortalPeopleContactsClient() {
                             <td className="px-3 py-3 min-w-0">
                               <div className="min-w-0">
                                 <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <span
+                                    className={classNames(
+                                      "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                                      getPeopleClarityState({ kind: "contact", portalAccessStatus: c.portalAccessStatus }).tone,
+                                    )}
+                                  >
+                                    {getPeopleClarityState({ kind: "contact", portalAccessStatus: c.portalAccessStatus }).label}
+                                  </span>
+                                </div>
                                 {c.tags?.length ? (
                                   <div className="mt-1 flex max-w-full flex-wrap gap-1 overflow-hidden">
                                     {c.tags.slice(0, 3).map((t) => (
@@ -2063,29 +2205,67 @@ export function PortalPeopleContactsClient() {
             </div>
           </div>
 
-          <div className="mt-6 hidden grid-cols-1 gap-6 sm:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
+          <div className="mt-6 hidden sm:block">
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <div className="text-base font-semibold text-zinc-900">
-                    Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "N/A"})
-                    {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
+                    {mobilePeopleFilter === "unlinked"
+                      ? <>Unlinked leads ({data.unlinkedLeads.length} of {typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : "N/A"})</>
+                      : <>Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "N/A"})</>}
+                    {q.trim() ? (
+                      <span className="ml-2 text-xs font-semibold text-zinc-500">
+                        Filtered: {mobilePeopleFilter === "unlinked" ? filteredLeads.length : filteredContacts.length}
+                      </span>
+                    ) : null}
                   </div>
-                  <div className="mt-1 text-sm text-zinc-600">{isCreditApp ? "Manage credit client details before report import, dispute drafting, and mailed follow-up." : "Manage and open contact details."}</div>
+                  <div className="mt-1 text-sm text-zinc-600">
+                    {mobilePeopleFilter === "unlinked"
+                      ? "Review inbound leads that still need to be linked to a client record."
+                      : isCreditApp
+                        ? "Manage credit client details before report import, dispute drafting, and mailed follow-up."
+                        : "Manage and open contact details."}
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {duplicateGroupsCount > 0 ? (
+                  <div className="inline-flex rounded-full border border-zinc-200 bg-zinc-50 p-1 text-sm font-semibold text-zinc-700">
                     <button
                       type="button"
-                      onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`, { scroll: false })}
-                      className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                      title="Duplicates are grouped by phone number"
+                      onClick={() => setMobilePeopleFilter("contacts")}
+                      className={classNames(
+                        "rounded-full px-4 py-2 transition",
+                        mobilePeopleFilter !== "unlinked" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600",
+                      )}
                     >
-                      Duplicates ({duplicateGroupsCount})
+                      Contacts
                     </button>
-                  ) : duplicatesLoading ? (
-                    <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
+                    <button
+                      type="button"
+                      onClick={() => setMobilePeopleFilter("unlinked")}
+                      className={classNames(
+                        "rounded-full px-4 py-2 transition",
+                        mobilePeopleFilter === "unlinked" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600",
+                      )}
+                    >
+                      Unlinked leads
+                    </button>
+                  </div>
+
+                  {mobilePeopleFilter !== "unlinked" ? (
+                    duplicateGroupsCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`, { scroll: false })}
+                        className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                        title="Duplicates are grouped by phone number"
+                      >
+                        Duplicates ({duplicateGroupsCount})
+                      </button>
+                    ) : duplicatesLoading ? (
+                      <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
+                    ) : null
                   ) : null}
+
                   <button
                     type="button"
                     onClick={openImportModal}
@@ -2096,7 +2276,7 @@ export function PortalPeopleContactsClient() {
                 </div>
               </div>
 
-              {selectedContactIds.length ? (
+              {mobilePeopleFilter !== "unlinked" && selectedContactIds.length ? (
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-xs font-semibold text-zinc-700">{selectedContactIds.length} selected</div>
@@ -2306,296 +2486,263 @@ export function PortalPeopleContactsClient() {
                 </div>
               ) : null}
 
-              {(() => {
-                const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
-                if (contactsTotal < 20) return null;
-                return (
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                    <div className="text-xs text-zinc-500">
-                      Page {contactsCursorStack.length}
-                      <span className="mx-1">•</span>
-                      50 per page
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={contactsCursorStack.length <= 1}
-                        onClick={() =>
-                          void (async () => {
-                            const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
-                            const ok = await load({ contactsCursor: prev, leadsCursor });
-                            if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-                          })()
-                        }
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                      >
-                        Back
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!contactsNextCursor}
-                        onClick={() =>
-                          void (async () => {
-                            if (!contactsNextCursor) return;
-                            const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
-                            if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
-                          })()
-                        }
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
+              {mobilePeopleFilter === "unlinked" ? (
+                <>
+                  {(() => {
+                    const leadsTotal = typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : data.unlinkedLeads.length;
+                    if (leadsTotal < 20) return null;
+                    return (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                        <div className="text-xs text-zinc-500">
+                          Page {leadsCursorStack.length}
+                          <span className="mx-1">•</span>
+                          50 per page
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={leadsCursorStack.length <= 1}
+                            onClick={() =>
+                              void (async () => {
+                                const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
+                                const ok = await load({ contactsCursor, leadsCursor: prev });
+                                if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                              })()
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Back
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!leadsNextCursor}
+                            onClick={() =>
+                              void (async () => {
+                                if (!leadsNextCursor) return;
+                                const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
+                                if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
+                              })()
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
-              <div className="mt-4 rounded-2xl border border-zinc-200 overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    <tr>
-                      <th className="px-3 py-2 sm:px-4 sm:py-3 w-10">
-                        <input
-                          ref={selectAllRef}
-                          type="checkbox"
-                          checked={allVisibleSelected}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setSelectedContactIds((prev) => {
-                              const set = new Set(prev);
-                              for (const id of visibleContactIds) {
-                                if (checked) set.add(id);
-                                else set.delete(id);
-                              }
-                              return Array.from(set);
-                            });
-                          }}
-                          className="h-4 w-4 rounded border-zinc-300 text-blue-600"
-                          aria-label="Select all visible contacts"
-                        />
-                      </th>
-                      <th className="px-3 py-2 sm:px-4 sm:py-3">Name</th>
-                      <th className="px-3 py-2 sm:px-4 sm:py-3">Email</th>
-                      <th className="px-3 py-2 sm:px-4 sm:py-3">Phone</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredContacts.length ? (
-                      filteredContacts.slice(0, 50).map((c) => (
-                        <tr
-                          key={c.id}
-                          className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
-                          onClick={() => void openContact(c.id)}
-                        >
-                          <td className="px-3 py-2 sm:px-4 sm:py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                  <div className="mt-4 rounded-2xl border border-zinc-200 overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        <tr>
+                          <th className="px-3 py-2 sm:px-4 sm:py-3">Name</th>
+                          <th className="px-3 py-2 sm:px-4 sm:py-3">Email</th>
+                          <th className="px-3 py-2 sm:px-4 sm:py-3">Phone</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredLeads.length ? (
+                          filteredLeads.slice(0, 50).map((l) => (
+                            <tr
+                              key={l.id}
+                              className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
+                              onClick={() => openLeadModal(l)}
+                            >
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                                <div className="min-w-0">
+                                  <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
+                                  <div className="mt-1">
+                                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                                      Lead
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                                <div className="truncate">{l.email || "N/A"}</div>
+                              </td>
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                                <div className="truncate">{l.phone || "N/A"}</div>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr className="border-t border-zinc-200">
+                            <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={3}>
+                              No unlinked leads.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mt-3 text-xs text-zinc-500">Showing {data.unlinkedLeads.length} on this page.</div>
+                </>
+              ) : (
+                <>
+                  {(() => {
+                    const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
+                    if (contactsTotal < 20) return null;
+                    return (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                        <div className="text-xs text-zinc-500">
+                          Page {contactsCursorStack.length}
+                          <span className="mx-1">•</span>
+                          50 per page
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={contactsCursorStack.length <= 1}
+                            onClick={() =>
+                              void (async () => {
+                                const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
+                                const ok = await load({ contactsCursor: prev, leadsCursor });
+                                if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                              })()
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Back
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!contactsNextCursor}
+                            onClick={() =>
+                              void (async () => {
+                                if (!contactsNextCursor) return;
+                                const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
+                                if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
+                              })()
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="mt-4 rounded-2xl border border-zinc-200 overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        <tr>
+                          <th className="px-3 py-2 sm:px-4 sm:py-3 w-10">
                             <input
+                              ref={selectAllRef}
                               type="checkbox"
-                              checked={selectedContactSet.has(c.id)}
+                              checked={allVisibleSelected}
                               onChange={(e) => {
                                 const checked = e.target.checked;
                                 setSelectedContactIds((prev) => {
                                   const set = new Set(prev);
-                                  if (checked) set.add(c.id);
-                                  else set.delete(c.id);
+                                  for (const id of visibleContactIds) {
+                                    if (checked) set.add(id);
+                                    else set.delete(id);
+                                  }
                                   return Array.from(set);
                                 });
                               }}
                               className="h-4 w-4 rounded border-zinc-300 text-blue-600"
-                              aria-label={`Select ${c.name || "contact"}`}
+                              aria-label="Select all visible contacts"
                             />
-                          </td>
-                          <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                            <div className="min-w-0">
-                              <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
-                              {c.tags?.length ? (
-                                <div className="mt-1 flex max-w-full flex-wrap gap-1 overflow-hidden">
-                                  {c.tags.slice(0, 3).map((t) => (
+                          </th>
+                          <th className="px-3 py-2 sm:px-4 sm:py-3">Name</th>
+                          <th className="px-3 py-2 sm:px-4 sm:py-3">Email</th>
+                          <th className="px-3 py-2 sm:px-4 sm:py-3">Phone</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredContacts.length ? (
+                          filteredContacts.slice(0, 50).map((c) => (
+                            <tr
+                              key={c.id}
+                              className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
+                              onClick={() => void openContact(c.id)}
+                            >
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedContactSet.has(c.id)}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setSelectedContactIds((prev) => {
+                                      const set = new Set(prev);
+                                      if (checked) set.add(c.id);
+                                      else set.delete(c.id);
+                                      return Array.from(set);
+                                    });
+                                  }}
+                                  className="h-4 w-4 rounded border-zinc-300 text-blue-600"
+                                  aria-label={`Select ${c.name || "contact"}`}
+                                />
+                              </td>
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                                <div className="min-w-0">
+                                  <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2">
                                     <span
-                                      key={t.id}
-                                      className="inline-flex max-w-40 items-center truncate rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 sm:max-w-52"
-                                      title={t.name}
+                                      className={classNames(
+                                        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                                        getPeopleClarityState({ kind: "contact", portalAccessStatus: c.portalAccessStatus }).tone,
+                                      )}
                                     >
-                                      {t.name}
+                                      {getPeopleClarityState({ kind: "contact", portalAccessStatus: c.portalAccessStatus }).label}
                                     </span>
-                                  ))}
-                                  {c.tags.length > 3 ? (
-                                    <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 3}</span>
+                                  </div>
+                                  {c.tags?.length ? (
+                                    <div className="mt-1 flex max-w-full flex-wrap gap-1 overflow-hidden">
+                                      {c.tags.slice(0, 3).map((t) => (
+                                        <span
+                                          key={t.id}
+                                          className="inline-flex max-w-40 items-center truncate rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 sm:max-w-52"
+                                          title={t.name}
+                                        >
+                                          {t.name}
+                                        </span>
+                                      ))}
+                                      {c.tags.length > 3 ? (
+                                        <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 3}</span>
+                                      ) : null}
+                                    </div>
                                   ) : null}
                                 </div>
-                              ) : null}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                            <div className="truncate">{c.email || "N/A"}</div>
-                          </td>
-                          <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                            <div className="truncate">{c.phone || "N/A"}</div>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr className="border-t border-zinc-200">
-                        <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={4}>
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>No contacts yet.</div>
-                            <button
-                              type="button"
-                              onClick={openImportModal}
-                              className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-                            >
-                              + New
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-            {(() => {
-              const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
-              if (contactsTotal < 20) return null;
-              return (
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs text-zinc-500">
-                    Page {contactsCursorStack.length}
-                    <span className="mx-1">•</span>
-                    50 per page
+                              </td>
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                                <div className="truncate">{c.email || "N/A"}</div>
+                              </td>
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                                <div className="truncate">{c.phone || "N/A"}</div>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr className="border-t border-zinc-200">
+                            <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={4}>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>No contacts yet.</div>
+                                <button
+                                  type="button"
+                                  onClick={openImportModal}
+                                  className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                                >
+                                  + New
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={contactsCursorStack.length <= 1}
-                      onClick={() =>
-                        void (async () => {
-                          const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
-                          const ok = await load({ contactsCursor: prev, leadsCursor });
-                          if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-                        })()
-                      }
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!contactsNextCursor}
-                      onClick={() =>
-                        void (async () => {
-                          if (!contactsNextCursor) return;
-                          const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
-                          if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
-                        })()
-                      }
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
 
-            <div className="mt-3 text-xs text-zinc-500">Showing {data.contacts.length} on this page.</div>
-          </div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-base font-semibold text-zinc-900">
-                Unlinked leads ({data.unlinkedLeads.length} of {typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : "N/A"})
-                {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredLeads.length}</span> : null}
-              </div>
-              <div className="text-sm text-zinc-600">Review inbound leads that aren’t linked yet.</div>
+                  <div className="mt-3 text-xs text-zinc-500">Showing {data.contacts.length} on this page.</div>
+                </>
+              )}
             </div>
-
-            {(() => {
-              const leadsTotal = typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : data.unlinkedLeads.length;
-              if (leadsTotal < 20) return null;
-              return (
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                  <div className="text-xs text-zinc-500">
-                    Page {leadsCursorStack.length}
-                    <span className="mx-1">•</span>
-                    50 per page
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={leadsCursorStack.length <= 1}
-                      onClick={() =>
-                        void (async () => {
-                          const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
-                          const ok = await load({ contactsCursor, leadsCursor: prev });
-                          if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-                        })()
-                      }
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!leadsNextCursor}
-                      onClick={() =>
-                        void (async () => {
-                          if (!leadsNextCursor) return;
-                          const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
-                          if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
-                        })()
-                      }
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-
-            <div className="mt-4 rounded-2xl border border-zinc-200 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  <tr>
-                    <th className="px-3 py-2 sm:px-4 sm:py-3">Name</th>
-                    <th className="px-3 py-2 sm:px-4 sm:py-3">Email</th>
-                    <th className="px-3 py-2 sm:px-4 sm:py-3">Phone</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLeads.length ? (
-                    filteredLeads.slice(0, 50).map((l) => (
-                      <tr
-                        key={l.id}
-                        className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
-                        onClick={() => openLeadModal(l)}
-                      >
-                        <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                          <div className="min-w-0">
-                            <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                          <div className="truncate">{l.email || "N/A"}</div>
-                        </td>
-                        <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                          <div className="truncate">{l.phone || "N/A"}</div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr className="border-t border-zinc-200">
-                      <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={3}>
-                        No unlinked leads.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-3 text-xs text-zinc-500">Showing {data.unlinkedLeads.length} on this page.</div>
-          </div>
           </div>
         </>
       ) : null}
@@ -3442,46 +3589,267 @@ export function PortalPeopleContactsClient() {
             />
 
             {detailLoading ? (
-              <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-                Loading…
+              <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                <div className="flex items-center gap-3">
+                  <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+                  <span>Loading</span>
+                </div>
               </div>
             ) : null}
 
-            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className={classNames("mt-6 grid grid-cols-1 gap-4", isCreditApp ? "" : "sm:grid-cols-2")}>
               <div className="rounded-2xl border border-zinc-200 p-4">
-                <div className="text-xs font-semibold text-zinc-600">Name</div>
-                {editingContact ? (
-                  <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-(--color-brand-blue)"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    placeholder="Full name"
-                  />
-                ) : (
-                  <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "N/A"}</div>
-                )}
-                <div className="mt-3 text-xs font-semibold text-zinc-600">Email</div>
-                {editingContact ? (
-                  <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
-                    value={editEmail}
-                    onChange={(e) => setEditEmail(e.target.value)}
-                    placeholder="email@company.com"
-                  />
-                ) : (
-                  <div className="mt-1 text-sm text-zinc-800">{detail?.email ?? "N/A"}</div>
-                )}
-                <div className="mt-3 text-xs font-semibold text-zinc-600">Phone</div>
-                {editingContact ? (
-                  <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
-                    value={editPhone}
-                    onChange={(e) => setEditPhone(e.target.value)}
-                    placeholder="+15551234567"
-                  />
-                ) : (
-                  <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "N/A"}</div>
-                )}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-600">Name</div>
+                    {editingContact ? (
+                      <input
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Full name"
+                      />
+                    ) : (
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "N/A"}</div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-600">Email</div>
+                    {editingContact ? (
+                      <input
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                        value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        placeholder="email@company.com"
+                      />
+                    ) : (
+                      <div className="mt-1 text-sm text-zinc-800 break-all">{detail?.email ?? "N/A"}</div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-600">Phone</div>
+                    {editingContact ? (
+                      <input
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                        value={editPhone}
+                        onChange={(e) => setEditPhone(e.target.value)}
+                        placeholder="+15551234567"
+                      />
+                    ) : (
+                      <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "N/A"}</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2 overflow-hidden">
+                  {detailTags.length ? (
+                    detailTags.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        disabled={tagBusyId === t.id}
+                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                        title="Remove tag"
+                        onClick={() => removeTagFromSelected(t.id)}
+                      >
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: t.color || "#e4e4e7" }}
+                        />
+                        <span className="max-w-52 truncate">{t.name}</span>
+                        <span className="text-zinc-400">×</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="text-sm text-zinc-600">No tags yet.</div>
+                  )}
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Add tag</label>
+                    <div className="mt-1">
+                      <PortalSelectDropdown<string>
+                        value={""}
+                        onChange={(tagId) => {
+                          if (!tagId) return;
+                          if (tagId === "__new_tag__") {
+                            setCreateTagOpen(true);
+                            return;
+                          }
+                          void addTagToSelected(tagId);
+                        }}
+                        disabled={!selectedContactId}
+                        options={[
+                          { value: "", label: "Select a tag…", disabled: true },
+                          ...ownerTags
+                            .filter((t) => !detailTags.some((x) => x.id === t.id))
+                            .map((t) => ({ value: t.id, label: t.name })),
+                          { value: "__new_tag__", label: "New tag…" },
+                        ]}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-(--color-brand-blue)"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                    {!editingContact ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                        onClick={() => {
+                          if (!detail) return;
+                          const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(detail?.customVariables), knownCustomVarKeys);
+                          lastSavedContactEditSigRef.current = stableContactEditSignature({
+                            name: detail?.name ?? "",
+                            email: detail?.email ?? "",
+                            phone: detail?.phone ?? "",
+                            customVariables: customVariablesFromRows(nextRows),
+                          });
+                          setEditCustomVarRows(nextRows);
+                          setEditingContact(true);
+                        }}
+                        disabled={!detail}
+                      >
+                        <IconEdit size={16} />
+                        <span className="ml-2">Edit</span>
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => {
+                            setEditingContact(false);
+                            setEditName(detail?.name ?? "");
+                            setEditEmail(detail?.email ?? "");
+                            setEditPhone(detail?.phone ?? "");
+                            const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(detail?.customVariables), knownCustomVarKeys);
+                            setEditCustomVarRows(nextRows);
+                            lastSavedContactEditSigRef.current = stableContactEditSignature({
+                              name: detail?.name ?? "",
+                              email: detail?.email ?? "",
+                              phone: detail?.phone ?? "",
+                              customVariables: customVariablesFromRows(nextRows),
+                            });
+                          }}
+                          disabled={savingContact}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                          onClick={() => void saveContactEdits()}
+                          disabled={savingContact || !editContactDirty}
+                        >
+                          {savingContact ? "Saving…" : editContactDirty ? "Save" : "Saved"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {createTagOpen ? (
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <input
+                        className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                        placeholder="Tag name"
+                        value={createTagName}
+                        onChange={(e) => setCreateTagName(e.target.value)}
+                        autoFocus
+                      />
+                      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
+                        {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                          const selected = c === createTagColor;
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              className={classNames(
+                                "h-6 w-6 rounded-full border",
+                                selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                              )}
+                              style={{ backgroundColor: c }}
+                              onClick={() => setCreateTagColor(c)}
+                              title={c}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={() => {
+                          setCreateTagOpen(false);
+                          setCreateTagName("");
+                          setCreateTagColor("#2563EB");
+                        }}
+                        disabled={createTagBusy}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                        disabled={createTagBusy}
+                        onClick={() => void createOwnerTag()}
+                      >
+                        {createTagBusy ? "Creating…" : "Create"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-3 text-xs text-zinc-500">
+                  Created: {detail?.createdAtIso ? new Date(detail.createdAtIso).toLocaleString() : "N/A"}
+                  {detail?.updatedAtIso ? ` • Updated: ${new Date(detail.updatedAtIso).toLocaleString()}` : ""}
+                </div>
+
+                {isCreditApp ? (
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Client portal access</div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-900">
+                          <span className={classNames("h-2.5 w-2.5 rounded-full", portalAccessPresentation.dotTone)} />
+                          <span>{portalAccessPresentation.label}</span>
+                        </div>
+                        <div className="mt-1 text-sm leading-6 text-zinc-600">
+                          {portalAccessPresentation.body} {detailClarityState.nextStep}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={sendingPortalAccess || editingContact || savingContact || portalAccess?.status === "active" || !(detail?.email || "").trim()}
+                        onClick={() => void sendClientPortalAccess()}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {sendingPortalAccess ? "Sending…" : portalAccess?.status === "invite_pending" ? "Resend access" : "Send client access"}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-zinc-600 sm:grid-cols-2">
+                      <div>
+                        Email: <span className="font-medium text-zinc-800">{portalAccess?.email || detail?.email || "Missing"}</span>
+                      </div>
+                      <div>
+                        Client view: <span className="font-medium text-zinc-800">Credit reports, dispute letters, read-only progress</span>
+                      </div>
+                      {portalAccess?.invitedAtIso ? <div>Last sent {new Date(portalAccess.invitedAtIso).toLocaleString()}</div> : null}
+                      {portalAccess?.expiresAtIso && portalAccess?.status === "invite_pending" ? <div>Secure link expires {new Date(portalAccess.expiresAtIso).toLocaleString()}</div> : null}
+                      {portalAccess?.acceptedAtIso ? <div>Accepted {new Date(portalAccess.acceptedAtIso).toLocaleString()}</div> : null}
+                    </div>
+
+                    <div className="mt-3 text-[11px] text-zinc-500">
+                      The client receives a secure email link to create their password. Plain-text passwords are not emailed.
+                    </div>
+                    {editingContact ? <div className="mt-2 text-[11px] text-zinc-500">Save contact changes before sending portal access.</div> : null}
+                  </div>
+                ) : null}
 
                 {isCreditApp ? (
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -3758,64 +4126,6 @@ export function PortalPeopleContactsClient() {
                     New Email
                   </a>
 
-                  <div className="ml-auto flex items-center gap-2">
-                    {!editingContact ? (
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
-                        onClick={() => {
-                          if (!detail) return;
-                          const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(detail?.customVariables), knownCustomVarKeys);
-                          lastSavedContactEditSigRef.current = stableContactEditSignature({
-                            name: detail?.name ?? "",
-                            email: detail?.email ?? "",
-                            phone: detail?.phone ?? "",
-                            customVariables: customVariablesFromRows(nextRows),
-                          });
-                          setEditCustomVarRows(nextRows);
-                          setEditingContact(true);
-                        }}
-                        disabled={!detail}
-                        aria-label="Edit"
-                        title="Edit"
-                      >
-                        <IconEdit size={16} />
-                        <span className="sr-only">Edit</span>
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                          onClick={() => {
-                            setEditingContact(false);
-                            setEditName(detail?.name ?? "");
-                            setEditEmail(detail?.email ?? "");
-                            setEditPhone(detail?.phone ?? "");
-                            const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(detail?.customVariables), knownCustomVarKeys);
-                            setEditCustomVarRows(nextRows);
-                            lastSavedContactEditSigRef.current = stableContactEditSignature({
-                              name: detail?.name ?? "",
-                              email: detail?.email ?? "",
-                              phone: detail?.phone ?? "",
-                              customVariables: customVariablesFromRows(nextRows),
-                            });
-                          }}
-                          disabled={savingContact}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                          onClick={() => void saveContactEdits()}
-                          disabled={savingContact || !editContactDirty}
-                        >
-                          {savingContact ? "Saving…" : editContactDirty ? "Save" : "Saved"}
-                        </button>
-                      </>
-                    )}
-                  </div>
                 </div>
 
                 {selectedContactId ? (
@@ -3840,128 +4150,8 @@ export function PortalPeopleContactsClient() {
                     </div>
                   </div>
                 ) : null}
-
-                <div className="mt-3 text-xs text-zinc-500">
-                  Created: {detail?.createdAtIso ? new Date(detail.createdAtIso).toLocaleString() : "N/A"}
-                  {detail?.updatedAtIso ? ` • Updated: ${new Date(detail.updatedAtIso).toLocaleString()}` : ""}
-                </div>
               </div>
 
-              <div className="rounded-2xl border border-zinc-200 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Tags</div>
-                    <div className="mt-1 text-xs text-zinc-500">Apply tags for automations + segmentation.</div>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2 overflow-hidden">
-                  {detailTags.length ? (
-                    detailTags.map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        disabled={tagBusyId === t.id}
-                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                        title="Remove tag"
-                        onClick={() => removeTagFromSelected(t.id)}
-                      >
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: t.color || "#e4e4e7" }}
-                        />
-                        <span className="max-w-52 truncate">{t.name}</span>
-                        <span className="text-zinc-400">×</span>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="text-sm text-zinc-600">No tags yet.</div>
-                  )}
-                </div>
-
-                <div className="mt-4 grid grid-cols-1 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600">Add existing tag</label>
-                    <div className="mt-1">
-                      <PortalSelectDropdown<string>
-                        value={""}
-                        onChange={(tagId) => {
-                          if (!tagId) return;
-                          if (tagId === "__new_tag__") {
-                            setCreateTagOpen(true);
-                            return;
-                          }
-                          void addTagToSelected(tagId);
-                        }}
-                        disabled={!selectedContactId}
-                        options={[
-                          { value: "", label: "Select a tag…", disabled: true },
-                          ...ownerTags
-                            .filter((t) => !detailTags.some((x) => x.id === t.id))
-                            .map((t) => ({ value: t.id, label: t.name })),
-                          { value: "__new_tag__", label: "New tag…" },
-                        ]}
-                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-(--color-brand-blue)"
-                      />
-                    </div>
-                  </div>
-
-                  {createTagOpen ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
-                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <input
-                          className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
-                          placeholder="Tag name"
-                          value={createTagName}
-                          onChange={(e) => setCreateTagName(e.target.value)}
-                          autoFocus
-                        />
-                        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
-                          {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
-                            const selected = c === createTagColor;
-                            return (
-                              <button
-                                key={c}
-                                type="button"
-                                className={classNames(
-                                  "h-6 w-6 rounded-full border",
-                                  selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
-                                )}
-                                style={{ backgroundColor: c }}
-                                onClick={() => setCreateTagColor(c)}
-                                title={c}
-                              />
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                          onClick={() => {
-                            setCreateTagOpen(false);
-                            setCreateTagName("");
-                            setCreateTagColor("#2563EB");
-                          }}
-                          disabled={createTagBusy}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                          disabled={createTagBusy}
-                          onClick={() => void createOwnerTag()}
-                        >
-                          {createTagBusy ? "Creating…" : "Create"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-4">

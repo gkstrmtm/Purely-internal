@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { getContactPortalAccessStates } from "@/lib/contactPortalAccess";
 import { findOrCreatePortalContact, normalizePhoneKey } from "@/lib/portalContacts";
 import { addContactTagAssignment, createOwnerContactTag, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { requireClientSessionForService } from "@/lib/portalAccess";
@@ -135,6 +136,11 @@ export async function GET(req: Request) {
       })()
     : null;
 
+  const contactPortalAccessByEmail = await getContactPortalAccessStates({
+    ownerId,
+    emails: contacts.map((contact) => contact.email),
+  }).catch(() => new Map());
+
   // Best-effort: load tags for the contacts on this page.
   const tagsByContactId = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
   try {
@@ -223,6 +229,7 @@ export async function GET(req: Request) {
         name: c.name,
         email: c.email,
         phone: c.phone,
+        portalAccessStatus: contactPortalAccessByEmail.get(String(c.email || "").trim().toLowerCase())?.status || "missing_email",
         createdAtIso: c.createdAt ? c.createdAt.toISOString() : null,
         updatedAtIso: c.updatedAt ? c.updatedAt.toISOString() : null,
         tags: tagsByContactId.get(cid) || [],

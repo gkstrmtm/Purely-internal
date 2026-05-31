@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
+import { getContactPortalAccessState } from "@/lib/contactPortalAccess";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
@@ -109,6 +110,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
 
+  const portalAccess = await getContactPortalAccessState({ ownerId, email: contact.email }).catch(() => ({
+    email: contact.email,
+    status: contact.email ? "not_provisioned" : "missing_email",
+    memberUserId: null,
+    invitedAtIso: null,
+    expiresAtIso: null,
+    acceptedAtIso: null,
+  }));
+
   return NextResponse.json({
     ok: true,
     contact: {
@@ -116,6 +126,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
       name: contact.name,
       email: contact.email,
       phone: contact.phone,
+      portalAccess,
       customVariables:
         (contact as any).customVariables && typeof (contact as any).customVariables === "object"
           ? ((contact as any).customVariables as any)

@@ -248,6 +248,18 @@ function statusClasses(status: LetterLite["status"]) {
   return "border-zinc-200 bg-zinc-100 text-zinc-700";
 }
 
+function statusTableLabel(status: LetterLite["status"]) {
+  if (status === "GENERATED") return "PDF ready";
+  if (status === "SENT") return "Mailed";
+  return "Draft";
+}
+
+function statusTableTone(status: LetterLite["status"]) {
+  if (status === "GENERATED") return { dot: "bg-emerald-500", text: "text-emerald-700" };
+  if (status === "SENT") return { dot: "bg-slate-400", text: "text-slate-600" };
+  return { dot: "bg-zinc-400", text: "text-zinc-700" };
+}
+
 function statusHelperText(status: LetterLite["status"]) {
   if (status === "GENERATED") return "PDF exported for download or sharing. This still does not file the dispute automatically.";
   if (status === "SENT") return "Marked mailed manually inside Purely. This is not proof of delivery.";
@@ -1594,7 +1606,12 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                       <div className="font-medium text-zinc-900">{letter.contact.name}</div>
                       <div className="mt-1 text-xs text-zinc-500">{letter.contact.email || "No email"}</div>
                     </td>
-                    <td className="px-4 py-3"><span className={classNames("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses(letter.status))}>{statusLabel(letter.status)}</span></td>
+                    <td className="px-4 py-3">
+                      <div className={classNames("inline-flex items-center gap-2 text-xs font-semibold", statusTableTone(letter.status).text)}>
+                        <span className={classNames("h-2.5 w-2.5 rounded-full", statusTableTone(letter.status).dot)} />
+                        <span className="whitespace-nowrap">{statusTableLabel(letter.status)}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-zinc-600">
                       <div>{formatDateTime(letter.updatedAt)}</div>
                       <div className="mt-1 text-xs text-zinc-400">Click to open</div>
