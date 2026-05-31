@@ -146,6 +146,29 @@ function reportItemTone(auditTag: ReportItemLite["auditTag"]) {
   }
 }
 
+function opportunityPlanTone(key: OpportunityPlan["key"]) {
+  switch (key) {
+    case "funding-lane":
+      return {
+        panel: "border-amber-200 bg-amber-50/80",
+        badge: "border-amber-200 bg-amber-100 text-amber-900",
+        offer: "border-amber-100 bg-white",
+      };
+    case "card-lane":
+      return {
+        panel: "border-sky-200 bg-sky-50/80",
+        badge: "border-sky-200 bg-sky-100 text-sky-900",
+        offer: "border-sky-100 bg-white",
+      };
+    default:
+      return {
+        panel: "border-zinc-200 bg-white",
+        badge: "border-zinc-200 bg-zinc-100 text-zinc-700",
+        offer: "border-zinc-200 bg-zinc-50",
+      };
+  }
+}
+
 function utilizationTone(utilization: number | null) {
   if (utilization === null) return { label: "No data", accent: "#a1a1aa" };
   if (utilization <= 10) return { label: "Healthy", accent: "#2563eb" };
@@ -652,21 +675,25 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     () => (selectedReport ? extractCreditReportSourceSummary(selectedReport.rawJson, selectedReport.provider) : null),
     [selectedReport],
   );
+  const selectedReportImportedLabel = useMemo(
+    () => (selectedReport ? new Date(selectedReport.importedAt).toLocaleString() : ""),
+    [selectedReport],
+  );
+  const surfaceTitle = isClientReadonlyView ? "Your credit progress" : "Credit reports";
+  const surfaceIntro = mode === "detail"
+    ? isClientReadonlyView
+      ? "This is your credit progress panel. Review what changed in your latest update, see what still needs attention, and track the next step from here."
+      : "Review imported report items, update the internal tags, and draft dispute letters for the entries that need follow-up."
+    : isClientReadonlyView
+      ? "This is your credit progress panel. Open each update to see what changed in your file and what the team is already working through."
+      : "Import report JSON, review items internally, and open dispute letters when something needs work. Live provider pull still needs a configured provider API key and connection.";
 
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Credit reports</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-600">
-            {mode === "detail"
-              ? showInternalWorkflowLinks
-                ? "Review imported report items, update the internal tags, and draft dispute letters for the entries that need follow-up."
-                : "Review the imported report items and track which entries still need dispute follow-up."
-              : showInternalWorkflowLinks
-                ? "Import report JSON, review items internally, and open dispute letters when something needs work. Live provider pull still needs a configured provider API key and connection."
-                : "Review your imported credit reports and open dispute letters when something needs attention."}
-          </p>
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{surfaceTitle}</h1>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">{surfaceIntro}</p>
         </div>
         {mode === "detail" ? (
           <button
@@ -681,7 +708,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <path d="M12.5 4.5 7 10l5.5 5.5" />
               </svg>
             </span>
-            <span>Back to reports</span>
+            <span>{isClientReadonlyView ? "Back to your progress" : "Back to reports"}</span>
           </button>
         ) : (
           <div className="flex items-center gap-2">
@@ -707,11 +734,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <section className="mt-6 rounded-3xl border border-sky-200 bg-sky-50 p-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="max-w-3xl">
-                  <div className="text-sm font-semibold text-zinc-900">Credit workflow lane</div>
+                  <div className="text-sm font-semibold text-zinc-900">{isClientReadonlyView ? "How this panel works" : "Credit workflow lane"}</div>
                   <div className="mt-1 text-sm text-zinc-700">
                     {showInternalWorkflowLinks
                       ? "Use this order in the beta workspace: confirm the client record first, import the latest JSON report, review negative and pending items, then move live follow-up into dispute letters and tasks. Reporting stays honest about shared activity only."
-                      : "Use this order here: review the latest imported report, check any negative or pending items, and open dispute letters when something needs action."}
+                      : "Start with your latest update, review anything that still needs attention, and open dispute letters when you want to track work that is already underway."}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -731,14 +758,14 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Report queue</div>
+                <div className="text-sm font-semibold text-zinc-900">{isClientReadonlyView ? "Recent report updates" : "Report queue"}</div>
                 <div className="mt-1 text-sm text-zinc-600">
                   {isClientReadonlyView
-                    ? "Search by contact or provider, then open the report to understand what changed and what the team is already working through."
+                    ? "Open an update to see what changed in your file, what still needs attention, and how it connects to dispute work already in progress."
                     : "Search by contact or provider, then open the report to review items and move dispute work into letters."}
                 </div>
               </div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{loading ? "Loading" : `${filteredReports.length} reports`}</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{loading ? "Loading" : `${filteredReports.length} ${isClientReadonlyView ? "updates" : "reports"}`}</div>
             </div>
 
             <div className="mt-3 flex w-full max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">
@@ -746,7 +773,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 value={reportSearch}
                 onChange={(event) => setReportSearch(event.target.value)}
                 className="h-11 w-full rounded-full border border-zinc-200 px-4 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:flex-1"
-                placeholder="Search reports"
+                placeholder={isClientReadonlyView ? "Search updates" : "Search reports"}
               />
               {reportFiltersMenu ? (
                 <>
@@ -841,7 +868,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               <table className="min-w-full text-left text-sm">
                 <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   <tr>
-                    <th className="px-4 py-3">Report</th>
+                    <th className="px-4 py-3">{isClientReadonlyView ? "Update" : "Report"}</th>
                     <th className="px-4 py-3">Contact</th>
                     <th className="px-4 py-3">Provider</th>
                     <th className="px-4 py-3">Updated</th>
@@ -850,13 +877,13 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center text-zinc-600">Loading reports...</td>
+                      <td colSpan={4} className="px-4 py-10 text-center text-zinc-600">{isClientReadonlyView ? "Loading updates..." : "Loading reports..."}</td>
                     </tr>
                   ) : filteredReports.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="px-4 py-10">
                         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-6 py-10 text-center">
-                          <div className="text-base font-semibold text-zinc-900">No reports in this view</div>
+                          <div className="text-base font-semibold text-zinc-900">{isClientReadonlyView ? "No updates in this view" : "No reports in this view"}</div>
                           <div className="mt-2 max-w-md text-sm text-zinc-600">
                             {reports.length === 0 ? "Start by selecting a contact and importing report JSON. Live provider pulls still need a configured provider API key and connection." : "Try a different provider filter or search term."}
                           </div>
@@ -904,7 +931,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         </td>
                         <td className="px-4 py-3 text-zinc-600">
                           <div>{new Date(report.importedAt).toLocaleString()}</div>
-                          <div className="mt-1 text-xs text-zinc-400">Open report</div>
+                          <div className="mt-1 text-xs text-zinc-400">{isClientReadonlyView ? "Open update" : "Open report"}</div>
                         </td>
                       </tr>
                       );
@@ -995,13 +1022,17 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           ) : null}
         </>
       ) : !selectedReport ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Report not found.</div>
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">{isClientReadonlyView ? "This update could not be found." : "Report not found."}</div>
       ) : (
         <div className="mt-6 space-y-5">
           <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div>
               <h2 className="text-2xl font-semibold text-zinc-900">{selectedReport.contact?.name || selectedReport.provider}</h2>
-              <div className="mt-2 text-sm text-zinc-600">{creditScopeLabel(selectedReport.creditScope)} • {selectedReportSource?.label || selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()} • {selectedReport.items.length} items</div>
+              <div className="mt-2 text-sm text-zinc-600">
+                {isClientReadonlyView
+                  ? `${creditScopeLabel(selectedReport.creditScope)} snapshot • Updated ${selectedReportImportedLabel} • ${selectedReport.items.length} ${selectedReport.items.length === 1 ? "item" : "items"} in this update`
+                  : `${creditScopeLabel(selectedReport.creditScope)} • ${selectedReportSource?.label || selectedReport.provider} • Imported ${selectedReportImportedLabel} • ${selectedReport.items.length} items`}
+              </div>
             </div>
 
             {selectedReportSource ? (
@@ -1011,19 +1042,23 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   ? "border-amber-200 bg-amber-50 text-zinc-800"
                   : "border-emerald-200 bg-emerald-50 text-zinc-800",
               )}>
-                <div className="font-semibold text-zinc-900">{selectedReportSource.label}</div>
-                <div className="mt-1">{selectedReportSource.helperText}</div>
+                <div className="font-semibold text-zinc-900">{isClientReadonlyView ? "Latest file update" : selectedReportSource.label}</div>
+                <div className="mt-1">
+                  {isClientReadonlyView
+                    ? `This snapshot was added to your file on ${selectedReportImportedLabel}. Use the sections below to see what changed and what the current plan looks like.`
+                    : selectedReportSource.helperText}
+                </div>
               </div>
             ) : null}
 
             <div className="mt-4 rounded-3xl border border-sky-200 bg-sky-50 p-4 text-sm text-zinc-800">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="max-w-3xl">
-                  <div className="font-semibold text-zinc-900">Workflow handoff</div>
+                  <div className="font-semibold text-zinc-900">{isClientReadonlyView ? "What happens next" : "Workflow handoff"}</div>
                   <div className="mt-1">{workflowNextStep}</div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => { window.location.href = routeSet.disputeHref; }} className={SECONDARY_BUTTON_CLASS}>Dispute letters</button>
+                  <button type="button" onClick={() => { window.location.href = routeSet.disputeHref; }} className={SECONDARY_BUTTON_CLASS}>{isClientReadonlyView ? "View dispute letters" : "Dispute letters"}</button>
                   {showInternalWorkflowLinks ? (
                     <>
                       <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className={SECONDARY_BUTTON_CLASS}>Contacts</button>
@@ -1037,8 +1072,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
             <div className="mt-5 flex flex-wrap gap-2">
               {([
-                ["items", "Items"],
-                ["plan", "Plan"],
+                ["items", isClientReadonlyView ? "What changed" : "Items"],
+                ["plan", isClientReadonlyView ? "Plan ahead" : "Plan"],
               ] as const).map(([value, label]) => (
                 <button
                   key={value}
@@ -1166,7 +1201,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div id="credit-report-items" className="mt-5 border-t border-zinc-200 pt-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Report items</div>
+                <div className="text-sm font-semibold text-zinc-900">{isClientReadonlyView ? "What changed in this update" : "Report items"}</div>
                   <div className="mt-1 text-sm text-zinc-600">
                     {isClientReadonlyView
                       ? "Each item shows what Purely found, what still needs review, and whether dispute work is already underway."
@@ -1327,29 +1362,39 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="mt-5 border-t border-zinc-200 pt-5">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Action plan</div>
+                <div className="text-sm font-semibold text-zinc-900">{isClientReadonlyView ? "Recommended lane right now" : "Action plan"}</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {isClientReadonlyView
+                    ? "This view turns the current report into a simple funding and card lane so you can see what the file supports right now."
+                    : "Use the current score, utilization, and cleanup load to keep the next funding move honest."}
+                </div>
               </div>
             </div>
 
             <div className="mt-5 grid gap-4 xl:grid-cols-2">
-              {opportunityPlans.map((plan) => (
-                <div key={plan.key} className="rounded-[26px] border border-zinc-200 bg-white p-5 shadow-sm transition-shadow duration-150 hover:shadow-md">
+              {opportunityPlans.map((plan) => {
+                const planTone = opportunityPlanTone(plan.key);
+                return (
+                <div key={plan.key} className={classNames("rounded-[26px] border p-5 shadow-sm transition-shadow duration-150 hover:shadow-md", planTone.panel)}>
                   <div>
                     <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
                     <div className="mt-1 text-sm leading-6 text-zinc-700">{plan.summary}</div>
-                    <div className="mt-4 border-t border-zinc-200 pt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">{plan.readinessLabel}</div>
+                    <div className="mt-4 border-t border-zinc-200 pt-3">
+                      <span className={classNames("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide", planTone.badge)}>{plan.readinessLabel}</span>
+                    </div>
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {plan.offers.map((offer) => (
-                      <div key={offer.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                      <div key={offer.label} className={classNames("rounded-2xl border px-3 py-3", planTone.offer)}>
                         <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
                         <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
                       </div>
                     ))}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
             </div>
             ) : null}
