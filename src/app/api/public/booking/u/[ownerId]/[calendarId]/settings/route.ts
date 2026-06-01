@@ -66,8 +66,6 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const enabled = Boolean(site.enabled) && Boolean(cal.enabled);
-
   const [profile, form, ownerHostedTheme, settingsRow, derivedFunnelHostedTheme, externalLink] = await Promise.all([
     site.owner?.id
       ? await (prisma as any).businessProfile.findUnique({
@@ -97,6 +95,11 @@ export async function GET(
       : Promise.resolve(null),
     ownerId ? getExternalBookingLinkConfig(String(ownerId)) : Promise.resolve(null),
   ]);
+
+  const funnelCalendarId = requestedFunnelId
+    ? readFunnelBookingRouting(settingsRow?.dataJson ?? null, requestedFunnelId)?.calendarId ?? ""
+    : "";
+  const enabled = Boolean(cal.enabled) && (Boolean(site.enabled) || funnelCalendarId === calendarId);
 
   const funnelHostedTheme = requestedFunnelId
     ? readFunnelBookingRouting(settingsRow?.dataJson ?? null, requestedFunnelId)?.hostedTheme ?? null

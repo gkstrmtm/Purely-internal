@@ -70,6 +70,7 @@ export function PortalStripeSalesClient() {
   const pathname = usePathname();
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
   const isCreditWorkspace = appBase.startsWith("/credit");
+  const integrationsHref = `${appBase}/settings/integrations?from=stripe-sales&setup=stripe#sales-reporting-controls`;
 
   const [status, setStatus] = useState<StripeIntegrationStatus | null>(null);
   const [range, setRange] = useState<RangeKey>("30d");
@@ -157,10 +158,10 @@ export function PortalStripeSalesClient() {
             Back to Reporting
           </Link>
           <Link
-            href={`${appBase}/profile`}
+            href={integrationsHref}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
-            Stripe settings
+            Open Integrations
           </Link>
         </div>
       </div>
@@ -177,13 +178,15 @@ export function PortalStripeSalesClient() {
       {!status?.configured ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Stripe not connected</div>
-          <div className="mt-2 text-sm text-zinc-600">Connect your Stripe secret key in Profile to enable this dashboard.</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Open Integrations, connect your Stripe secret key, then come back here to confirm live charges and refunds are loading.
+          </div>
           <div className="mt-4">
             <Link
-              href={`${appBase}/profile`}
+              href={integrationsHref}
               className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
-              Connect Stripe
+              Connect Stripe in Integrations
             </Link>
           </div>
         </div>

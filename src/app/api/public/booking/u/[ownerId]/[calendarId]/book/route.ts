@@ -18,6 +18,7 @@ import { sendEmail as sendOutboundEmail } from "@/lib/leadOutbound";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { BookingMeetingIntegrationError, createNativeBookingMeeting } from "@/lib/bookingMeetingIntegrations.server";
 import { createConnectRoom } from "@/lib/connectRoomCreate";
+import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -75,6 +76,8 @@ export async function POST(
 ) {
   const { ownerId, calendarId } = await params;
   const origin = getRequestOrigin(req);
+  const requestUrl = new URL(req.url);
+  const requestedFunnelId = requestUrl.searchParams.get("funnelId")?.trim() || "";
 
   const json = await req.json().catch(() => null);
   const parsed = postSchema.safeParse(json ?? {});
@@ -83,7 +86,7 @@ export async function POST(
   }
   const trackingContext = parseCreditFunnelTrackingContext(parsed.data.trackingContext);
 
-  const [site, calendars, flags] = await Promise.all([
+  const [site, calendars, flags, settingsRow] = await Promise.all([
     (prisma as any).portalBookingSite.findUnique({
       where: { ownerId },
       select: {
@@ -103,10 +106,17 @@ export async function POST(
       hasPublicColumn("PortalBookingSite", "meetingDetails"),
       hasPublicColumn("PortalBookingSite", "notificationEmails"),
     ]).then(([meetingLocation, meetingDetails, notificationEmails]) => ({ meetingLocation, meetingDetails, notificationEmails })),
+    requestedFunnelId
+      ? prisma.creditFunnelBuilderSettings.findUnique({ where: { ownerId }, select: { dataJson: true } }).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const cal = calendars.calendars.find((c) => c.id === calendarId);
-  if (!site || !site.enabled || !cal || !cal.enabled) {
+  const funnelCalendarId = requestedFunnelId
+    ? readFunnelBookingRouting(settingsRow?.dataJson ?? null, requestedFunnelId)?.calendarId ?? ""
+    : "";
+  const bookingEnabled = Boolean(cal?.enabled) && (Boolean(site?.enabled) || funnelCalendarId === calendarId);
+  if (!site || !bookingEnabled || !cal || !cal.enabled) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

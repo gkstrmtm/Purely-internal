@@ -2399,11 +2399,9 @@ function DirectionWorkbenchPanel({
       : assistantContext?.state || "";
   const assistantSummaryParts = [
     selectedTargetLabel
-      ? `Editing ${selectedTargetLabel}`
+      ? selectedTargetLabel
       : assistantContext?.page
-        ? assistantContext?.mode === "Edit"
-          ? `Editing ${assistantContext.page}`
-          : assistantContext.page
+        ? assistantContext.page
         : "",
     assistantPriorityContext,
   ].filter(Boolean);
@@ -2798,7 +2796,7 @@ function DirectionWorkbenchPanel({
                 className={classNames("flex", message.role === "user" ? "justify-end" : "justify-start")}
               >
                 {message.role === "user" ? (
-                  <div className="ml-10 max-w-[min(42rem,100%)] rounded-3xl border border-sky-100 bg-[linear-gradient(180deg,#f8fbff_0%,#eef5ff_100%)] px-4 py-3.5 text-sm leading-relaxed text-slate-800 shadow-[0_10px_24px_rgba(59,130,246,0.08)]">
+                  <div className="ml-10 max-w-[min(42rem,100%)] rounded-3xl bg-brand-blue px-4 py-3.5 text-sm leading-relaxed text-white shadow-[0_10px_24px_rgba(29,78,216,0.2)]">
                     <div className="whitespace-pre-wrap">{message.content}</div>
                   </div>
                 ) : (
@@ -2809,17 +2807,16 @@ function DirectionWorkbenchPanel({
                         onClick={() => void handleReadAloud(messageKey, message.content)}
                         disabled={readAloudBusy}
                         className={classNames(
-                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                          "inline-flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-100",
                           readAloudActive
-                            ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                            : "border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-900",
+                            ? "bg-[rgba(29,78,216,0.12)] text-(--color-brand-blue) shadow-[0_8px_20px_rgba(29,78,216,0.14)] hover:bg-[rgba(29,78,216,0.18)]"
+                            : "bg-transparent text-zinc-500 hover:scale-105 hover:bg-zinc-100 hover:text-zinc-900",
                           readAloudBusy ? "cursor-wait opacity-70" : "",
                         )}
-                        title={readAloudActive ? "Stop read aloud" : "Read aloud"}
-                        aria-label={readAloudActive ? "Stop read aloud" : "Read aloud"}
+                        title={readAloudBusy ? "Generating read aloud" : readAloudActive ? "Stop read aloud" : "Read aloud"}
+                        aria-label={readAloudBusy ? "Generating read aloud" : readAloudActive ? "Stop read aloud" : "Read aloud"}
                       >
-                        <ReadAloudSpeakerIcon className="h-3.5 w-3.5" />
-                        <span>{readAloudBusy ? "Reading..." : readAloudActive ? "Stop" : "Read aloud"}</span>
+                        {readAloudBusy ? <SpinnerIcon className="h-3.5 w-3.5" /> : <ReadAloudSpeakerIcon className="h-3.5 w-3.5" />}
                       </button>
                     </div>
                     <AnimatedAssistantMessageText
@@ -2898,15 +2895,6 @@ function DirectionWorkbenchPanel({
       />
 
       <div className={chatFooterClassName}>
-        {selectedTargetLabel || selectedTargetContextLine ? (
-          <div className="mx-auto mb-2 flex w-full max-w-4xl flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-            <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-semibold uppercase tracking-[0.14em] text-zinc-600">
-              Editing
-            </span>
-            {selectedTargetLabel ? <span className="font-semibold text-zinc-800">{selectedTargetLabel}</span> : null}
-            {selectedTargetContextLine ? <span className="truncate text-zinc-500">{selectedTargetContextLine}</span> : null}
-          </div>
-        ) : null}
         {selectionTools ? <div className="mx-auto mb-3 w-full max-w-4xl">{selectionTools}</div> : null}
         <PageAssistantComposerRow>
           <AiPromptComposer
@@ -2923,7 +2911,7 @@ function DirectionWorkbenchPanel({
             busy={busy}
             busyLabel={inlineActivityLabel || "Thinking..."}
             attachCount={attachCount}
-            tone="light"
+            tone="pura"
           />
         </PageAssistantComposerRow>
       </div>
@@ -3275,13 +3263,18 @@ function AiPromptComposer({
   busyLabel: string;
   attachCount: number;
   className?: string;
-  tone?: "light" | "dark";
+  tone?: "light" | "dark" | "pura";
 }) {
   const canSubmit = !busy && value.trim().length > 0;
   const darkTone = tone === "dark";
+  const puraTone = tone === "pura";
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const composerStatusLabel = attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : null;
-  const statusTextColorClassName = busy ? (darkTone ? "text-zinc-500" : "text-zinc-500") : darkTone ? "text-zinc-500" : "text-zinc-500";
+  const statusTextColorClassName = puraTone
+    ? busy
+      ? "text-zinc-500"
+      : "text-zinc-500"
+    : busy ? (darkTone ? "text-zinc-500" : "text-zinc-500") : darkTone ? "text-zinc-500" : "text-zinc-500";
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -3295,14 +3288,21 @@ function AiPromptComposer({
   return (
     <div
       className={classNames(
-        "relative flex flex-col gap-1 border-b px-1 py-1 transition-colors",
-        darkTone ? "border-zinc-700 text-zinc-100 focus-within:border-zinc-500" : "border-zinc-300/75 text-zinc-900 focus-within:border-zinc-500",
+        "relative flex flex-col gap-1 transition-colors",
+        puraTone
+          ? "px-0 py-0"
+          : darkTone ? "border-b border-zinc-700 px-1 py-1 text-zinc-100 focus-within:border-zinc-500" : "border-b border-zinc-300/75 px-1 py-1 text-zinc-900 focus-within:border-zinc-500",
         className,
       )}
       aria-busy={busy}
     >
-      <div className="flex items-end gap-2">
-        <AiSparkIcon className={classNames("mb-2 h-3.5 w-3.5 shrink-0", busy ? (darkTone ? "text-zinc-600" : "text-zinc-300") : darkTone ? "text-zinc-500" : "text-zinc-400")} />
+      <div className={classNames("flex items-end gap-2", puraTone ? "gap-2 pb-0.5" : "") }>
+        {!puraTone ? (
+          <AiSparkIcon className={classNames(
+            "mb-2 h-3.5 w-3.5 shrink-0",
+            busy ? (darkTone ? "text-zinc-600" : "text-zinc-300") : darkTone ? "text-zinc-500" : "text-zinc-400",
+          )} />
+        ) : null}
         <textarea
           ref={textareaRef}
           value={value}
@@ -3314,9 +3314,10 @@ function AiPromptComposer({
             }
           }}
           className={classNames(
-            "min-w-0 flex-1 resize-none overflow-y-hidden rounded-2xl px-3 py-2.5 text-[14px] leading-5 tracking-[-0.01em] outline-none transition-colors",
-            darkTone ? "text-zinc-50 placeholder:text-zinc-500" : "text-zinc-900 placeholder:text-zinc-400",
-            "bg-transparent",
+            "min-w-0 flex-1 resize-none overflow-y-hidden px-3 py-2.5 text-[14px] leading-5 tracking-[-0.01em] outline-none transition-colors",
+            puraTone
+              ? "min-h-11 rounded-none border-0 bg-transparent px-0 py-2 text-zinc-900 placeholder:text-zinc-400 focus:ring-0"
+              : darkTone ? "rounded-2xl bg-transparent text-zinc-50 placeholder:text-zinc-500" : "rounded-2xl bg-transparent text-zinc-900 placeholder:text-zinc-400",
           )}
           style={{ minHeight: 40, maxHeight: 220 }}
           rows={1}
@@ -3328,8 +3329,11 @@ function AiPromptComposer({
           disabled={busy}
           onClick={onAttach}
           className={classNames(
-            "relative mb-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60",
-            darkTone ? "text-zinc-500 hover:text-zinc-100" : "text-zinc-400 hover:text-zinc-700",
+            "relative shrink-0 items-center justify-center transition-colors disabled:opacity-60",
+            puraTone
+              ? "mb-0 inline-flex h-10 w-10 rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+              : "mb-1 inline-flex h-8 w-8 rounded-full",
+            !puraTone && (darkTone ? "text-zinc-500 hover:text-zinc-100" : "text-zinc-400 hover:text-zinc-700"),
             attachCount ? "text-brand-blue" : "",
           )}
           title={attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : "Attach references to AI"}
@@ -3350,9 +3354,12 @@ function AiPromptComposer({
           disabled={!canSubmit}
           onClick={onSubmit}
           className={classNames(
-            "group mb-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-100 hover:scale-105 disabled:opacity-50",
-            darkTone ? "text-zinc-400 hover:text-zinc-100" : "text-zinc-500 hover:text-zinc-900",
-            canSubmit ? "" : darkTone ? "pointer-events-none text-zinc-700" : "pointer-events-none text-zinc-300",
+            "group shrink-0 items-center justify-center transition-all duration-100 hover:scale-105 disabled:opacity-50",
+            puraTone
+              ? "mb-0 inline-flex h-10 w-10 rounded-xl bg-(--color-brand-blue) text-white shadow-[0_10px_24px_rgba(29,78,216,0.22)] hover:opacity-95"
+              : "mb-1 inline-flex h-8 w-8 rounded-full",
+            !puraTone && (darkTone ? "text-zinc-400 hover:text-zinc-100" : "text-zinc-500 hover:text-zinc-900"),
+            canSubmit ? "" : puraTone ? "pointer-events-none opacity-60 shadow-none" : darkTone ? "pointer-events-none text-zinc-700" : "pointer-events-none text-zinc-300",
           )}
           title={busy ? busyLabel : "Send prompt to AI"}
           aria-label={busy ? busyLabel : "Send prompt to AI"}
@@ -3372,7 +3379,7 @@ function AiPromptComposer({
         </button>
       </div>
 
-      <div className={classNames("flex min-h-4.5 items-center gap-2 px-7 pb-1 text-[11px] tracking-[0.01em]", statusTextColorClassName)}>
+      <div className={classNames("flex min-h-4.5 items-center gap-2 text-[11px] tracking-[0.01em]", puraTone ? "px-0 pt-0.5" : "px-7 pb-1", statusTextColorClassName)}>
         {busy ? (
           <>
             <AssistantTypingDots tone={darkTone ? "dark" : "light"} />
@@ -6416,24 +6423,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             ) : null}
                           <FunnelCustomHtmlRuntimeSurface
                             html={getFunnelPageCurrentHtml(selectedPage)}
-                            bookingTarget={bookingSiteSlug
+                            bookingTarget={typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
                               ? {
-                                  kind: "slug",
-                                  slug: bookingSiteSlug,
+                                  kind: "calendar",
+                                  ownerId: String((funnel as any).ownerId),
+                                  calendarId: funnel.bookingCalendarId,
                                   funnelId: funnel?.id || null,
                                   pageId: selectedPage.id,
                                   themeStage: "current",
                                 }
-                              : (typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
-                                  ? {
-                                      kind: "calendar",
-                                      ownerId: String((funnel as any).ownerId),
-                                      calendarId: funnel.bookingCalendarId,
-                                      funnelId: funnel?.id || null,
-                                      pageId: selectedPage.id,
-                                      themeStage: "current",
-                                    }
-                                  : null)}
+                              : bookingSiteSlug
+                                ? {
+                                    kind: "slug",
+                                    slug: bookingSiteSlug,
+                                    funnelId: funnel?.id || null,
+                                    pageId: selectedPage.id,
+                                    themeStage: "current",
+                                  }
+                                : null}
                             injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
                             bookingLabel={selectedPagePreviewBookingState?.title || null}
                             surfaceContext={previewBookingSurfaceContext}
@@ -6677,24 +6684,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         >
                           <FunnelCustomHtmlRuntimeSurface
                             html={getFunnelPageCurrentHtml(selectedPage)}
-                            bookingTarget={bookingSiteSlug
+                            bookingTarget={typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
                               ? {
-                                  kind: "slug",
-                                  slug: bookingSiteSlug,
+                                  kind: "calendar",
+                                  ownerId: String((funnel as any).ownerId),
+                                  calendarId: funnel.bookingCalendarId,
                                   funnelId: funnel?.id || null,
                                   pageId: selectedPage.id,
                                   themeStage: "current",
                                 }
-                              : (typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
-                                  ? {
-                                      kind: "calendar",
-                                      ownerId: String((funnel as any).ownerId),
-                                      calendarId: funnel.bookingCalendarId,
-                                      funnelId: funnel?.id || null,
-                                      pageId: selectedPage.id,
-                                      themeStage: "current",
-                                    }
-                                  : null)}
+                              : bookingSiteSlug
+                                ? {
+                                    kind: "slug",
+                                    slug: bookingSiteSlug,
+                                    funnelId: funnel?.id || null,
+                                    pageId: selectedPage.id,
+                                    themeStage: "current",
+                                  }
+                                : null}
                             injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
                             bookingLabel={selectedPagePreviewBookingState?.title || null}
                             surfaceContext={previewBookingSurfaceContext}
@@ -15802,98 +15809,109 @@ export function FunnelEditorClient({
       }
     : pageRailDetailPanel === "chatbot"
       ? {
-          title: "AI widget",
-          description: "Public launcher readiness, preview limits, and where the real conversation behavior is configured.",
+          title: "Chat widget",
+          description: "Launcher readiness, preview limits, and where the live conversation behavior is configured.",
           content: chatbotRailDetail,
         }
     : pageRailDetailPanel === "commerce"
       ? {
-          title: "Commerce details",
+          title: "Checkout setup",
           description: "Offer readiness, checkout wiring, and payment path pointers.",
           content: commerceRailDetail,
         }
       : pageRailDetailPanel === "search"
         ? {
-            title: "Search settings",
-            description: "SEO title, description, favicon, and visibility controls.",
+            title: "SEO settings",
+            description: "Search title, description, favicon, and visibility controls.",
             content: searchRailDetail,
           }
         : pageRailDetailPanel === "tracking"
           ? {
-              title: "Tracking details",
+              title: "Tracking and analytics",
               description: "Pixel routing, runtime verification, and first-party analytics for this page.",
               content: trackingRailDetail,
             }
           : pageRailDetailPanel === "advanced"
             ? {
-                title: "Advanced defaults",
+                title: "Page defaults",
                 description: "Page-wide typography defaults and inherited canvas settings.",
                 content: advancedRailDetail,
               }
             : null;
   const sidebarSettingsPanel = selectedPage ? (
     <div className="space-y-2.5 pt-1">
-      <PageRailSummaryCard
-        title="Booking"
-        summary={bookingSummaryLabel}
-        detail={bookingSupportLabel}
-        statusLabel={bookingSummaryStatusLabel}
-        statusTone={(!funnel?.bookingCalendarId && pageHasCalendarPlaceholder) || pageCalendarBlockStats.missingConfiguredCount > 0 ? "warning" : funnel?.bookingCalendarId || pageCalendarConfiguredCount ? "success" : "neutral"}
-        actionLabel="Open booking"
-        onOpen={() => setPageRailDetailPanel("booking")}
-      />
-      <PageRailSummaryCard
-        title="AI widget"
-        summary={chatbotSummaryLabel}
-        detail={chatbotSupportLabel}
-        statusLabel={chatbotSummaryStatusLabel}
-        statusTone={!pageHasChatbotBlock ? "neutral" : aiReceptionistChatAgentId ? "success" : "warning"}
-        actionLabel="Open widget"
-        onOpen={() => setPageRailDetailPanel("chatbot")}
-      />
-      <PageRailSummaryCard
-        title="Commerce"
-        summary={commerceSummaryLabel}
-        detail={commerceSupportLabel}
-        statusLabel={commerceStatusLabel}
-        statusTone={purchaseReadinessItem?.status === "ready" ? "success" : pageHasStripeProductButtons || commerceReadyOfferCount > 0 ? "warning" : "neutral"}
-        actionLabel="Open commerce"
-        onOpen={() => setPageRailDetailPanel("commerce")}
-        extraAction={selectedPricingBlock ? (
-          <button
-            type="button"
-            onClick={() => setPricingEditorOpen(true)}
-            className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
-          >
-            Pricing editor
-          </button>
-        ) : null}
-      />
-      <PageRailSummaryCard
-        title="Search"
-        summary={searchSummaryLabel}
-        detail={searchSupportLabel}
-        statusLabel="SEO"
-        actionLabel="Open search"
-        onOpen={() => setPageRailDetailPanel("search")}
-      />
-      <PageRailSummaryCard
-        title="Tracking"
-        summary={trackingSummaryLabel}
-        detail={trackingSupportLabel}
-        statusLabel={trackingRuntimeStatusLabel}
-        statusTone={selectedPageExecutionSummary?.trackingReady && selectedPageExecutionSummary?.metaPixelReady ? "success" : effectiveMetaPixelId || selectedPageExecutionSummary?.trackingReady ? "warning" : "neutral"}
-        actionLabel="Open tracking"
-        onOpen={() => setPageRailDetailPanel("tracking")}
-      />
-      <PageRailSummaryCard
-        title="Advanced"
-        summary="Font and page defaults. Most pages should leave this alone."
-        detail={advancedSupportLabel}
-        statusLabel="Advanced"
-        actionLabel="Open advanced"
-        onOpen={() => setPageRailDetailPanel("advanced")}
-      />
+      <div className="space-y-2">
+        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Conversion setup</div>
+        <PageRailSummaryCard
+          title="Booking"
+          summary={bookingSummaryLabel}
+          detail={bookingSupportLabel}
+          statusLabel={bookingSummaryStatusLabel}
+          statusTone={(!funnel?.bookingCalendarId && pageHasCalendarPlaceholder) || pageCalendarBlockStats.missingConfiguredCount > 0 ? "warning" : funnel?.bookingCalendarId || pageCalendarConfiguredCount ? "success" : "neutral"}
+          actionLabel="Manage booking"
+          onOpen={() => setPageRailDetailPanel("booking")}
+        />
+        <PageRailSummaryCard
+          title="Checkout"
+          summary={commerceSummaryLabel}
+          detail={commerceSupportLabel}
+          statusLabel={commerceStatusLabel}
+          statusTone={purchaseReadinessItem?.status === "ready" ? "success" : pageHasStripeProductButtons || commerceReadyOfferCount > 0 ? "warning" : "neutral"}
+          actionLabel="Manage checkout"
+          onOpen={() => setPageRailDetailPanel("commerce")}
+          extraAction={selectedPricingBlock ? (
+            <button
+              type="button"
+              onClick={() => setPricingEditorOpen(true)}
+              className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+            >
+              Pricing editor
+            </button>
+          ) : null}
+        />
+        <PageRailSummaryCard
+          title="Chat widget"
+          summary={chatbotSummaryLabel}
+          detail={chatbotSupportLabel}
+          statusLabel={chatbotSummaryStatusLabel}
+          statusTone={!pageHasChatbotBlock ? "neutral" : aiReceptionistChatAgentId ? "success" : "warning"}
+          actionLabel="Manage widget"
+          onOpen={() => setPageRailDetailPanel("chatbot")}
+        />
+      </div>
+
+      <div className="space-y-2 pt-1">
+        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Visibility and measurement</div>
+        <PageRailSummaryCard
+          title="SEO"
+          summary={searchSummaryLabel}
+          detail={searchSupportLabel}
+          statusLabel="SEO"
+          actionLabel="Manage SEO"
+          onOpen={() => setPageRailDetailPanel("search")}
+        />
+        <PageRailSummaryCard
+          title="Tracking"
+          summary={trackingSummaryLabel}
+          detail={trackingSupportLabel}
+          statusLabel={trackingRuntimeStatusLabel}
+          statusTone={selectedPageExecutionSummary?.trackingReady && selectedPageExecutionSummary?.metaPixelReady ? "success" : effectiveMetaPixelId || selectedPageExecutionSummary?.trackingReady ? "warning" : "neutral"}
+          actionLabel="Manage tracking"
+          onOpen={() => setPageRailDetailPanel("tracking")}
+        />
+      </div>
+
+      <div className="space-y-2 pt-1">
+        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Page defaults</div>
+        <PageRailSummaryCard
+          title="Defaults"
+          summary="Typography and inherited page defaults. Most pages should leave this alone."
+          detail={advancedSupportLabel}
+          statusLabel="Defaults"
+          actionLabel="Open defaults"
+          onOpen={() => setPageRailDetailPanel("advanced")}
+        />
+      </div>
 
       <PortalMediaPickerModal
         open={pageFaviconPickerOpen}
@@ -19838,9 +19856,9 @@ export function FunnelEditorClient({
                       />
                       <div className="hidden lg:flex lg:items-center">
                         <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
-                        <BuilderStageToggleButton
-                          label="Assistant"
-                          active={chatRailOpen}
+                        <button
+                          type="button"
+                          aria-label={chatRailOpen ? "Hide the page assistant" : "Show the page assistant"}
                           title={chatRailOpen ? "Hide the page assistant" : "Show the page assistant"}
                           onClick={() => {
                             if (chatRailOpen) {
@@ -19850,7 +19868,18 @@ export function FunnelEditorClient({
                             setChatRailMode("chat");
                             setChatRailOpen(true);
                           }}
-                        />
+                          className={classNames(
+                            "inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
+                            chatRailOpen
+                              ? "bg-brand-ink text-white shadow-sm"
+                              : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900",
+                          )}
+                        >
+                          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="3.5" width="14" height="13" rx="2.2" />
+                            <path d="M8 3.5v13" />
+                          </svg>
+                        </button>
                       </div>
                     </>
                   ) : null}
@@ -20068,24 +20097,24 @@ export function FunnelEditorClient({
                               >
                                 <FunnelCustomHtmlRuntimeSurface
                                   html={previewHtmlWithImplicitBooking}
-                                  bookingTarget={bookingSiteSlug
+                                  bookingTarget={typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
                                     ? {
-                                        kind: "slug",
-                                        slug: bookingSiteSlug,
+                                        kind: "calendar",
+                                        ownerId: String((funnel as any).ownerId),
+                                        calendarId: funnel.bookingCalendarId,
                                         funnelId: funnel?.id || null,
                                         pageId: selectedPage.id,
                                         themeStage: "current",
                                       }
-                                    : (typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
-                                        ? {
-                                            kind: "calendar",
-                                            ownerId: String((funnel as any).ownerId),
-                                            calendarId: funnel.bookingCalendarId,
-                                            funnelId: funnel?.id || null,
-                                            pageId: selectedPage.id,
-                                            themeStage: "current",
-                                          }
-                                        : null)}
+                                    : bookingSiteSlug
+                                      ? {
+                                          kind: "slug",
+                                          slug: bookingSiteSlug,
+                                          funnelId: funnel?.id || null,
+                                          pageId: selectedPage.id,
+                                          themeStage: "current",
+                                        }
+                                      : null}
                                   injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
                                   bookingLabel={selectedPagePreviewBookingState?.title || null}
                                   surfaceContext={previewBookingSurfaceContext}
@@ -20582,6 +20611,18 @@ export function FunnelEditorClient({
                       </span>
                     </button>
                     <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setChatRailOpen(false)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950"
+                        title="Hide the page assistant"
+                        aria-label="Hide the page assistant"
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3.5" width="14" height="13" rx="2.2" />
+                          <path d="M8 3.5v13" />
+                        </svg>
+                      </button>
                       <button
                         type="button"
                         onClick={() => {

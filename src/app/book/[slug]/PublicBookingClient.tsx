@@ -133,8 +133,7 @@ function bookingApiBase(target: PublicBookingTarget) {
   return `/api/public/booking/u/${encodeURIComponent(target.ownerId)}/${encodeURIComponent(target.calendarId)}`;
 }
 
-function bookingSettingsUrl(target: PublicBookingTarget) {
-  const base = `${bookingApiBase(target)}/settings`;
+function bookingTargetSearchParams(target: PublicBookingTarget) {
   const funnelId = String(target.funnelId || "").trim();
   const pageId = String(target.pageId || "").trim();
   const themeStage = target.themeStage === "published" ? "published" : target.themeStage === "current" ? "current" : "";
@@ -142,6 +141,12 @@ function bookingSettingsUrl(target: PublicBookingTarget) {
   if (funnelId) params.set("funnelId", funnelId);
   if (pageId) params.set("pageId", pageId);
   if (themeStage) params.set("themeStage", themeStage);
+  return params;
+}
+
+function bookingApiUrl(target: PublicBookingTarget, path: "/settings" | "/suggestions" | "/book") {
+  const base = `${bookingApiBase(target)}${path}`;
+  const params = bookingTargetSearchParams(target);
   const query = params.toString();
   return query ? `${base}?${query}` : base;
 }
@@ -196,7 +201,7 @@ export function PublicBookingClient({
       ? `/api/public/booking/${encodeURIComponent(target.slug)}`
       : `/api/public/booking/u/${encodeURIComponent(target.ownerId)}/${encodeURIComponent(target.calendarId)}`;
   const targetKey = `${bookingBase}::${String(target.funnelId || "").trim()}::${String(target.pageId || "").trim()}::${String(target.themeStage || "").trim()}`;
-  const settingsUrl = useMemo(() => bookingSettingsUrl(target), [targetKey]);
+  const settingsUrl = useMemo(() => bookingApiUrl(target, "/settings"), [targetKey]);
 
   const canBook = useMemo(() => {
     if (!selected) return false;
@@ -406,7 +411,7 @@ export function PublicBookingClient({
       const startAt = fromIso ? new Date(fromIso) : new Date();
       startAt.setHours(0, 0, 0, 0);
 
-      const url = new URL(`${bookingApiBase(target)}/suggestions`, window.location.origin);
+      const url = new URL(bookingApiUrl(target, "/suggestions"), window.location.origin);
       url.searchParams.set("startAt", startAt.toISOString());
       url.searchParams.set("days", "30");
       url.searchParams.set("durationMinutes", String(site?.durationMinutes ?? 30));
@@ -556,7 +561,7 @@ export function PublicBookingClient({
     setBookingBusy(true);
     setError(null);
 
-    const res = await fetch(`${bookingApiBase(target)}/book`, {
+    const res = await fetch(bookingApiUrl(target, "/book"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
