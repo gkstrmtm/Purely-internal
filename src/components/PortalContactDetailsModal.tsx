@@ -1,14 +1,9 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { IconEdit } from "@/app/portal/PortalIcons";
-import { AppModal } from "@/components/AppModal";
-import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
-import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { normalizePortalContactCustomVarKey } from "@/lib/portalTemplateVars";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 
@@ -120,10 +115,7 @@ type Props = {
 
 export function PortalContactDetailsModal(props: Props) {
   const { open, contactId, onClose, onContactUpdated, zIndex } = props;
-  const pathname = usePathname();
   const toast = useToast();
-  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
-  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<ContactDetail | null>(null);
@@ -184,10 +176,10 @@ export function PortalContactDetailsModal(props: Props) {
 
       try {
         const [keysRes, tagsRes, ownerTagsRes, detailRes] = await Promise.all([
-          fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
-          fetch(`/api/portal/contacts/${encodeURIComponent(stableContactId)}/tags`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
-          fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
-          fetch(`/api/portal/contacts/${encodeURIComponent(stableContactId)}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+          fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" }).catch(() => null as any),
+          fetch(`/api/portal/contacts/${encodeURIComponent(stableContactId)}/tags`, { cache: "no-store" }).catch(() => null as any),
+          fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any),
+          fetch(`/api/portal/contacts/${encodeURIComponent(stableContactId)}`, { cache: "no-store" }).catch(() => null as any),
         ]);
 
         if (cancelled) return;
@@ -234,12 +226,12 @@ export function PortalContactDetailsModal(props: Props) {
 
         if (!detailRes?.ok) {
           const json = await readJson(detailRes as any);
-          throw new Error(String(json?.error || "Contact details did not load. Retry here or return to contacts."));
+          throw new Error(String(json?.error || "Failed to load contact"));
         }
 
         const json = (await detailRes.json().catch(() => ({}))) as any;
         if (!json?.ok || !json?.contact?.id) {
-          throw new Error(String(json?.error || "Contact details did not load. Retry here or return to contacts."));
+          throw new Error(String(json?.error || "Failed to load contact"));
         }
 
         const nextDetail: ContactDetail = {
@@ -275,7 +267,7 @@ export function PortalContactDetailsModal(props: Props) {
           tags: nextDetailTags,
         });
       } catch (e: any) {
-        toast.error(String(e?.message || "Contact details did not load. Retry here or return to contacts."));
+        toast.error(String(e?.message || "Failed to load contact"));
       } finally {
         if (!cancelled) setDetailLoading(false);
       }
@@ -286,7 +278,8 @@ export function PortalContactDetailsModal(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, contactId, onContactUpdated, toast, variantHeaders]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, contactId]);
 
   useEffect(() => {
     if (!open) return;
@@ -310,19 +303,17 @@ export function PortalContactDetailsModal(props: Props) {
     try {
       const res = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, {
         method: "PATCH",
-        headers: { "content-type": "application/json", ...variantHeaders },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ name, email: editEmail, phone: editPhone, customVariables }),
       });
       const json = await readJson(res);
-      if (!res.ok || !json?.ok) {
-        throw new Error(String(json?.error || "Contact details did not save. Retry here or return to contacts."));
-      }
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save"));
 
       toast.success("Contact updated.");
   lastSavedEditSigRef.current = nextSig;
 
       // Refresh detail so parent callers can update names in-place.
-      const refreshed = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, { cache: "no-store", headers: variantHeaders });
+      const refreshed = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, { cache: "no-store" });
       const rjson = await readJson(refreshed);
       if (refreshed.ok && rjson?.ok && rjson?.contact?.id) {
         const next: ContactDetail = {
@@ -353,7 +344,7 @@ export function PortalContactDetailsModal(props: Props) {
         });
       }
     } catch (e: any) {
-      toast.error(String(e?.message || "Contact details did not save. Retry here or return to contacts."));
+      toast.error(String(e?.message || "Failed to save"));
     } finally {
       setSaving(false);
     }
@@ -366,13 +357,11 @@ export function PortalContactDetailsModal(props: Props) {
       const method = nextChecked ? "POST" : "DELETE";
       const res = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}/tags`, {
         method,
-        headers: { "content-type": "application/json", ...variantHeaders },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ tagId }),
       });
       const json = await readJson(res);
-      if (!res.ok || !json?.ok || !Array.isArray(json?.tags)) {
-        throw new Error(String(json?.error || "Contact tags did not update. Retry here or review the selected tags again."));
-      }
+      if (!res.ok || !json?.ok || !Array.isArray(json?.tags)) throw new Error(String(json?.error || "Failed to update tags"));
 
       const nextTags: ContactTag[] = json.tags
         .map((t: any) => ({
@@ -388,7 +377,7 @@ export function PortalContactDetailsModal(props: Props) {
         tags: nextTags,
       });
     } catch (e: any) {
-      toast.error(String(e?.message || "Contact tags did not update. Retry here or review the selected tags again."));
+      toast.error(String(e?.message || "Failed to update tags"));
     } finally {
       setTagBusyId(null);
     }
@@ -407,13 +396,11 @@ export function PortalContactDetailsModal(props: Props) {
     try {
       const res = await fetch("/api/portal/contact-tags", {
         method: "POST",
-        headers: { "content-type": "application/json", ...variantHeaders },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ name, color: createTagColor }),
       });
       const json = await readJson(res);
-      if (!res.ok || !json?.ok || !json?.tag?.id) {
-        throw new Error(String(json?.error || "Tag creation did not finish. Retry here or choose a different tag name."));
-      }
+      if (!res.ok || !json?.ok || !json?.tag?.id) throw new Error(String(json?.error || "Failed to create tag"));
 
       const created: ContactTag = {
         id: String(json.tag.id),
@@ -433,7 +420,7 @@ export function PortalContactDetailsModal(props: Props) {
 
       await setTagChecked(created.id, true);
     } catch (e: any) {
-      toast.error(String(e?.message || "Tag creation did not finish. Retry here or choose a different tag name."));
+      toast.error(String(e?.message || "Failed to create tag"));
     } finally {
       setCreateTagBusy(false);
     }
@@ -444,49 +431,47 @@ export function PortalContactDetailsModal(props: Props) {
   return (
     <div
       className={classNames(
-        "fixed inset-0 z-8000 flex items-start justify-center px-4",
-        "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+        "fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4",
+        "pa-modal-safe-pad",
         "sm:items-center",
-        portalGlassBackdropClass,
       )}
       style={{ zIndex: Number.isFinite(zIndex as number) ? (zIndex as number) : undefined }}
       onMouseDown={onClose}
     >
       <div
         className={classNames(
-          "flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl",
+          "flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl",
           "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)]",
-          portalGlassPanelClass,
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="shrink-0 p-6">
+        <div className="shrink-0 border-b border-zinc-100 p-6">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-base font-semibold text-zinc-900">Contact details</div>
+              <div className="mt-1 text-xs text-zinc-500">Click outside to close.</div>
             </div>
             <button
               type="button"
-              className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-lg font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-800", portalGlassButtonClass)}
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
               onClick={onClose}
-              aria-label="Close"
             >
-              ×
+              Close
             </button>
           </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {detailLoading ? (
-            <div className={classNames("rounded-2xl p-4 text-sm text-zinc-600", portalGlassSectionClass)}>Loading…</div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">Loading…</div>
           ) : null}
 
           <div className={classNames("grid grid-cols-1 gap-4 sm:grid-cols-2", detailLoading ? "mt-6" : "")}>
-            <div className={classNames("min-w-0 rounded-2xl p-4", portalGlassSectionClass)}>
+            <div className="min-w-0 rounded-2xl border border-zinc-200 p-4">
             <div className="text-xs font-semibold text-zinc-600">Name</div>
             {editing ? (
               <input
-                className="mt-1 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 placeholder="Full name"
@@ -499,7 +484,7 @@ export function PortalContactDetailsModal(props: Props) {
             <div className="mt-3 text-xs font-semibold text-zinc-600">Email</div>
             {editing ? (
               <input
-                className="mt-1 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                 value={editEmail}
                 onChange={(e) => setEditEmail(e.target.value)}
                 placeholder="email@company.com"
@@ -512,7 +497,7 @@ export function PortalContactDetailsModal(props: Props) {
             <div className="mt-3 text-xs font-semibold text-zinc-600">Phone</div>
             {editing ? (
               <input
-                className="mt-1 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                 value={editPhone}
                 onChange={(e) => setEditPhone(e.target.value)}
                 placeholder="+15551234567"
@@ -522,20 +507,20 @@ export function PortalContactDetailsModal(props: Props) {
               <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "N/A"}</div>
             )}
 
-            <div className={classNames("mt-4 rounded-2xl p-3", portalGlassSectionClass)}>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Variables</div>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+              <div className="text-xs font-medium text-zinc-500">Template variables</div>
               <div className="mt-2 space-y-1 text-xs text-zinc-700">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Name</span>
-                  <span className="max-w-full break-all rounded-lg bg-white/55 px-2 py-1 font-mono">{"{contact.name}"}</span>
+                  <span className="max-w-full break-all rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.name}"}</span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Email</span>
-                  <span className="max-w-full break-all rounded-lg bg-white/55 px-2 py-1 font-mono">{"{contact.email}"}</span>
+                  <span className="max-w-full break-all rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.email}"}</span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Phone</span>
-                  <span className="max-w-full break-all rounded-lg bg-white/55 px-2 py-1 font-mono">{"{contact.phone}"}</span>
+                  <span className="max-w-full break-all rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.phone}"}</span>
                 </div>
               </div>
             </div>
@@ -547,7 +532,7 @@ export function PortalContactDetailsModal(props: Props) {
                   editCustomVarRows.map((row, idx) => (
                     <div key={`${idx}-${row.key}`} className="grid grid-cols-1 gap-2 sm:grid-cols-5">
                       <input
-                        className="sm:col-span-2 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                        className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                         value={row.key}
                         onChange={(e) =>
                           setEditCustomVarRows((prev) => {
@@ -559,7 +544,7 @@ export function PortalContactDetailsModal(props: Props) {
                         placeholder="key (e.g. city)"
                       />
                       <input
-                        className="sm:col-span-3 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                        className="sm:col-span-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                         value={row.value}
                         onChange={(e) =>
                           setEditCustomVarRows((prev) => {
@@ -573,7 +558,7 @@ export function PortalContactDetailsModal(props: Props) {
                       <div className="sm:col-span-5 flex justify-end">
                         <button
                           type="button"
-                          className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                           onClick={() => setEditCustomVarRows((prev) => prev.filter((_, i) => i !== idx))}
                         >
                           Remove
@@ -587,7 +572,7 @@ export function PortalContactDetailsModal(props: Props) {
 
                 <button
                   type="button"
-                  className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                   onClick={() => setEditCustomVarRows((prev) => [...prev, { key: "", value: "" }].slice(0, 25))}
                 >
                   Add variable
@@ -620,7 +605,7 @@ export function PortalContactDetailsModal(props: Props) {
                 {!editing ? (
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                    className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                     onClick={() => {
                       if (!detail) return;
                       lastSavedEditSigRef.current = stableContactEditSignature({
@@ -635,14 +620,13 @@ export function PortalContactDetailsModal(props: Props) {
                     }}
                     disabled={!detail}
                   >
-                    <IconEdit size={16} />
-                    <span>Edit</span>
+                    Edit
                   </button>
                 ) : (
                   <>
                     <button
                       type="button"
-                      className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                       onClick={() => {
                         setEditing(false);
                         setEditName(detail?.name ?? "");
@@ -656,7 +640,7 @@ export function PortalContactDetailsModal(props: Props) {
                     </button>
                     <button
                       type="button"
-                      className="rounded-xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                      className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
                       onClick={() => void saveEdits()}
                       disabled={saving || !editDirty}
                     >
@@ -673,7 +657,7 @@ export function PortalContactDetailsModal(props: Props) {
             </div>
           </div>
 
-          <div className={classNames("rounded-2xl p-4", portalGlassSectionClass)}>
+          <div className="rounded-2xl border border-zinc-200 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Tags</div>
@@ -688,7 +672,7 @@ export function PortalContactDetailsModal(props: Props) {
                     key={t.id}
                     type="button"
                     disabled={tagBusyId === t.id}
-                    className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-white/90 disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
                     title="Remove tag"
                     onClick={() => void setTagChecked(t.id, false)}
                   >
@@ -722,78 +706,69 @@ export function PortalContactDetailsModal(props: Props) {
                       ...addableOwnerTagOptions.map((t) => ({ value: t.id, label: t.name })),
                       { value: "__new_tag__", label: "New tag…" },
                     ]}
-                    buttonClassName={classNames("flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm outline-none hover:bg-white/80", portalGlassButtonClass)}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
                   />
                 </div>
               </div>
+
+              {createTagOpen ? (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <input
+                      className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                      placeholder="Tag name"
+                      value={createTagName}
+                      onChange={(e) => setCreateTagName(e.target.value)}
+                      autoFocus
+                    />
+                    <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
+                      {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                        const selected = c === createTagColor;
+                        return (
+                          <button
+                            key={c}
+                            type="button"
+                            className={classNames(
+                              "h-6 w-6 rounded-full border",
+                              selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                            )}
+                            style={{ backgroundColor: c }}
+                            onClick={() => setCreateTagColor(c)}
+                            title={c}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => {
+                        setCreateTagOpen(false);
+                        setCreateTagName("");
+                        setCreateTagColor("#2563EB");
+                      }}
+                      disabled={createTagBusy}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      disabled={createTagBusy}
+                      onClick={() => void createOwnerTag()}
+                    >
+                      {createTagBusy ? "Creating…" : "Create"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
         </div>
-
-      <AppModal
-        open={createTagOpen}
-        title="Create new tag"
-        description="Pick a name and color, then add it to this contact."
-        onClose={() => {
-          if (createTagBusy) return;
-          setCreateTagOpen(false);
-          setCreateTagName("");
-          setCreateTagColor("#2563EB");
-        }}
-        widthClassName="w-[min(540px,calc(100vw-32px))]"
-        zIndex={(Number.isFinite(zIndex as number) ? (zIndex as number) : 8000) + 20}
-        closeVariant="x"
-        footer={
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
-              onClick={() => {
-                setCreateTagOpen(false);
-                setCreateTagName("");
-                setCreateTagColor("#2563EB");
-              }}
-              disabled={createTagBusy}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              disabled={createTagBusy}
-              onClick={() => void createOwnerTag()}
-            >
-              {createTagBusy ? "Creating…" : "Create"}
-            </button>
-          </div>
-        }
-      >
-        <div className="grid grid-cols-1 gap-3">
-          <input
-            className="w-full rounded-xl bg-white/80 px-3 py-2 text-sm outline-none"
-            placeholder="Tag name"
-            value={createTagName}
-            onChange={(e) => setCreateTagName(e.target.value)}
-            autoFocus
-          />
-          <div className={classNames("flex flex-wrap items-center gap-2 rounded-2xl px-3 py-3", portalGlassSectionClass)}>
-            {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
-              const selected = c === createTagColor;
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  className={classNames("h-7 w-7 rounded-full transition-transform duration-150 hover:scale-105", selected ? "ring-2 ring-zinc-900/20" : "")}
-                  style={{ backgroundColor: c }}
-                  onClick={() => setCreateTagColor(c)}
-                  title={c}
-                />
-              );
-            })}
-          </div>
-        </div>
-      </AppModal>
       </div>
     </div>
   );

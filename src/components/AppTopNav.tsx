@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { canAccessTeamOpsWorkspace, hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+
 type Role = "DIALER" | "CLOSER" | "MANAGER" | "HR" | "ADMIN";
 
 type NavItem = {
@@ -59,7 +61,7 @@ function NavLinksVertical({
     <nav className="grid gap-1">
       {items.map((item) => {
         const active = isActive(pathname, item.href);
-        const label = collapsed ? (item.shortLabel ?? item.label.slice(0, 1)) : item.label;
+        const label = collapsed ? (item.shortLabel ?? item.label.slice(0, 2)) : item.label;
         return (
           <Link
             key={item.href}
@@ -67,22 +69,13 @@ function NavLinksVertical({
             title={collapsed ? item.label : undefined}
             onClick={() => onNavigate?.()}
             className={
-              "flex h-10 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition " +
+              "flex h-10 items-center rounded-2xl px-3 text-sm font-semibold transition " +
               (active
                 ? "bg-brand-ink text-white"
                 : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900")
             }
           >
-            <span
-              className={
-                "grid h-7 w-7 place-items-center rounded-xl " +
-                (active ? "bg-white/15" : "bg-brand-ink/5")
-              }
-              aria-hidden
-            >
-              <span className={"text-xs font-extrabold " + (active ? "text-white" : "text-brand-ink")}>{label.slice(0, 2)}</span>
-            </span>
-            {collapsed ? null : <span className="truncate">{item.label}</span>}
+            <span className={collapsed ? "mx-auto truncate text-xs font-semibold" : "truncate"}>{label}</span>
           </Link>
         );
       })}
@@ -169,16 +162,15 @@ function StaffViewSwitcherVertical({ collapsed, onNavigate }: { collapsed: boole
             title={collapsed ? i.label : undefined}
             onClick={() => onNavigate?.()}
             className={
-              "flex h-10 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition " +
+              "flex h-10 items-center rounded-2xl px-3 text-sm font-semibold transition " +
               (isOn
                 ? "bg-brand-ink text-white"
                 : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
             }
           >
-            <span className={"grid h-7 w-7 place-items-center rounded-xl " + (isOn ? "bg-white/15" : "bg-brand-ink/5")}>
-              <span className={"text-xs font-extrabold " + (isOn ? "text-white" : "text-brand-ink")}>{i.short}</span>
+            <span className={collapsed ? "mx-auto truncate text-xs font-semibold" : "truncate"}>
+              {collapsed ? i.short : i.label}
             </span>
-            {collapsed ? null : <span className="truncate">{i.label}</span>}
           </Link>
         );
       })}
@@ -195,24 +187,33 @@ function toRole(role?: string): Role | undefined {
   return undefined;
 }
 
-export function AppTopNav({ role }: { role?: string }) {
+export function AppTopNav({ role, platformAdminGranted }: { role?: string; platformAdminGranted?: boolean }) {
   const pathname = usePathname();
   const effectiveRole: Role | undefined = toRole(role);
+  const canUsePlatformAdmin = hasPlatformAdminCapability(effectiveRole, platformAdminGranted);
+  const platformAdminItems: NavItem[] = canUsePlatformAdmin
+    ? [
+        { href: "/app/manager/admin", label: "Platform admin" },
+        { href: "/app/manager/portal-overrides", label: "Portal overrides" },
+      ]
+    : [];
 
   const dialerItems: NavItem[] = [
     { href: "/app/dialer/leads", label: "Leads" },
     { href: "/app/dialer/calls", label: "Calls" },
     { href: "/app/dialer/appointments", label: "Appointments" },
+    ...platformAdminItems,
   ];
 
   const closerItems: NavItem[] = [
     { href: "/app/closer/appointments", label: "Meetings" },
     { href: "/app/closer/availability", label: "Availability" },
+    ...platformAdminItems,
   ];
 
   const managerItemsFull: NavItem[] = [
     { href: "/app/manager", label: "Dashboard" },
-    { href: "/app/manager/admin", label: "Admin" },
+    ...platformAdminItems,
     { href: "/app/manager/invites", label: "Employee invites" },
     { href: "/app/manager/blogs", label: "Blogs" },
     { href: "/app/manager/campaigns", label: "Campaigns" },
@@ -220,11 +221,11 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments" },
-    { href: "/app/manager/portal-overrides", label: "Portal overrides" },
   ];
 
   const managerItemsStaff: NavItem[] = [
     { href: "/app/manager", label: "Dashboard" },
+    ...platformAdminItems,
     { href: "/app/manager/invites", label: "Employee invites" },
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
@@ -241,10 +242,11 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/hr/appointments", label: "Appointments" },
     { href: "/app/hr/invites", label: "Employee invites" },
     { href: "/app/hr/availability", label: "Availability" },
+    ...platformAdminItems,
   ];
 
 
-  if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {
+  if (canAccessTeamOpsWorkspace(effectiveRole)) {
     const managerItems = effectiveRole === "HR" ? managerItemsStaff : managerItemsFull;
     const sectionItems = pathname.startsWith("/app/dialer")
       ? dialerItems
@@ -268,41 +270,52 @@ export function AppTopNav({ role }: { role?: string }) {
 
 export function AppSidebarNav({
   role,
+  platformAdminGranted,
   collapsed,
   onNavigate,
 }: {
   role?: string;
+  platformAdminGranted?: boolean;
   collapsed: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const effectiveRole: Role | undefined = toRole(role);
+  const canUsePlatformAdmin = hasPlatformAdminCapability(effectiveRole, platformAdminGranted);
+  const platformAdminItems: NavItem[] = canUsePlatformAdmin
+    ? [
+        { href: "/app/manager/admin", label: "Platform admin", shortLabel: "Pa" },
+        { href: "/app/manager/portal-overrides", label: "Portal overrides", shortLabel: "Po" },
+      ]
+    : [];
 
   const dialerItems: NavItem[] = [
     { href: "/app/dialer/leads", label: "Leads" },
     { href: "/app/dialer/calls", label: "Calls" },
     { href: "/app/dialer/appointments", label: "Appointments", shortLabel: "Ap" },
+    ...platformAdminItems,
   ];
 
   const closerItems: NavItem[] = [
     { href: "/app/closer/appointments", label: "Meetings", shortLabel: "Mt" },
     { href: "/app/closer/availability", label: "Availability", shortLabel: "Av" },
+    ...platformAdminItems,
   ];
 
   const managerItemsFull: NavItem[] = [
     { href: "/app/manager", label: "Dashboard", shortLabel: "Db" },
-    { href: "/app/manager/admin", label: "Admin", shortLabel: "Ad" },
+    ...platformAdminItems,
     { href: "/app/manager/invites", label: "Employee invites", shortLabel: "In" },
     { href: "/app/manager/blogs", label: "Blogs", shortLabel: "Bl" },
     { href: "/app/manager/campaigns", label: "Campaigns", shortLabel: "Cp" },
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments", shortLabel: "Ap" },
-    { href: "/app/manager/portal-overrides", label: "Portal overrides", shortLabel: "Po" },
   ];
 
   const managerItemsStaff: NavItem[] = [
     { href: "/app/manager", label: "Dashboard", shortLabel: "Db" },
+    ...platformAdminItems,
     { href: "/app/manager/invites", label: "Employee invites", shortLabel: "In" },
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
@@ -319,9 +332,10 @@ export function AppSidebarNav({
     { href: "/app/hr/appointments", label: "Appointments", shortLabel: "Ap" },
     { href: "/app/hr/invites", label: "Employee invites", shortLabel: "In" },
     { href: "/app/hr/availability", label: "Availability", shortLabel: "Av" },
+    ...platformAdminItems,
   ];
 
-  if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {
+  if (canAccessTeamOpsWorkspace(effectiveRole)) {
     const managerItems = effectiveRole === "HR" ? managerItemsStaff : managerItemsFull;
     const sectionItems = pathname.startsWith("/app/dialer")
       ? dialerItems

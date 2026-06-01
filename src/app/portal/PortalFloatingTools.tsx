@@ -488,6 +488,7 @@ export function PortalFloatingTools() {
   const supportChatFallbackActive = Boolean(note && /support chat/i.test(note));
 
   const chatMessagesRef = useRef<SupportChatMessage[]>(chatMessages);
+  const pageSuggestionRef = useRef<WidgetSuggestedSetup | null>(pageSuggestion);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
@@ -511,22 +512,26 @@ export function PortalFloatingTools() {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
 
+  useEffect(() => {
+    pageSuggestionRef.current = pageSuggestion;
+  }, [pageSuggestion]);
+
   const loadSuggestedSetupPreview = useCallback(async () => {
     if (uiPreview) {
       setPageSuggestion(null);
-      return;
+      return null;
     }
 
     const serviceSlug = inferSuggestedSetupServiceSlug(pathname);
     if (!serviceSlug) {
       setPageSuggestion(null);
-      return;
+      return null;
     }
 
     const res = await fetch("/api/portal/suggested-setup/preview", { cache: "no-store" }).catch(() => null as any);
     if (!res?.ok) {
       setPageSuggestion(null);
-      return;
+      return null;
     }
 
     const json = (await res.json().catch(() => null)) as { proposedActions?: SuggestedSetupAction[] } | null;
@@ -541,7 +546,9 @@ export function PortalFloatingTools() {
           }))
       : [];
 
-    setPageSuggestion(buildWidgetSuggestedSetup(proposedActions.filter((action) => action.serviceSlug === serviceSlug)));
+    const nextSuggestion = buildWidgetSuggestedSetup(proposedActions.filter((action) => action.serviceSlug === serviceSlug));
+    setPageSuggestion(nextSuggestion);
+    return nextSuggestion;
   }, [pathname, uiPreview]);
 
   useEffect(() => {
@@ -571,13 +578,26 @@ export function PortalFloatingTools() {
         return;
       }
 
-      const nextMessages = Array.isArray(json.messages)
+      const nextMessages: SupportChatMessage[] = Array.isArray(json.messages)
         ? json.messages
             .filter((message) => message && (message.role === "assistant" || message.role === "user"))
             .map((message) => ({ id: String(message.id), role: message.role as "assistant" | "user", text: String(message.text || "") }))
         : [];
 
-      setChatMessages(nextMessages.length ? nextMessages : [defaultWidgetWelcomeMessage()]);
+      const currentSuggestion = pageSuggestionRef.current;
+      const nextThreadMessages: SupportChatMessage[] = nextMessages.length ? nextMessages : [defaultWidgetWelcomeMessage()];
+      if (!currentSuggestion) {
+        setChatMessages(nextThreadMessages);
+        return;
+      }
+
+      const filteredMessages = nextThreadMessages.filter(
+        (message) =>
+          message.id !== "widget-welcome" &&
+          message.suggestedSetup?.key !== currentSuggestion.key &&
+          !(message.role === "assistant" && message.text === currentSuggestion.text),
+      );
+      setChatMessages([...filteredMessages, buildSuggestedSetupMessage(currentSuggestion)]);
     })();
     return () => {
       mounted = false;
@@ -911,13 +931,14 @@ export function PortalFloatingTools() {
     return threadIdForSuggestion;
   }
 
-  function openChatPanel() {
+  async function openChatPanel() {
     setReportOpen(false);
     setChatOpen(true);
     setMinimized(false);
-    if (pageSuggestion) {
-      setChatMessages((current) => upsertSuggestedSetupMessage(current, pageSuggestion));
-      void ensurePageSuggestionInThread(pageSuggestion);
+    const suggestion = pageSuggestion ?? (await loadSuggestedSetupPreview());
+    if (suggestion) {
+      setChatMessages((current) => upsertSuggestedSetupMessage(current, suggestion));
+      void ensurePageSuggestionInThread(suggestion);
     }
     shouldAutoScrollRef.current = true;
     scheduleChatScrollToBottom(true);

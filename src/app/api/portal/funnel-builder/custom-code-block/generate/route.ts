@@ -705,22 +705,6 @@ function clampText(s: string, maxLen: number) {
   return text.slice(0, maxLen) + "\n/* truncated */";
 }
 
-function compactPromptIntent(value: string, maxLen = 96) {
-  const compact = String(value || "")
-    .replace(/[\r\n]+/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  if (!compact) return "this block";
-
-  const stripped = compact.replace(
-    /^(can you |could you |please |i want you to |make sure |go ahead and |just |i need you to |can we |let'?s )/i,
-    "",
-  );
-  if (stripped.length <= maxLen) return stripped;
-  const cut = stripped.slice(0, maxLen).lastIndexOf(" ");
-  return `${stripped.slice(0, cut > 36 ? cut : maxLen).trimEnd()}...`;
-}
-
 function trimSentenceEnding(value: string) {
   return String(value || "").replace(/[\s.!?]+$/g, "").trim();
 }
@@ -752,19 +736,6 @@ function pickMeaningfulAnalysisSummary(value: string) {
     return "";
   }
   return sentence;
-}
-
-function extractPromptFocus(value: string, maxLen = 72) {
-  const compact = compactPromptIntent(value, maxLen)
-    .replace(/^(update|change|edit|adjust|refine|improve|clean up|cleanup|tighten|rework|rewrite|restyle|polish|move|shift|set|switch|turn|replace|add|remove|save|fix|make)\s+/i, "")
-    .replace(/^(the|this|that|my|our)\s+/i, "")
-    .replace(/\s+(feel|looks?|be|become|seem|read|reads)\b.*$/i, "")
-    .replace(/\s+(with|using|while|so that|so the|to keep|to make)\b.*$/i, "")
-    .replace(/[,:;]+$/g, "")
-    .trim();
-  const cleaned = trimSentenceEnding(compact).replace(/^["']+|["']+$/g, "").trim();
-  if (!cleaned || /^(it|this|that|here|there|this block)$/i.test(cleaned)) return "";
-  return `${cleaned.charAt(0).toLowerCase()}${cleaned.slice(1)}`;
 }
 
 function buildActionsResultSummary(actions: z.infer<typeof aiActionsPayloadSchema>["actions"]) {

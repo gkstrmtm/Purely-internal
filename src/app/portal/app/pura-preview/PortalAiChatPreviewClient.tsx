@@ -431,7 +431,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
           {!threads.length ? (
             <div className="p-2">
               <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">No preview chats yet</div>
+                <div className="text-sm font-semibold text-zinc-900">Preview chats have not started yet</div>
                 <div className="mt-2 text-sm leading-6 text-zinc-600">
                   Start a new preview thread to test how Pura plans work, asks follow-up questions, and responds inside the portal shell.
                 </div>

@@ -2161,8 +2161,8 @@ export function PortalBookingClient({
             <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
               {weekDayModalBookings.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No bookings on this day yet</div>
-                  <div className="mt-1">Share the booking page or review availability for this day so new appointments can land here.</div>
+                  <div className="font-semibold text-zinc-900">This day is still open for the first booking</div>
+                  <div className="mt-1">Share the booking page or review availability for this day so new appointments have a clear place to land.</div>
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                     {(liveBookingUrl || previewBookingUrl) ? (
                       <a
@@ -2600,8 +2600,8 @@ export function PortalBookingClient({
                           ))
                         ) : (
                           <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-600">
-                            <div className="font-semibold text-zinc-900">No bookings on this day yet</div>
-                            <div className="mt-1">Open the booking page to preview what customers see, or edit this day if you need to adjust availability first.</div>
+                            <div className="font-semibold text-zinc-900">Bookings will appear here once this day fills up</div>
+                            <div className="mt-1">Open the booking page to preview the customer view, or adjust this day first if availability still needs shaping.</div>
                             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                               {(liveBookingUrl || previewBookingUrl) ? (
                                 <a
@@ -2630,7 +2630,7 @@ export function PortalBookingClient({
                       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Availability</div>
                       <div className="mt-3 rounded-2xl bg-zinc-50 px-4 py-4">
                         <div className="text-sm font-semibold text-zinc-900">
-                          {selectedDayAvailableMinutes > 0 ? formatAvailabilityDuration(selectedDayAvailableMinutes) : "No availability blocks yet"}
+                            {selectedDayAvailableMinutes > 0 ? formatAvailabilityDuration(selectedDayAvailableMinutes) : "Availability has not been added yet"}
                         </div>
                         <div className="mt-2 text-sm text-zinc-600">
                           Open the day editor to add, remove, or adjust time slots for this selected day.
@@ -3439,8 +3439,8 @@ export function PortalBookingClient({
             <div className="mt-4 space-y-2">
               {filteredReminderEvents.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No reminder activity recorded yet</div>
-                  <div className="mt-1">Once reminders are live and upcoming appointments exist, sends and skips will show here.</div>
+                  <div className="font-semibold text-zinc-900">Reminder activity will appear here once booking traffic starts</div>
+                  <div className="mt-1">As soon as reminders are live and upcoming appointments qualify, sends and skips will start building a timeline here.</div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -3472,7 +3472,7 @@ export function PortalBookingClient({
                     const Card = (
                       <>
                         <div className="flex items-center justify-between gap-3">
-                          <div className="font-medium text-zinc-800">{e.contactName || "No contact name yet"}</div>
+                          <div className="font-medium text-zinc-800">{e.contactName || "Contact name not added yet"}</div>
                           <div
                             className={`text-xs font-semibold ${
                               e.status === "SENT"
@@ -3768,8 +3768,8 @@ export function PortalBookingClient({
             <div className="mt-4 space-y-3">
               {calendars.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No booking calendars yet</div>
-                  <div className="mt-1">Create the first calendar so availability, reminders, follow-up, and hosted booking links have a live schedule to use.</div>
+                  <div className="font-semibold text-zinc-900">Booking is ready for the first live calendar</div>
+                  <div className="mt-1">Create the first calendar so availability, reminders, follow-up, and hosted booking links all have a real schedule to run against.</div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -4267,8 +4267,8 @@ export function PortalBookingClient({
                         ))
                       ) : (
                         <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No intake questions yet</div>
-                          <div className="mt-1">Add at least one question if intake details should reach your team before the appointment starts.</div>
+                          <div className="font-semibold text-zinc-900">Add the first intake question</div>
+                          <div className="mt-1">Add at least one question if your team should receive context, qualifiers, or prep notes before the appointment starts.</div>
                           <button
                             type="button"
                             className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-100 hover:bg-zinc-50"
@@ -4531,7 +4531,7 @@ export function PortalBookingClient({
               ) : reschedSlots.length === 0 ? (
                 <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-600">
                   <div className="font-semibold text-zinc-900">No suggestions found</div>
-                  <div className="mt-1">Pick a time manually above, or turn on force availability if you want this booking to reserve a slot even when no block exists yet.</div>
+                  <div className="mt-1">Pick a time manually above, or turn on force availability if you want this booking to reserve a slot before a matching availability block exists.</div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {!reschedForce ? (
                       <button

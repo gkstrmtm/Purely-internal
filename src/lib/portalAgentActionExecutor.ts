@@ -9,18 +9,14 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
 import { z } from "zod";
 
-import type { FunnelHeaderNavItem } from "@/components/funnel/FunnelHeaderNav";
-
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
+import { getCreditFunnelBuilderSettings, mutateCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
 import { prisma } from "@/lib/db";
 import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
-import { refreshAiOutboundEnrollmentArtifacts } from "@/lib/portalAiOutboundEnrollmentArtifacts";
 import { parseCsv } from "@/lib/csv";
-import { findPlaceholderIdPaths, looksLikePlaceholderId, sanitizeIdLikeObjectDeep } from "@/lib/agentIdSanitizer";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
-import { enrichLeadScrapeBusiness } from "@/lib/leadScrapeAiEnrichment";
 import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import {
   createPortalAccountInvite,
@@ -30,17 +26,22 @@ import {
 } from "@/lib/portalAccounts";
 import { hasPortalServiceCapability, normalizePortalPermissions, type PortalServiceCapability } from "@/lib/portalPermissions";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
-import { PortalAgentActionArgsSchemaByKey, type PortalAgentActionKey } from "@/lib/portalAgentActions";
-import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction, portalInboxUiUrl } from "@/lib/portalAgentActionMeta";
+import {
+  PortalAgentActionArgsSchemaByKey,
+  type PortalAgentActionKey,
+} from "@/lib/portalAgentActions";
+import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/lib/portalAgentActionMeta";
 import { resolvePlanArgs } from "@/lib/puraResolver";
+import { findPlaceholderIdPaths, looksLikePlaceholderId, sanitizeIdLikeObjectDeep } from "@/lib/agentIdSanitizer";
 import { addCredits, addCreditsTx, consumeCredits, consumeCreditsOnce, getCreditsLifecycleForOwner, getCreditsState, setAutoTopUp } from "@/lib/credits";
 import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
-import { getCentsPerCreditForOwner, getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
+import { getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
+import { getCentsPerCreditForOwner } from "@/lib/creditsPricing.server";
 import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
-import { isCreditsOnlyBilling, PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
+import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG, isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { ensureMonthlyCreditsGiftSchedule, processDueMonthlyCreditsGifts } from "@/lib/portalMonthlyCreditsGift";
 import {
@@ -62,14 +63,12 @@ import { ensureNewsletterSiteForOwner, sendNewsletterToAudience, uniqueNewslette
 import { normalizeNewsletterFontKey, stripLegacyNewsletterFontWrapper } from "@/lib/portalNewsletterFonts";
 import { slugify } from "@/lib/slugify";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { ensureFunnelBookingCalendar } from "@/lib/funnelBookingCalendars";
 import { getBookingFormConfig, setBookingFormConfig } from "@/lib/bookingForm";
 import { computeAvailableSlots } from "@/lib/bookingSlots";
-import { processDueBookingInternalReminders } from "@/lib/bookingInternalReminders";
 import { getBlogAppearance, setBlogAppearance } from "@/lib/blogAppearance";
 import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug, setStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
-import { normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
-import { cleanPuraGeneratedReply, isLowQualityPuraGeneratedReply } from "@/lib/puraReplyQuality";
-import { getCreditFunnelBuilderSettings, mutateCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
+import { formatAssistantMarkdownLink, normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
 import {
   getAppointmentReminderSettingsForCalendar,
   listAppointmentReminderEvents,
@@ -77,25 +76,21 @@ import {
   processDueAppointmentReminders,
   setAppointmentReminderSettingsForCalendar,
 } from "@/lib/appointmentReminders";
+import { processDueBookingInternalReminders } from "@/lib/bookingInternalReminders";
+import { buildSuggestedFunnelNaming, buildSuggestedPageNaming, inferFunnelBriefProfile, inferFunnelPageIntentProfile, readFunnelBrief, writeFunnelBrief, writeFunnelPageBrief } from "@/lib/funnelPageIntent";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact, normalizeEmailKey, normalizeNameKey as normalizeContactNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { listDuplicatePortalContactsByPhoneKey, mergePortalContacts } from "@/lib/portalContactDedup";
-
-async function refundCreditsBestEffort(ownerId: string, amount: number) {
-  const safeAmount = Math.max(0, Math.floor(amount));
-  if (!safeAmount) return;
-  await addCredits(ownerId, safeAmount).catch(() => null);
-}
 import { recordPortalContactServiceTrigger } from "@/lib/portalContactServiceTriggers";
 import {
   addContactTagAssignment,
   createOwnerContactTag,
   deleteOwnerContactTag,
   ensureOwnerContactTagsSeededFromLeadScrapingPresets,
+  ensurePortalContactTagsReady,
   listContactTagsForContact,
   listOwnerContactTags,
   removeContactTagAssignment,
-  ensurePortalContactTagsReady,
   updateOwnerContactTag,
 } from "@/lib/portalContactTags";
 import { extractEmailAddress, getPortalInboxSettings, regeneratePortalInboxWebhookToken } from "@/lib/portalInbox";
@@ -151,7 +146,7 @@ import { getOrCreateStripeCustomerId, isStripeConfigured, stripeDelete, stripeGe
 import { generatePuraText as generateText, generatePuraTextWithImages as generateTextWithImages, isPuraAiConfigured, runWithPuraAiProfile, transcribePuraAudio as transcribeAudio, transcribePuraAudioVerbose as transcribeAudioVerbose } from "@/lib/puraAi";
 import { normalizePuraAiProfile } from "@/lib/puraAiProfile";
 import { createScopedPortalApiKey, deletePortalApiKey, listPortalApiKeys, revealPortalApiKey, updateScopedPortalApiKey } from "@/lib/portalApiKeys.server";
-import { getBusinessProfileAiContext, getBusinessProfileFoundationContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
+import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers, tryNotifyPortalUserIds } from "@/lib/portalNotifications";
 import { GET as authVerificationEmailCronGET } from "@/app/api/portal/auth/verification-email/cron/route";
 import { GET as blogsAutomationCronGET } from "@/app/api/portal/blogs/automation/cron/route";
@@ -164,57 +159,11 @@ import { checkHttpsReachable, ensureVercelProjectDomain, formatVercelVerificatio
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument, escapeHtml } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import {
-  bootstrapHostedPageDocuments,
-  exportHostedPageDocumentCustomHtml,
-  getDefaultHostedPagePrompt,
-  getHostedPageDocument,
-  getHostedPagePreviewData,
-  listAllHostedPageDocuments,
-  portalServiceKeyForHostedPageService,
-  parseHostedPageService,
-  resetHostedPageDocumentToDefault,
-  setHostedPageDocumentStatus,
-  updateHostedPageDocument,
-} from "@/lib/hostedPageDocuments";
-import { generateHostedPageHtml } from "@/lib/hostedPageGeneration";
-import {
   createFunnelPageBlockSnapshotUpdate,
   createFunnelPageDraftUpdate,
   createFunnelPageMirroredHtmlUpdate,
-  createFunnelPagePublishUpdate,
   getFunnelPageCurrentHtml,
 } from "@/lib/funnelPageState";
-import {
-  applyDraftHtmlWriteCompat,
-  dbHasCreditFunnelPageDraftHtmlColumn,
-  normalizeDraftHtml,
-  withDraftHtmlSelect,
-} from "@/lib/funnelPageDbCompat";
-import {
-  applyFoundationArtifactWriteCompat,
-  dbHasCreditFunnelPageFoundationArtifactColumns,
-  withFoundationArtifactSelect,
-} from "@/lib/funnelPageDbCompat";
-import {
-  buildFunnelFoundationMaterialHash,
-  coerceStoredFunnelFoundationArtifact,
-  synthesizeFunnelFoundationArtifact,
-} from "@/lib/funnelFoundationArtifact.server";
-import { buildExhibitArchetypeSeedPrompt, fetchFunnelExhibitArchetypePack } from "@/lib/funnelExhibitArchetypePack.server";
-import { readFunnelExhibitArchetypePack, writeFunnelExhibitArchetypePack } from "@/lib/funnelExhibitArchetypes";
-import { extractSourceActionChatPayload, type SourceActionPlan } from "@/lib/funnelSourceActionPlan";
-import {
-  buildDefaultFunnelThreadTitle,
-  normalizeFunnelThreadContext,
-  normalizeFunnelThreadKind,
-  normalizeFunnelThreadMessages,
-  normalizeFunnelThreadTitle,
-  readFunnelThreadLastMessageAt,
-  readPersistedFunnelThreads,
-  writePersistedFunnelThreads,
-  type FunnelThreadRecord,
-} from "@/lib/funnelThreads";
-import { inferFunnelBriefProfile, inferFunnelPageIntentProfile, readFunnelBrief, readFunnelPageBrief } from "@/lib/funnelPageIntent";
 import { generateCreditText } from "@/lib/creditAi";
 import { clearStripeIntegration, getStripeIntegrationStatus, getStripeSecretKeyForOwner, setStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { connectStripeAndActivate, disconnectSalesProvider, getSalesReportingStatus, setActiveSalesProvider, setProviderCredentials } from "@/lib/salesReportingIntegration.server";
@@ -259,32 +208,18 @@ import { buildSpeakerTranscriptAlignedToFull } from "@/lib/dualChannelTranscript
 import { splitStereoPcmWavToMonoWavs } from "@/lib/wav";
 import { getPortalBusinessProfile, upsertPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
 import { getElevenLabsConvaiConversationSignedUrl, getElevenLabsConvaiConversationToken } from "@/lib/portalElevenLabsConvaiAuth.server";
-import { buildDefaultAiOutboundCallFirstMessage, ensureAiOutboundCallCampaignVoiceAgent } from "@/lib/portalAiOutboundCallVoiceAgent";
 import { clampPortalReportingRangeKey, getPortalReportingSummaryForOwner } from "@/lib/portalReportingSummary.server";
 import { clampStripeChargesRangeKey, getStripeChargesReportForOwner } from "@/lib/portalStripeChargesReport.server";
 import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReportingReport.server";
 import { validateSalesCredentials, type ConnectCredentialsInput } from "@/lib/salesReportingReport.server";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { getOrCreatePortalReferralCode, getPortalReferralStats, rotatePortalReferralCode } from "@/lib/portalReferrals.server";
-import { normalizeLeadScrapeRunId, requestLeadScrapeRunCancellation } from "@/lib/leadScrapeRunControl";
 import { normalizePortalAiChatRunRecord } from "@/lib/portalAiChatRunLedger";
 import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server";
 import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
+import { buildFunnelInitializationScaffold } from "@/lib/funnelStencilRegistry.server";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
 import { provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
-import { resolvePortalMediaItemBytes } from "@/lib/portalInboxAttachmentMedia";
-
-
-const PRISMA_CREDIT_FUNNEL_PAGE_HAS_DRAFT_HTML = Boolean(
-  (Prisma as any)?.dmmf?.datamodel?.models?.some(
-    (model: any) => model?.name === "CreditFunnelPage" && Array.isArray(model?.fields) && model.fields.some((field: any) => field?.name === "draftHtml"),
-  ),
-);
-
-async function canUseCreditFunnelPageDraftHtml() {
-  if (!PRISMA_CREDIT_FUNNEL_PAGE_HAS_DRAFT_HTML) return false;
-  return dbHasCreditFunnelPageDraftHtmlColumn().catch(() => false);
-}
 
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
@@ -817,26 +752,9 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       return args;
     }
 
-    case "ai_outbound_calls.campaigns.delete": {
-      const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
-      if (campaignId !== undefined) args.campaignId = campaignId;
-      return args;
-    }
-
     case "ai_outbound_calls.campaigns.activity.get": {
       const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
       if (campaignId !== undefined) args.campaignId = campaignId;
-      return args;
-    }
-
-    case "ai_outbound_calls.campaigns.activity_item.get":
-    case "ai_outbound_calls.campaigns.activity_item.retry":
-    case "ai_outbound_calls.campaigns.activity_item.delete":
-    case "ai_outbound_calls.campaigns.messages_activity_item.delete": {
-      const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
-      const activityId = pickFirstDefined(args, ["activityId", "activity", "itemId", "enrollmentId", "messageEnrollmentId"]);
-      if (campaignId !== undefined) args.campaignId = campaignId;
-      if (activityId !== undefined) args.activityId = activityId;
       return args;
     }
 
@@ -865,8 +783,7 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
     }
 
     case "ai_outbound_calls.manual_calls.get":
-    case "ai_outbound_calls.manual_calls.refresh":
-    case "ai_outbound_calls.manual_calls.delete": {
+    case "ai_outbound_calls.manual_calls.refresh": {
       const id = pickFirstDefined(args, ["id", "manualCallId", "call", "callId"]);
       const reconcileTwilio = normalizeLooseBoolean(pickFirstDefined(args, ["reconcileTwilio", "reconcile", "refresh"]));
       if (id !== undefined) args.id = id;
@@ -1176,7 +1093,6 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       return args;
     }
 
-    case "lead_scraping.assignees.list":
     case "lead_scraping.settings.get":
     case "lead_scraping.cron.run": {
       return args;
@@ -1206,7 +1122,6 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
           };
         }
       }
-
       return args;
     }
 
@@ -1268,24 +1183,6 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
             : {}),
         };
       }
-      return args;
-    }
-
-    case "lead_scraping.backfill_map": {
-      const leadIds = pickFirstDefined(args, ["leadIds", "ids", "leads"]);
-      if (leadIds !== undefined) args.leadIds = Array.isArray(leadIds) ? leadIds : splitLooseStringList(leadIds);
-      return args;
-    }
-
-    case "lead_scraping.location_suggestions.list": {
-      const q = pickFirstDefined(args, ["q", "query", "search", "text", "location"]);
-      if (q !== undefined) args.q = q;
-      return args;
-    }
-
-    case "lead_scraping.run.cancel": {
-      const runId = pickFirstDefined(args, ["runId", "id", "jobId"]);
-      if (runId !== undefined) args.runId = runId;
       return args;
     }
 
@@ -1462,24 +1359,6 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       return args;
     }
 
-    case "automations.test_trigger": {
-      const automationId = pickFirstDefined(args, ["automationId", "automation", "workflowId", "workflow", "flowId", "flow", "id"]);
-      const triggerKind = pickFirstDefined(args, ["triggerKind", "trigger", "eventKind", "kind"]);
-      const from = pickFirstDefined(args, ["from", "phone", "contactPhone", "sender", "number", "email"]);
-      const body = pickFirstDefined(args, ["body", "message", "text", "sms"]);
-      const nowIso = pickFirstDefined(args, ["nowIso", "timestamp", "at"]);
-      const contact = pickFirstDefined(args, ["contact"]);
-      const event = pickFirstDefined(args, ["event", "payload"]);
-      if (automationId !== undefined) args.automationId = automationId;
-      if (triggerKind !== undefined) args.triggerKind = triggerKind;
-      if (from !== undefined) args.from = from;
-      if (body !== undefined) args.body = body;
-      if (nowIso !== undefined) args.nowIso = nowIso;
-      if (contact !== undefined) args.contact = contact;
-      if (event !== undefined) args.event = event;
-      return args;
-    }
-
     case "contacts.list": {
       const q = pickFirstDefined(args, ["q", "query", "search", "text", "name", "contact"]);
       const limit = pickFirstDefined(args, ["limit", "take", "count"]);
@@ -1499,12 +1378,6 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       if (assigned !== undefined) args.assigned = assigned;
       if (assignee !== undefined) args.assignee = assignee;
       if (limit !== undefined) args.limit = limit;
-      return args;
-    }
-
-    case "tasks.delete": {
-      const taskId = pickFirstDefined(args, ["taskId", "task", "id"]);
-      if (taskId !== undefined) args.taskId = taskId;
       return args;
     }
 
@@ -1563,17 +1436,9 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
 
     case "reviews.reply": {
       const reviewId = pickFirstDefined(args, ["reviewId", "review", "id"]);
-      const reviewName = pickFirstDefined(args, ["reviewName", "name", "reviewerName", "customerName"]);
       const reply = pickFirstDefined(args, ["reply", "body", "message", "text", "response"]);
       if (reviewId !== undefined) args.reviewId = reviewId;
-      if (reviewName !== undefined) args.reviewName = reviewName;
       if (reply !== undefined) args.reply = reply;
-      return args;
-    }
-
-    case "reviews.delete": {
-      const reviewId = pickFirstDefined(args, ["reviewId", "review", "id"]);
-      if (reviewId !== undefined) args.reviewId = reviewId;
       return args;
     }
 
@@ -1620,12 +1485,6 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       const answer = pickFirstDefined(args, ["answer", "response", "text"]);
       if (questionId !== undefined) args.id = questionId;
       if (answer !== undefined) args.answer = answer;
-      return args;
-    }
-
-    case "reviews.questions.delete": {
-      const questionId = pickFirstDefined(args, ["questionId", "question", "reviewQuestionId", "id"]);
-      if (questionId !== undefined) args.questionId = questionId;
       return args;
     }
 
@@ -1818,6 +1677,7 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       const primaryGoals = pickFirstDefined(args, ["primaryGoals", "goals"]);
       const targetCustomer = pickFirstDefined(args, ["targetCustomer", "audience", "idealCustomer"]);
       const brandVoice = pickFirstDefined(args, ["brandVoice", "voice", "tone"]);
+      const businessContext = pickFirstDefined(args, ["businessContext", "businessDetails", "contextNotes", "operatingNotes"]);
       if (businessName !== undefined) args.businessName = businessName;
       if (websiteUrl !== undefined) args.websiteUrl = websiteUrl;
       if (industry !== undefined) args.industry = industry;
@@ -1825,6 +1685,7 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       if (primaryGoals !== undefined) args.primaryGoals = Array.isArray(primaryGoals) ? primaryGoals : splitLooseStringList(primaryGoals);
       if (targetCustomer !== undefined) args.targetCustomer = targetCustomer;
       if (brandVoice !== undefined) args.brandVoice = brandVoice;
+      if (businessContext !== undefined) args.businessContext = businessContext;
       return args;
     }
 
@@ -1889,90 +1750,6 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       if (frequencyDays !== undefined) args.frequencyDays = frequencyDays;
       if (topics !== undefined) args.topics = Array.isArray(topics) ? topics : splitLooseStringList(topics);
       if (autoPublish !== undefined) args.autoPublish = autoPublish;
-      return args;
-    }
-
-    case "hosted_pages.documents.list":
-    case "hosted_pages.documents.bootstrap": {
-      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
-      if (service !== undefined) args.service = service;
-      return args;
-    }
-
-    case "hosted_pages.documents.get":
-    case "hosted_pages.documents.preview_data":
-    case "hosted_pages.documents.publish":
-    case "hosted_pages.documents.reset_to_default": {
-      const documentId = pickFirstDefined(args, ["documentId", "document", "id", "hostedPageDocumentId"]);
-      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
-      const pageKey = pickFirstDefined(args, ["pageKey", "documentKey", "hostedPageKey", "page", "key"]);
-      if (documentId !== undefined) args.documentId = documentId;
-      if (service !== undefined) args.service = service;
-      if (pageKey !== undefined) args.pageKey = pageKey;
-      return args;
-    }
-
-    case "hosted_pages.documents.update": {
-      const documentId = pickFirstDefined(args, ["documentId", "document", "id", "hostedPageDocumentId"]);
-      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
-      const pageKey = pickFirstDefined(args, ["pageKey", "documentKey", "hostedPageKey", "page", "key"]);
-      const title = pickFirstDefined(args, ["title", "name", "pageTitle"]);
-      const slug = pickFirstDefined(args, ["slug", "pageSlug"]);
-      const status = pickFirstDefined(args, ["status", "state"]);
-      const contentMarkdown = pickFirstDefined(args, ["contentMarkdown", "content", "body", "markdown", "text"]);
-      const editorMode = pickFirstDefined(args, ["editorMode", "mode"]);
-      const customHtml = pickFirstDefined(args, ["customHtml", "html"]);
-      const blocksJson = pickFirstDefined(args, ["blocksJson", "blocks"]);
-      const customChatJson = pickFirstDefined(args, ["customChatJson", "chatJson"]);
-      const themeJson = pickFirstDefined(args, ["themeJson", "theme"]);
-      const dataBindingsJson = pickFirstDefined(args, ["dataBindingsJson", "dataBindings"]);
-      const seo = pickFirstDefined(args, ["seo", "seoMeta"]);
-      if (documentId !== undefined) args.documentId = documentId;
-      if (service !== undefined) args.service = service;
-      if (pageKey !== undefined) args.pageKey = pageKey;
-      if (title !== undefined) args.title = title;
-      if (slug !== undefined) args.slug = slug;
-      if (status !== undefined) args.status = status;
-      if (contentMarkdown !== undefined) args.contentMarkdown = contentMarkdown;
-      if (editorMode !== undefined) args.editorMode = editorMode;
-      if (customHtml !== undefined) args.customHtml = customHtml;
-      if (blocksJson !== undefined) args.blocksJson = blocksJson;
-      if (customChatJson !== undefined) args.customChatJson = customChatJson;
-      if (themeJson !== undefined) args.themeJson = themeJson;
-      if (dataBindingsJson !== undefined) args.dataBindingsJson = dataBindingsJson;
-      if (seo !== undefined) args.seo = seo;
-      return args;
-    }
-
-    case "hosted_pages.documents.generate_html": {
-      const documentId = pickFirstDefined(args, ["documentId", "document", "id", "hostedPageDocumentId"]);
-      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
-      const pageKey = pickFirstDefined(args, ["pageKey", "documentKey", "hostedPageKey", "page", "key"]);
-      const prompt = pickFirstDefined(args, ["prompt", "request", "instruction", "text"]);
-      const currentHtml = pickFirstDefined(args, ["currentHtml", "html"]);
-      const attachments = pickFirstDefined(args, ["attachments", "files", "media"]);
-      if (documentId !== undefined) args.documentId = documentId;
-      if (service !== undefined) args.service = service;
-      if (pageKey !== undefined) args.pageKey = pageKey;
-      if (prompt !== undefined) args.prompt = prompt;
-      if (currentHtml !== undefined) args.currentHtml = currentHtml;
-      if (attachments !== undefined) args.attachments = attachments;
-      return args;
-    }
-
-    case "hosted_pages.documents.export_custom_html": {
-      const documentId = pickFirstDefined(args, ["documentId", "document", "id", "hostedPageDocumentId"]);
-      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
-      const pageKey = pickFirstDefined(args, ["pageKey", "documentKey", "hostedPageKey", "page", "key"]);
-      const title = pickFirstDefined(args, ["title", "name", "pageTitle"]);
-      const blocksJson = pickFirstDefined(args, ["blocksJson", "blocks"]);
-      const setEditorMode = pickFirstDefined(args, ["setEditorMode", "editorMode", "mode"]);
-      if (documentId !== undefined) args.documentId = documentId;
-      if (service !== undefined) args.service = service;
-      if (pageKey !== undefined) args.pageKey = pageKey;
-      if (title !== undefined) args.title = title;
-      if (blocksJson !== undefined) args.blocksJson = blocksJson;
-      if (setEditorMode !== undefined) args.setEditorMode = setEditorMode;
       return args;
     }
 
@@ -2043,7 +1820,6 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       return args;
     }
 
-    case "newsletter.newsletters.delete":
     case "newsletter.newsletters.update": {
       const newsletterId = pickFirstDefined(args, [
         "newsletterId",
@@ -2077,12 +1853,6 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       if (take !== undefined) args.take = take;
       if (ids !== undefined) args.ids = Array.isArray(ids) ? ids : splitLooseStringList(ids);
       if (q !== undefined) args.q = q;
-      return args;
-    }
-
-    case "newsletter.audience.contacts.add": {
-      const contactIds = pickFirstDefined(args, ["contactIds", "ids", "contacts"]);
-      if (contactIds !== undefined) args.contactIds = Array.isArray(contactIds) ? contactIds : splitLooseStringList(contactIds);
       return args;
     }
 
@@ -2308,136 +2078,6 @@ function stripAssistantVisibleAccountingFields(value: unknown): unknown {
   return walk(value, 6);
 }
 
-function sanitizeAssistantVisibleResult(action: PortalAgentActionKey, value: unknown): unknown {
-  const base = stripAssistantVisibleAccountingFields(value);
-  if (!base || typeof base !== "object" || Array.isArray(base)) return base;
-
-  const result = base as Record<string, unknown>;
-  const lowSignalLabelPattern = /\b(?:qa|test|testing|demo|sweep|phase\s+\d+)\b/i;
-
-  const preferUserFacingTitles = (rows: Record<string, unknown>[]) => {
-    const mapped = rows
-      .map((row) => {
-        const title = String(row?.title || "").trim();
-        if (!title) return null;
-        return {
-          title,
-          lowSignal: lowSignalLabelPattern.test(title),
-        };
-      })
-      .filter(Boolean) as Array<{ title: string; lowSignal: boolean }>;
-    const preferred = mapped.some((item) => !item.lowSignal) ? mapped.filter((item) => !item.lowSignal) : mapped;
-    const seen = new Set<string>();
-    return preferred.filter((item) => {
-      const key = item.title.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  };
-
-  if (action === "ai_chat.threads.list") {
-    const threads = Array.isArray(result.threads) ? (result.threads as Record<string, unknown>[]) : [];
-    const preferred = threads
-      .map((thread) => {
-        const title = String(thread?.title || "").trim();
-        if (!title || lowSignalLabelPattern.test(title)) return null;
-        return { title };
-      })
-      .filter(Boolean) as Array<{ title: string }>;
-    return {
-      ...result,
-      totalThreads: threads.length,
-      threads: preferred.map((thread) => ({ title: thread.title })),
-    };
-  }
-
-  if (action === "ai_chat.threads.status.list") {
-    const threads = Array.isArray(result.threads) ? (result.threads as Record<string, unknown>[]) : [];
-    const preferred = preferUserFacingTitles(threads);
-    return {
-      ...result,
-      totalThreads: threads.length,
-      threads: preferred.map((thread) => {
-        const original = threads.find((candidate) => String(candidate?.title || "").trim() === thread.title) || null;
-        return {
-          title: thread.title,
-          status: original?.status ?? null,
-          pinned: original?.pinned ?? null,
-        };
-      }),
-    };
-  }
-
-  if (action === "media.list.get") {
-    const folders = Array.isArray(result.folders) ? (result.folders as Record<string, unknown>[]) : [];
-    const items = Array.isArray(result.items) ? (result.items as Record<string, unknown>[]) : [];
-    return {
-      ...result,
-      folder: result.folder && typeof result.folder === "object" && !Array.isArray(result.folder)
-        ? { name: (result.folder as any).name ?? null, color: (result.folder as any).color ?? null }
-        : null,
-      breadcrumbs: Array.isArray(result.breadcrumbs)
-        ? (result.breadcrumbs as Record<string, unknown>[]).map((crumb) => ({ name: crumb?.name ?? null, color: crumb?.color ?? null }))
-        : [],
-      folders: folders.map((folder) => ({ name: folder?.name ?? null, color: folder?.color ?? null })),
-      items: items.map((item) => ({ fileName: item?.fileName ?? null, mimeType: item?.mimeType ?? null, fileSize: item?.fileSize ?? null })),
-    };
-  }
-
-  if (action === "tasks.assignees.list") {
-    const members = Array.isArray(result.members) ? (result.members as Record<string, unknown>[]) : [];
-    return {
-      ...result,
-      members: members.map((member) => ({
-        role: member?.role ?? null,
-        implicit: member?.implicit ?? null,
-        user: member?.user && typeof member.user === "object" && !Array.isArray(member.user)
-          ? {
-              name: (member.user as any).name ?? null,
-              email: (member.user as any).email ?? null,
-              active: (member.user as any).active ?? null,
-            }
-          : null,
-      })),
-    };
-  }
-
-  if (action === "credit.contacts.list") {
-    const contacts = Array.isArray(result.contacts) ? (result.contacts as Record<string, unknown>[]) : [];
-    const ordered = [...contacts].sort((a, b) => {
-      const aLabel = String(a?.name || a?.email || a?.phone || "");
-      const bLabel = String(b?.name || b?.email || b?.phone || "");
-      const aLow = lowSignalLabelPattern.test(aLabel) ? 1 : 0;
-      const bLow = lowSignalLabelPattern.test(bLabel) ? 1 : 0;
-      if (aLow !== bLow) return aLow - bLow;
-      const aRich = (String(a?.email || "").trim() ? 2 : 0) + (String(a?.phone || "").trim() ? 1 : 0);
-      const bRich = (String(b?.email || "").trim() ? 2 : 0) + (String(b?.phone || "").trim() ? 1 : 0);
-      return bRich - aRich;
-    });
-    return {
-      ...result,
-      contacts: ordered.map((contact) => ({ name: contact?.name ?? null, email: contact?.email ?? null, phone: contact?.phone ?? null })),
-    };
-  }
-
-  if (action === "ai_outbound_calls.manual_calls.list") {
-    const calls = Array.isArray(result.manualCalls) ? (result.manualCalls as Record<string, unknown>[]) : [];
-    return {
-      ...result,
-      manualCalls: calls.map((call) => ({
-        toNumberE164: call?.toNumberE164 ?? null,
-        status: call?.status ?? null,
-        recordingDurationSec: call?.recordingDurationSec ?? null,
-        createdAtIso: call?.createdAtIso ?? null,
-        updatedAtIso: call?.updatedAtIso ?? null,
-      })),
-    };
-  }
-
-  return base;
-}
-
 function sanitizeThreadContextPatch(patch: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return null;
   const sanitized = sanitizeIdLikeObjectDeep(patch);
@@ -2606,24 +2246,10 @@ function rejectIfPlaceholderIdsPresent(action: PortalAgentActionKey, args: Recor
 }
 
 function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any, args?: Record<string, unknown>): string | undefined {
-  if (action === "inbox.send_email") {
-    const threadId = String(json?.threadId || args?.threadId || "").trim();
-    if (threadId) {
-      return portalInboxUiUrl({ channel: "email", threadId, compose: false });
-    }
-  }
-
-  if (action === "inbox.send_sms") {
-    const threadId = String(json?.threadId || args?.threadId || "").trim();
-    if (threadId) {
-      return portalInboxUiUrl({ channel: "sms", threadId, compose: false });
-    }
-  }
-
   const linkUrl = typeof json?.linkUrl === "string" ? String(json.linkUrl).trim() : "";
   if (linkUrl) return linkUrl;
 
-  if (action === "tasks.create" || action === "tasks.bulk_create" || action === "tasks.update" || action === "tasks.list") return "/portal/app/tasks";
+  if (action === "tasks.create" || action === "tasks.update" || action === "tasks.list") return "/portal/app/tasks";
 
   if (action === "funnel.create" && json?.funnel?.id) {
     const id = String(json.funnel.id).trim();
@@ -2645,8 +2271,6 @@ function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any, args?: 
     action === "funnel_builder.pages.create" ||
     action === "funnel_builder.pages.update" ||
     action === "funnel_builder.pages.generate_html" ||
-    action === "funnel_builder.pages.chat" ||
-    action === "funnel_builder.pages.foundation" ||
     action === "funnel_builder.pages.export_custom_html"
   ) {
     const funnelId = String(json?.page?.funnelId || args?.funnelId || "").trim();
@@ -2704,1738 +2328,262 @@ async function generateAssistantTextForActionResult(opts: {
   linkUrl?: string | null;
   clientUiAction?: any;
 }): Promise<string> {
-  function pluralize(value: number, singular: string, plural = `${singular}s`) {
-    return `${value} ${value === 1 ? singular : plural}`;
-  }
-
-  function trimSentence(value: unknown, maxLen: number) {
-    return String(value || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, maxLen)
-      .replace(/[\s.,;:!?-]+$/g, "")
-      .trim();
-  }
-
-  function trimSentencePreserveTerminalPunctuation(value: unknown, maxLen: number) {
-    const raw = String(value || "").replace(/\s+/g, " ").trim();
-    if (!raw) return "";
-    const sliced = raw.slice(0, maxLen).trim();
-    const punctuationMatch = sliced.match(/([.!?])["'`)\]]*\s*$/);
-    const normalized = sliced.replace(/[\s.,;:!?-]+$/g, "").trim();
-    if (!normalized) return "";
-    if (punctuationMatch?.[1]) return `${normalized}${punctuationMatch[1]}`;
-    return /[A-Za-z0-9]$/.test(normalized) ? `${normalized}.` : normalized;
-  }
-
-  function formatDelay(delay: unknown): string | null {
-    if (!delay || typeof delay !== "object" || Array.isArray(delay)) return null;
-    const value = Number((delay as any).value);
-    const unit = String((delay as any).unit || "").trim().toLowerCase();
-    if (!Number.isFinite(value) || value < 0) return null;
-    if (unit === "weeks") return `${pluralize(value, "week")} after an appointment`;
-    if (unit === "days") return `${pluralize(value, "day")} after an appointment`;
-    if (unit === "hours") return `${pluralize(value, "hour")} after an appointment`;
-    if (unit === "minutes") return `${pluralize(value, "minute")} after an appointment`;
-    return null;
-  }
-
-  function formatDelayMinutes(delayMinutes: unknown): string | null {
-    const value = Number(delayMinutes);
-    if (!Number.isFinite(value) || value < 0) return null;
-    if (value % (7 * 24 * 60) === 0) return `${pluralize(value / (7 * 24 * 60), "week")} after an appointment`;
-    if (value % (24 * 60) === 0) return `${pluralize(value / (24 * 60), "day")} after an appointment`;
-    if (value % 60 === 0) return `${pluralize(value / 60, "hour")} after an appointment`;
-    return `${pluralize(value, "minute")} after an appointment`;
-  }
-
-  function buildDeterministicAssistantText(): string | null {
-    if (!opts.ok || opts.status < 200 || opts.status >= 300) return null;
-    const result = opts.result && typeof opts.result === "object" ? (opts.result as Record<string, unknown>) : null;
-    const isLowSignalSummaryLabel = (value: unknown) => {
-      const label = trimSentence(value, 160);
-      if (!label) return true;
-      if (/\b(?:qa|test|testing|demo|sweep|phase\s+\d+|matrix|pass)\b/i.test(label)) return true;
-      if (/\b\d{8,}\b/.test(label)) return true;
-      if (/^pura scheduled[_\s-]/i.test(label)) return true;
-      if (/^qa[-_]/i.test(label)) return true;
-      if (/^portal-media-/i.test(label)) return true;
-      if (/^(?:new campaign|untitled|sample|draft)\b/i.test(label)) return true;
-      return false;
-    };
-
-    function formatMoneyFromCents(cents: unknown, currencyRaw: unknown): string | null {
-      const amount = Number(cents);
-      if (!Number.isFinite(amount)) return null;
-      const currency = String(currencyRaw || "usd").trim().toUpperCase() || "USD";
-      return `${currency} ${(amount / 100).toFixed(2)}`;
-    }
-
-    if (String(opts.action) === "tasks.list") {
-      const tasks = Array.isArray(result?.tasks) ? (result?.tasks as Record<string, unknown>[]) : [];
-      if (!tasks.length) return "There are no tasks in your list right now.";
-      const openTasks = tasks.filter((task) => String(task?.status || "").trim().toUpperCase() !== "DONE");
-      const examples = openTasks
-        .map((task) => {
-          const title = trimSentence(task?.title, 120);
-          if (!title || isLowSignalSummaryLabel(title)) return "";
-          const dueAt = trimSentence(task?.dueAt || task?.dueDate, 80);
-          if (dueAt) {
-            const parsed = new Date(dueAt);
-            if (Number.isFinite(parsed.getTime())) {
-              return `${title}, due ${parsed.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
-            }
-          }
-          return title;
-        })
-        .filter(Boolean)
-        .slice(0, 2);
-      const pieces = [
-        `You have ${pluralize(openTasks.length || tasks.length, "open task")} right now.`,
-      ];
-      if (examples.length) pieces.push(`Notable ones include ${examples.map((item) => `"${item}"`).join(" and ")}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "tasks.assignees.list") {
-      const members = Array.isArray(result?.members) ? (result?.members as Record<string, unknown>[]) : [];
-      if (!members.length) return "There are no task assignees available right now.";
-      const owners = members.filter((member) => String(member?.role || "").trim().toUpperCase() === "OWNER");
-      const admins = members.filter((member) => String(member?.role || "").trim().toUpperCase() === "ADMIN");
-      const memberCount = members.filter((member) => String(member?.role || "").trim().toUpperCase() === "MEMBER").length;
-      const ownerName = trimSentence((owners[0]?.user as any)?.name || (owners[0]?.user as any)?.email, 120);
-      const adminName = trimSentence((admins[0]?.user as any)?.name || (admins[0]?.user as any)?.email, 120);
-      const pieces = [`You have ${pluralize(members.length, "task assignee")} available.`];
-      if (ownerName) pieces.push(`The owner is ${ownerName}.`);
-      if (adminName) pieces.push(`The admin is ${adminName}.`);
-      if (memberCount > 0) pieces.push(`There ${memberCount === 1 ? "is" : "are"} also ${pluralize(memberCount, "member")}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "nurture.campaigns.list") {
-      const campaigns = Array.isArray(result?.campaigns) ? (result?.campaigns as Record<string, unknown>[]) : [];
-      if (!campaigns.length) return "There are no nurture campaigns right now.";
-      const names = campaigns.map((campaign) => trimSentence(campaign?.name, 100)).filter(Boolean);
-      const distinct = Array.from(new Set(names.map((name) => name.toLowerCase()))).map((key) => names.find((name) => name.toLowerCase() === key) || "").filter(Boolean);
-      const allDraft = campaigns.every((campaign) => String(campaign?.status || "").trim().toUpperCase() === "DRAFT");
-      const stepCounts = campaigns.map((campaign) => Number(campaign?.stepCount)).filter((value) => Number.isFinite(value));
-      const commonStepCount = stepCounts.length && stepCounts.every((value) => value === stepCounts[0]) ? stepCounts[0] : null;
-      const pieces = [
-        `You have ${pluralize(campaigns.length, "nurture campaign")} ${allDraft ? "in draft status" : "saved"}.`,
-      ];
-      if (distinct.length === 1) pieces.push(`They are all named "${distinct[0]}".`);
-      else if (distinct.length > 1) pieces.push(`Examples include ${distinct.slice(0, 3).map((item) => `"${item}"`).join(", ")}.`);
-      if (commonStepCount !== null) pieces.push(`Each campaign has ${pluralize(commonStepCount, "step")}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "ai_outbound_calls.campaigns.list") {
-      const campaigns = Array.isArray(result?.campaigns) ? (result?.campaigns as Record<string, unknown>[]) : [];
-      if (!campaigns.length) return "There are no AI outbound campaigns right now.";
-      const active = campaigns.filter((campaign) => String(campaign?.status || "").trim().toUpperCase() === "ACTIVE");
-      const draft = campaigns.filter((campaign) => String(campaign?.status || "").trim().toUpperCase() === "DRAFT");
-      const activeNames = active.map((campaign) => trimSentence(campaign?.name, 100)).filter(Boolean).slice(0, 4);
-      const draftNames = draft.map((campaign) => trimSentence(campaign?.name, 100)).filter(Boolean).slice(0, 2);
-      const pieces = [`You have ${pluralize(campaigns.length, "AI outbound campaign")}.`];
-      if (active.length) pieces.push(`${pluralize(active.length, "campaign")} ${active.length === 1 ? "is" : "are"} active${activeNames.length ? `, including ${activeNames.map((item) => `"${item}"`).join(", ")}` : ""}.`);
-      if (draft.length) pieces.push(`${pluralize(draft.length, "campaign")} ${draft.length === 1 ? "is" : "are"} still in draft${draftNames.length ? `, including ${draftNames.map((item) => `"${item}"`).join(", ")}` : ""}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "ai_outbound_calls.manual_calls.list") {
-      const calls = Array.isArray(result?.manualCalls) ? (result?.manualCalls as Record<string, unknown>[]) : [];
-      if (!calls.length) return "There are no manual outbound calls right now.";
-      const completed = calls.filter((call) => String(call?.status || "").trim().toUpperCase() === "COMPLETED");
-      const durations = completed.map((call) => Number(call?.recordingDurationSec)).filter((value) => Number.isFinite(value));
-      const numbers = Array.from(new Set(completed.map((call) => trimSentence(call?.toNumberE164, 40)).filter(Boolean)));
-      const pieces = [`You have ${pluralize(completed.length || calls.length, "completed manual outbound call")} right now.`];
-      if (numbers.length === 1) pieces.push(`They all went to ${numbers[0]}.`);
-      else if (numbers.length > 1) pieces.push(`Recent destination numbers include ${numbers.slice(0, 3).join(", ")}.`);
-      if (durations.length) pieces.push(`Recorded durations range from ${Math.min(...durations)} to ${Math.max(...durations)} seconds.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "ai_chat.threads.list") {
-      const totalThreads = Number(result?.totalThreads);
-      if (Number.isFinite(totalThreads) && totalThreads > 0) return `There are currently ${totalThreads} AI chat threads available.`;
-      const threads = Array.isArray(result?.threads) ? (result?.threads as Record<string, unknown>[]) : [];
-      if (!threads.length) return "There are no AI chat threads right now.";
-      return `There are currently ${threads.length} AI chat threads available.`;
-    }
-
-    if (opts.action === "ai_chat.threads.status.list") {
-      const threads = Array.isArray(result?.threads) ? (result?.threads as Record<string, unknown>[]) : [];
-      const totalThreads = Number(result?.totalThreads);
-      if (!threads.length) {
-        if (Number.isFinite(totalThreads) && totalThreads > 0) return `You have ${totalThreads} chat threads right now.`;
-        return "There are no AI chat thread statuses to show right now.";
-      }
-      const active = threads.filter((thread) => {
-        const status = String(thread?.status || "").trim().toUpperCase();
-        return status === "RUNNING" || status === "PENDING" || status === "QUEUED" || thread?.pinned === true;
-      });
-      const title = trimSentence(active[0]?.title || threads[0]?.title, 120);
-      const status = trimSentence(active[0]?.status || threads[0]?.status, 40)?.toLowerCase();
-      const pieces = [Number.isFinite(totalThreads) && totalThreads > 0 ? `You have ${totalThreads} chat threads right now.` : `You have ${pluralize(threads.length, "chat thread")} right now.`];
-      if (title && status) pieces.push(`One active example is "${title}", which is ${status}.`);
-      else if (title) pieces.push(`One active example is "${title}".`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "ai_chat.scheduled.list") {
-      const scheduled = Array.isArray(result?.scheduled) ? (result?.scheduled as Record<string, unknown>[]) : [];
-      if (!scheduled.length) return "There are no scheduled AI chat reminders right now.";
-      const repeatingCount = scheduled.filter((item) => Number(item?.repeatEveryMinutes) > 0).length;
-      const examples = scheduled
-        .map((item) => trimSentence(item?.threadTitle || item?.text, 120))
-        .filter((item) => item && !isLowSignalSummaryLabel(item))
-        .slice(0, 2);
-      const pieces = [`You have ${pluralize(scheduled.length, "scheduled AI chat reminder")}.`];
-      if (repeatingCount) pieces.push(`${pluralize(repeatingCount, "reminder")} repeat automatically.`);
-      if (examples.length) pieces.push(`Upcoming reminders include ${examples.map((item) => `"${item}"`).join(" and ")}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "credit.contacts.list") {
-      const contacts = Array.isArray(result?.contacts) ? (result?.contacts as Record<string, unknown>[]) : [];
-      if (!contacts.length) return "There are no credit contacts right now.";
-      const examples = contacts.slice(0, 3).map((contact) => {
-        const name = trimSentence(contact?.name, 100);
-        const email = trimSentence(contact?.email, 120);
-        const phone = trimSentence(contact?.phone, 40);
-        if (name && email && phone) return `${name} (${email}, ${phone})`;
-        if (name && email) return `${name} (${email})`;
-        if (name && phone) return `${name} (${phone})`;
-        return name || email || phone || "";
-      }).filter(Boolean);
-      return examples.length
-        ? `You have ${pluralize(contacts.length, "credit contact")}. Examples include ${examples.join(", ")}.`
-        : `You have ${pluralize(contacts.length, "credit contact")}.`;
-    }
-
-    if (opts.action === "credit.pulls.list") {
-      const pulls = Array.isArray(result?.pulls) ? (result?.pulls as Record<string, unknown>[]) : [];
-      return pulls.length ? `You have ${pluralize(pulls.length, "credit pull")} right now.` : "There are currently no credit pulls available.";
-    }
-
-    if (opts.action === "credit.reports.list") {
-      const reports = Array.isArray(result?.reports) ? (result?.reports as Record<string, unknown>[]) : [];
-      return reports.length ? `You have ${pluralize(reports.length, "credit report")} right now.` : "There are currently no credit reports available.";
-    }
-
-    if (opts.action === "credit.disputes.letters.list") {
-      const letters = Array.isArray(result?.letters) ? (result?.letters as Record<string, unknown>[]) : [];
-      return letters.length ? `You have ${pluralize(letters.length, "credit dispute letter")} right now.` : "There are currently no credit dispute letters available.";
-    }
-
-    if (opts.action === "media.list.get") {
-      const folders = Array.isArray(result?.folders) ? (result?.folders as Record<string, unknown>[]) : [];
-      const items = Array.isArray(result?.items) ? (result?.items as Record<string, unknown>[]) : [];
-      if (!folders.length && !items.length) return "Your media library is empty right now.";
-      const folderExamples = folders.slice(0, 3).map((folder) => trimSentence(folder?.name, 100)).filter(Boolean);
-      const itemExamples = items
-        .map((item) => trimSentence(item?.fileName, 120))
-        .filter((item) => item && !isLowSignalSummaryLabel(item))
-        .slice(0, 3);
-      const pieces = [`You have ${pluralize(folders.length, "folder")} and ${pluralize(items.length, "item")} in your media library.`];
-      if (folderExamples.length) pieces.push(`Notable folders include ${folderExamples.map((item) => `"${item}"`).join(", ")}.`);
-      if (itemExamples.length) pieces.push(`Examples of the files include ${itemExamples.map((item) => `"${item}"`).join(", ")}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "reviews.settings.get" || opts.action === "reviews.settings.update") {
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      if (!settings) return null;
-      const enabled = Boolean(settings.enabled);
-      const delayText = formatDelay(settings.sendAfter);
-      const templatePreview = trimSentence(settings.messageTemplate, 140);
-      const destinationsCount = Array.isArray(settings.destinations) ? settings.destinations.length : 0;
-
-      if (!enabled) {
-        return opts.action === "reviews.settings.update"
-          ? "I turned review requests off."
-          : "Review requests are off right now.";
-      }
-
-      const start = opts.action === "reviews.settings.update"
-        ? "I turned review requests on"
-        : "Review requests are on";
-      const pieces = [delayText ? `${start} and they send ${delayText}` : start];
-      pieces.push(
-        destinationsCount > 0
-          ? `You have ${pluralize(destinationsCount, "review destination")} configured.`
-          : "No review destination is configured yet.",
-      );
-      if (templatePreview) pieces.push(`The message starts "${templatePreview}".`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "follow_up.settings.get" || opts.action === "follow_up.settings.update") {
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      if (!settings) return null;
-      const enabled = Boolean(settings.enabled);
-      const assignments = settings.assignments && typeof settings.assignments === "object" && !Array.isArray(settings.assignments)
-        ? (settings.assignments as Record<string, unknown>)
-        : null;
-      const defaultSteps = Array.isArray(assignments?.defaultSteps) ? (assignments?.defaultSteps as unknown[]) : [];
-      const firstStep = defaultSteps[0] && typeof defaultSteps[0] === "object" && !Array.isArray(defaultSteps[0])
-        ? (defaultSteps[0] as Record<string, unknown>)
-        : null;
-      const stepCount = defaultSteps.length;
-      const kind = String(firstStep?.kind || "").trim().toUpperCase();
-      const delayText = formatDelayMinutes(firstStep?.delayMinutes);
-      const bodyPreview = kind === "EMAIL"
-        ? trimSentence((firstStep?.email as any)?.bodyTemplate, 120)
-        : trimSentence((firstStep?.sms as any)?.bodyTemplate, 120);
-
-      if (!enabled) {
-        return opts.action === "follow_up.settings.update"
-          ? "I turned follow-up automation off."
-          : "Follow-up automation is off right now.";
-      }
-
-      if (!stepCount) {
-        return opts.action === "follow_up.settings.update"
-          ? "I turned follow-up automation on, but there are no default steps configured yet."
-          : "Follow-up automation is on, but there are no default steps configured yet.";
-      }
-
-      const start = opts.action === "follow_up.settings.update"
-        ? `I turned follow-up automation on with ${pluralize(stepCount, "default step")}`
-        : `Follow-up automation is on with ${pluralize(stepCount, "default step")}`;
-      const stepParts = [kind ? `The first step is ${kind}.` : ""];
-      if (delayText) stepParts.push(`It runs ${delayText}.`);
-      if (bodyPreview) stepParts.push(`The message starts "${bodyPreview}".`);
-      return `${start}. ${stepParts.filter(Boolean).join(" ")}`.trim();
-    }
-
-    if (opts.action === "inbox.settings.get" || opts.action === "inbox.settings.update") {
-      const mailbox = result?.mailbox && typeof result.mailbox === "object" && !Array.isArray(result.mailbox)
-        ? (result.mailbox as Record<string, unknown>)
-        : null;
-      const twilio = result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio)
-        ? (result.twilio as Record<string, unknown>)
-        : null;
-      const mailboxAddress = typeof mailbox?.emailAddress === "string" ? mailbox.emailAddress.trim() : "";
-      const twilioConfigured = Boolean(twilio?.configured);
-      const fromNumber = typeof twilio?.fromNumberE164 === "string" ? twilio.fromNumberE164.trim() : "";
-      const webhookReady = typeof (result?.settings as any)?.webhookToken === "string" && String((result?.settings as any)?.webhookToken).trim().length >= 12;
-
-      if (opts.action === "inbox.settings.update") {
-        return "I regenerated your inbox webhook token.";
-      }
-
-      const pieces = [
-        mailboxAddress ? `Your inbox mailbox is ${mailboxAddress}.` : "Your inbox mailbox is ready.",
-        twilioConfigured
-          ? fromNumber
-            ? `Twilio SMS is connected from ${fromNumber}.`
-            : "Twilio SMS is connected."
-          : "Twilio SMS is not connected yet.",
-        webhookReady ? "The inbound webhook token is in place." : "The inbound webhook token is missing.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "blogs.automation.settings.get" || opts.action === "blogs.automation.settings.update") {
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      if (!settings) return null;
-      const enabled = Boolean(settings.enabled);
-      const frequencyDays = Number(settings.frequencyDays);
-      const topics = Array.isArray(settings.topics) ? (settings.topics as unknown[]).filter((item) => typeof item === "string").map((item) => String(item).trim()).filter(Boolean) : [];
-      const autoPublish = Boolean(settings.autoPublish);
-
-      if (!enabled) {
-        return opts.action === "blogs.automation.settings.update"
-          ? "I turned blog automation off."
-          : "Blog automation is off right now.";
-      }
-
-      const pieces = [
-        opts.action === "blogs.automation.settings.update"
-          ? `I turned blog automation on to run every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`
-          : `Blog automation is on and runs every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`,
-        topics.length ? `Topics: ${topics.slice(0, 4).join(", ")}.` : "No topics are configured yet.",
-        autoPublish ? "Auto-publish is on." : "Auto-publish is off.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "newsletter.automation.settings.get" || opts.action === "newsletter.automation.settings.update") {
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      if (!settings) return null;
-      const kind = String(result?.kind || "EXTERNAL").trim().toUpperCase() === "INTERNAL" ? "internal" : "external";
-      const enabled = Boolean(settings.enabled);
-      const frequencyDays = Number(settings.frequencyDays);
-      const requireApproval = Boolean(settings.requireApproval);
-      const topics = Array.isArray(settings.topics) ? (settings.topics as unknown[]).filter((item) => typeof item === "string").map((item) => String(item).trim()).filter(Boolean) : [];
-
-      if (!enabled) {
-        return opts.action === "newsletter.automation.settings.update"
-          ? `I turned ${kind} newsletter automation off.`
-          : `${kind[0]!.toUpperCase()}${kind.slice(1)} newsletter automation is off right now.`;
-      }
-
-      const pieces = [
-        opts.action === "newsletter.automation.settings.update"
-          ? `I turned ${kind} newsletter automation on to run every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`
-          : `${kind[0]!.toUpperCase()}${kind.slice(1)} newsletter automation is on and runs every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`,
-        requireApproval ? "Approval is required before sending." : "Approval is not required before sending.",
-        topics.length ? `Topics: ${topics.slice(0, 4).join(", ")}.` : "No newsletter topics are configured yet.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "missed_call_textback.settings.get" || opts.action === "missed_call_textback.settings.update") {
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      if (!settings) return null;
-      const enabled = Boolean(settings.enabled);
-      const replyDelaySeconds = Number(settings.replyDelaySeconds);
-      const replyBody = trimSentence(settings.replyBody, 140);
-      const twilioConfigured = Boolean(result?.twilioConfigured);
-
-      if (opts.action === "missed_call_textback.settings.update" && opts.args && (opts.args as any).regenerateToken === true) {
-        return "I regenerated the missed-call text-back webhook token.";
-      }
-
-      if (!enabled) {
-        return opts.action === "missed_call_textback.settings.update"
-          ? "I turned missed-call text-back off."
-          : "Missed-call text-back is off right now.";
-      }
-
-      const pieces = [
-        opts.action === "missed_call_textback.settings.update"
-          ? `I turned missed-call text-back on with a ${pluralize(Number.isFinite(replyDelaySeconds) && replyDelaySeconds >= 0 ? replyDelaySeconds : 5, "second")} delay.`
-          : `Missed-call text-back is on with a ${pluralize(Number.isFinite(replyDelaySeconds) && replyDelaySeconds >= 0 ? replyDelaySeconds : 5, "second")} delay.`,
-      ];
-      if (replyBody) pieces.push(`The reply starts "${replyBody}".`);
-      pieces.push(twilioConfigured ? "Twilio SMS is connected." : "Twilio SMS is not connected yet.");
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "booking.reminders.settings.get" || opts.action === "booking.reminders.settings.update") {
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      if (!settings) return null;
-
-      const enabled = Boolean(settings.enabled);
-      const steps = Array.isArray(settings.steps) ? (settings.steps as unknown[]) : [];
-      const activeSteps = steps
-        .filter((step) => step && typeof step === "object" && !Array.isArray(step) && Boolean((step as Record<string, unknown>).enabled))
-        .map((step) => {
-          const rec = step as Record<string, unknown>;
-          const leadTime = rec.leadTime && typeof rec.leadTime === "object" && !Array.isArray(rec.leadTime)
-            ? (rec.leadTime as Record<string, unknown>)
-            : null;
-          const value = Number(leadTime?.value);
-          const unit = trimSentence(leadTime?.unit, 20)?.toLowerCase() || "hours";
-          const kind = trimSentence(rec.kind, 20)?.toUpperCase() || "SMS";
-          const timing = Number.isFinite(value) && value > 0 ? `${pluralize(value, unit.replace(/s$/i, ""))} before` : "before the appointment";
-          return `${kind} ${timing}`;
-        })
-        .filter(Boolean)
-        .slice(0, 4);
-
-      const twilio = result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio)
-        ? (result.twilio as Record<string, unknown>)
-        : null;
-      const twilioConfigured = Boolean(twilio?.configured);
-
-      if (!enabled || !activeSteps.length) {
-        return opts.action === "booking.reminders.settings.update"
-          ? "I turned appointment reminders off."
-          : "Appointment reminders are off right now.";
-      }
-
-      const pieces = [
-        opts.action === "booking.reminders.settings.update"
-          ? "I updated appointment reminder settings."
-          : "Appointment reminders are on.",
-        `Active reminder steps: ${activeSteps.join(", ")}.`,
-      ];
-      if (activeSteps.some((step) => step.startsWith("SMS"))) {
-        pieces.push(twilioConfigured ? "Twilio SMS is connected." : "Twilio SMS is not connected yet.");
-      }
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "business_profile.get") {
-      const profile = result?.profile && typeof result.profile === "object" && !Array.isArray(result.profile)
-        ? (result.profile as Record<string, unknown>)
-        : null;
-      if (!profile) return "Your business profile is not set up yet.";
-
-      const businessName = trimSentence(profile.businessName, 120);
-      const websiteUrl = trimSentence(profile.websiteUrl, 120);
-      const industry = trimSentence(profile.industry, 80);
-      const targetCustomer = trimSentence(profile.targetCustomer, 120);
-      const brandVoice = trimSentence(profile.brandVoice, 100);
-      const primaryGoals = Array.isArray(profile.primaryGoals)
-        ? (profile.primaryGoals as unknown[])
-          .filter((item) => typeof item === "string")
-          .map((item) => String(item).trim())
-          .filter(Boolean)
-          .slice(0, 3)
-        : [];
-
-      const pieces = [
-        businessName ? `Your business profile is saved for ${businessName}.` : "Your business profile is saved.",
-        websiteUrl ? `Website: ${websiteUrl}.` : "No website is saved yet.",
-        industry ? `Industry: ${industry}.` : "No industry is saved yet.",
-      ];
-      if (targetCustomer) pieces.push(`Target customer: ${targetCustomer}.`);
-      if (brandVoice) pieces.push(`Brand voice: ${brandVoice}.`);
-      if (primaryGoals.length) pieces.push(`Primary goals: ${primaryGoals.join(", ")}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "services.status.get") {
-      const statuses = result?.statuses && typeof result.statuses === "object" && !Array.isArray(result.statuses)
-        ? Object.entries(result.statuses as Record<string, unknown>)
-        : [];
-      if (!statuses.length) return "I could not find any service status information right now.";
-
-      const byState = new Map<string, string[]>();
-      for (const [slug, value] of statuses) {
-        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-        const rec = value as Record<string, unknown>;
-        const state = trimSentence(rec.state, 40)?.toLowerCase() || "unknown";
-        const label = trimSentence(rec.label, 60);
-        const display = label ? `${slug} (${label})` : slug;
-        byState.set(state, [...(byState.get(state) || []), display]);
-      }
-
-      const active = (byState.get("active") || []).slice(0, 4);
-      const needsSetup = (byState.get("needs_setup") || []).slice(0, 4);
-      const locked = (byState.get("locked") || []).slice(0, 4);
-      const paused = (byState.get("paused") || []).slice(0, 4);
-      const canceled = (byState.get("canceled") || []).slice(0, 4);
-
-      const pieces = [] as string[];
-      if (active.length) pieces.push(`Active services include ${active.join(", ")}.`);
-      if (needsSetup.length) pieces.push(`Needs setup: ${needsSetup.join(", ")}.`);
-      if (locked.length) pieces.push(`Locked services: ${locked.join(", ")}.`);
-      if (paused.length) pieces.push(`Paused services: ${paused.join(", ")}.`);
-      if (canceled.length) pieces.push(`Canceled services: ${canceled.join(", ")}.`);
-      return pieces.length ? pieces.join(" ") : "Your service statuses are loaded.";
-    }
-
-    if (opts.action === "webhooks.get") {
-      const twilio = result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio)
-        ? (result.twilio as Record<string, unknown>)
-        : null;
-      const legacy = result?.legacy && typeof result.legacy === "object" && !Array.isArray(result.legacy)
-        ? (result.legacy as Record<string, unknown>)
-        : null;
-
-      const smsInboundUrl = trimSentence(twilio?.smsInboundUrl, 160);
-      const smsStatusCallbackUrl = trimSentence(twilio?.smsStatusCallbackUrl, 160);
-      const inboxLegacyUrl = trimSentence(legacy?.inboxTwilioSmsUrl, 160);
-      const aiLegacyUrl = trimSentence(legacy?.aiReceptionistVoiceUrl, 160);
-      const missedLegacyUrl = trimSentence(legacy?.missedCallVoiceUrl, 160);
-
-      const pieces = [] as string[];
-      if (smsInboundUrl) pieces.push(`Primary Twilio SMS inbound URL: ${smsInboundUrl}.`);
-      if (smsStatusCallbackUrl) pieces.push(`SMS status callback URL: ${smsStatusCallbackUrl}.`);
-      if (inboxLegacyUrl || aiLegacyUrl || missedLegacyUrl) {
-        const legacyPieces = [
-          inboxLegacyUrl ? `Inbox ${inboxLegacyUrl}` : null,
-          aiLegacyUrl ? `AI receptionist ${aiLegacyUrl}` : null,
-          missedLegacyUrl ? `missed-call ${missedLegacyUrl}` : null,
-        ].filter(Boolean);
-        if (legacyPieces.length) pieces.push(`Legacy webhook routes: ${legacyPieces.join(", ")}.`);
-      }
-      return pieces.length ? pieces.join(" ") : "Webhook URLs are not configured yet.";
-    }
-
-    if (opts.action === "mailbox.get") {
-      const mailbox = result?.mailbox && typeof result.mailbox === "object" && !Array.isArray(result.mailbox)
-        ? (result.mailbox as Record<string, unknown>)
-        : null;
-      if (!mailbox) return "Your portal mailbox is not set up yet.";
-
-      const emailAddress = trimSentence(mailbox.emailAddress, 160);
-      const canChange = mailbox.canChange === true;
-      const pieces = [
-        emailAddress ? `Your portal mailbox address is ${emailAddress}.` : "Your portal mailbox is ready.",
-        canChange ? "You can still change it once." : "It can no longer be changed from the portal.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "services.catalog.get") {
-      const groups = Array.isArray(result?.groups) ? (result.groups as unknown[]) : [];
-      if (!groups.length) return "I could not find any portal services right now.";
-
-      const visibleGroups = groups
-        .filter((group) => group && typeof group === "object" && !Array.isArray(group))
-        .map((group) => group as Record<string, unknown>);
-
-      const groupSummaries = visibleGroups
-        .map((group) => {
-          const title = trimSentence(group.title, 80);
-          const services = Array.isArray(group.services) ? (group.services as unknown[]) : [];
-          const visibleServices = services
-            .filter((item) => item && typeof item === "object" && !Array.isArray(item) && (item as Record<string, unknown>).hidden !== true)
-            .map((item) => item as Record<string, unknown>);
-          const titles = visibleServices
-            .map((item) => trimSentence(item.title, 80))
-            .filter(Boolean)
-            .slice(0, 3);
-          if (!title) return null;
-          if (!titles.length) return `${title} is available.`;
-          return `${title} includes ${titles.join(", ")}.`;
-        })
-        .filter(Boolean)
-        .slice(0, 3);
-
-      const totalServices = visibleGroups.reduce((count, group) => {
-        const services = Array.isArray(group.services) ? (group.services as unknown[]) : [];
-        return count + services.filter((item) => item && typeof item === "object" && !Array.isArray(item) && (item as Record<string, unknown>).hidden !== true).length;
-      }, 0);
-
-      const pieces = [`Your portal includes ${pluralize(totalServices, "available service")}.`];
-      if (groupSummaries.length) pieces.push(groupSummaries.join(" "));
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "reporting.summary.get") {
-      const kpis = result?.kpis && typeof result.kpis === "object" && !Array.isArray(result.kpis)
-        ? (result.kpis as Record<string, unknown>)
-        : null;
-      if (!kpis) return null;
-
-      const range = trimSentence(result?.range, 20) || "30d";
-      const creditsRemaining = Number(result?.creditsRemaining);
-      const automationsRun = Number(kpis.automationsRun);
-      const bookingsCreated = Number(kpis.bookingsCreated);
-      const reviewsCollected = Number(kpis.reviewsCollected);
-      const leadsCreated = Number(kpis.leadsCreated);
-      const inboxMessagesIn = Number(kpis.inboxMessagesIn);
-      const inboxMessagesOut = Number(kpis.inboxMessagesOut);
-
-      const pieces = [
-        `Your reporting summary for ${range} is ready.`,
-        Number.isFinite(automationsRun) ? `${pluralize(automationsRun, "automation run")} tracked.` : "",
-        Number.isFinite(bookingsCreated) ? `${pluralize(bookingsCreated, "booking")} created.` : "",
-        Number.isFinite(leadsCreated) ? `${pluralize(leadsCreated, "lead")} created.` : "",
-        Number.isFinite(reviewsCollected) ? `${pluralize(reviewsCollected, "review")} collected.` : "",
-        Number.isFinite(inboxMessagesIn) && Number.isFinite(inboxMessagesOut) ? `Inbox traffic: ${inboxMessagesIn} in and ${inboxMessagesOut} out.` : "",
-        Number.isFinite(creditsRemaining) ? `${creditsRemaining} credits remaining.` : "",
-      ].filter(Boolean);
-
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "dashboard.get") {
-      const data = result?.data && typeof result.data === "object" && !Array.isArray(result.data)
-        ? (result.data as Record<string, unknown>)
-        : null;
-      const widgets = Array.isArray(data?.widgets) ? (data?.widgets as unknown[]) : [];
-      if (!widgets.length) return "Your dashboard is empty right now.";
-
-      const toWidgetLabel = (value: unknown): string => {
-        const raw = trimSentence(value, 80);
-        if (!raw) return "";
-        return raw
-          .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-          .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-          .replace(/^./, (char) => char.toUpperCase())
-          .replace(/\bAi\b/g, "AI")
-          .replace(/\bPura\b/g, "Pura");
-      };
-
-      const widgetLabels = widgets
-        .map((widget) => {
-          if (!widget || typeof widget !== "object" || Array.isArray(widget)) return "";
-          return toWidgetLabel((widget as Record<string, unknown>).id);
-        })
-        .filter(Boolean);
-
-      if (!widgetLabels.length) return "Your dashboard is loaded.";
-      const pieces = [
-        `Your dashboard has ${pluralize(widgetLabels.length, "widget")}.`,
-        `Right now it includes ${widgetLabels.slice(0, 5).join(", ")}.`,
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "dashboard.quick_access.get") {
-      const slugs = Array.isArray(result?.slugs) ? (result.slugs as unknown[]) : [];
-      if (!slugs.length) return "You do not have any dashboard shortcuts saved right now.";
-
-      const labels = slugs
-        .map((slug) => {
-          const value = typeof slug === "string" ? slug.trim() : "";
-          if (!value) return "";
-          if (value === "sales-dashboard") return "Sales Dashboard";
-          const service = PORTAL_SERVICES.find((item) => item.slug === value);
-          return service?.title || value;
-        })
-        .filter(Boolean)
-        .slice(0, 6);
-
-      return labels.length
-        ? `Your dashboard quick access shortcuts include ${labels.join(", ")}.`
-        : "You do not have any dashboard shortcuts saved right now.";
-    }
-
-    if (opts.action === "dashboard.analysis.get") {
-      const analysis = result?.analysis && typeof result.analysis === "object" && !Array.isArray(result.analysis)
-        ? (result.analysis as Record<string, unknown>)
-        : null;
-      if (!analysis) return "No dashboard analysis has been generated yet.";
-
-      const text = typeof analysis.text === "string" ? analysis.text.trim() : "";
-      const generatedAtIso = trimSentence(analysis.generatedAtIso, 80);
-      if (!text) return "No dashboard analysis has been generated yet.";
-
-      const firstMeaningfulLine = text
-        .split(/\r?\n/)
-        .map((line) => line.trim().replace(/^[-*]\s*/, ""))
-        .find(Boolean) || text;
-
-      const pieces = [
-        generatedAtIso ? `Your latest dashboard analysis was generated at ${generatedAtIso}.` : "Your latest dashboard analysis is ready.",
-        trimSentence(firstMeaningfulLine, 220) || text,
-      ].filter(Boolean);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "profile.get") {
-      const user = result?.user && typeof result.user === "object" && !Array.isArray(result.user)
-        ? (result.user as Record<string, unknown>)
-        : null;
-      if (!user) return "Your profile is not available right now.";
-
-      const name = trimSentence(user.name, 120);
-      const email = trimSentence(user.email, 160);
-      const phone = trimSentence(user.phone, 40);
-      const city = trimSentence(user.city, 80);
-      const state = trimSentence(user.state, 40);
-      const voiceAgentId = trimSentence(user.voiceAgentId, 80);
-      const voiceAgentApiKeyConfigured = user.voiceAgentApiKeyConfigured === true;
-
-      const pieces = [
-        name || email ? `Your profile is saved for ${[name, email].filter(Boolean).join(" • ")}.` : "Your profile is loaded.",
-        phone ? `Phone: ${phone}.` : "No phone number is saved yet.",
-        city || state ? `Location: ${[city, state].filter(Boolean).join(", ")}.` : "No city or state is saved yet.",
-      ];
-      if (voiceAgentId) pieces.push(`Voice agent ID: ${voiceAgentId}.`);
-      pieces.push(voiceAgentApiKeyConfigured ? "Voice agent API key is configured." : "Voice agent API key is not configured.");
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "referrals.link.get") {
-      const code = trimSentence(result?.code, 80);
-      const url = trimSentence(result?.url, 220);
-      const stats = result?.stats && typeof result.stats === "object" && !Array.isArray(result.stats)
-        ? (result.stats as Record<string, unknown>)
-        : null;
-
-      const total = Number(stats?.total);
-      const verified = Number(stats?.verified);
-      const awarded = Number(stats?.awarded);
-
-      const pieces = [
-        code ? `Your referral code is ${code}.` : "Your referral link is ready.",
-        url ? `Referral URL: ${url}.` : "",
-      ];
-      if (Number.isFinite(total) && Number.isFinite(verified) && Number.isFinite(awarded)) {
-        pieces.push(`Referral stats: ${total} total, ${verified} verified, ${awarded} awarded.`);
-      }
-      return pieces.filter(Boolean).join(" ");
-    }
-
-    if (opts.action === "me.get") {
-      const role = trimSentence(result?.role, 40);
-      const permissions = result?.permissions && typeof result.permissions === "object" && !Array.isArray(result.permissions)
-        ? Object.entries(result.permissions as Record<string, unknown>)
-        : [];
-
-      const enabledPermissions = permissions
-        .filter(([, value]) => value === true)
-        .map(([key]) => key)
-        .slice(0, 6);
-
-      const pieces = [role ? `Your portal role is ${role}.` : "Your portal access is loaded."];
-      if (enabledPermissions.length) pieces.push(`Enabled permissions include ${enabledPermissions.join(", ")}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "reporting.sales.get") {
-      const ok = result?.ok === true;
-      if (!ok) return trimSentence(result?.error, 180) || "Sales report is unavailable right now.";
-
-      const providerLabel = trimSentence(result?.providerLabel, 80);
-      const range = trimSentence(result?.range, 20) || "30d";
-      const totals = result?.totals && typeof result.totals === "object" && !Array.isArray(result.totals)
-        ? (result.totals as Record<string, unknown>)
-        : null;
-      if (!totals) return "Sales report is loaded.";
-
-      const chargeCount = Number(totals.chargeCount);
-      const gross = formatMoneyFromCents(totals.grossCents, result?.currency);
-      const refunded = formatMoneyFromCents(totals.refundedCents, result?.currency);
-      const net = formatMoneyFromCents(totals.netCents, result?.currency);
-
-      const pieces = [
-        providerLabel ? `Your ${providerLabel} sales report for ${range} is ready.` : `Your sales report for ${range} is ready.`,
-        Number.isFinite(chargeCount) ? `${pluralize(chargeCount, "charge")} recorded.` : "",
-        gross ? `Gross sales: ${gross}.` : "",
-        net ? `Net sales: ${net}.` : "",
-        refunded ? `Refunded: ${refunded}.` : "",
-      ].filter(Boolean);
-
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "reporting.stripe.get") {
-      const ok = result?.ok === true;
-      if (!ok) return trimSentence(result?.error, 180) || "Stripe report is unavailable right now.";
-
-      const range = trimSentence(result?.range, 20) || "30d";
-      const totals = result?.totals && typeof result.totals === "object" && !Array.isArray(result.totals)
-        ? (result.totals as Record<string, unknown>)
-        : null;
-      if (!totals) return "Stripe charges report is loaded.";
-
-      const chargeCount = Number(totals.chargeCount);
-      const gross = formatMoneyFromCents(totals.grossCents, result?.currency);
-      const refunded = formatMoneyFromCents(totals.refundedCents, result?.currency);
-      const net = formatMoneyFromCents(totals.netCents, result?.currency);
-
-      const pieces = [
-        `Your Stripe charges report for ${range} is ready.`,
-        Number.isFinite(chargeCount) ? `${pluralize(chargeCount, "charge")} recorded.` : "",
-        gross ? `Gross charges: ${gross}.` : "",
-        net ? `Net collected: ${net}.` : "",
-        refunded ? `Refunded: ${refunded}.` : "",
-      ].filter(Boolean);
-
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "lead_scraping.settings.get" || opts.action === "lead_scraping.settings.update") {
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      const b2b = settings?.b2b && typeof settings.b2b === "object" && !Array.isArray(settings.b2b)
-        ? (settings.b2b as Record<string, unknown>)
-        : null;
-      if (!b2b) return null;
-      const niche = trimSentence(b2b.niche, 80);
-      const location = trimSentence(b2b.location, 80);
-      const frequencyDays = Number(b2b.frequencyDays);
-      const scheduleEnabled = Boolean(b2b.scheduleEnabled);
-      const requireEmail = Boolean(b2b.requireEmail);
-      const requirePhone = Boolean(b2b.requirePhone);
-
-      const pieces = [
-        opts.action === "lead_scraping.settings.update"
-          ? "I updated lead-scraping settings."
-          : "Lead-scraping settings are loaded.",
-        niche && location ? `B2B scraping targets ${niche} in ${location}.` : "B2B targeting is configured.",
-        scheduleEnabled
-          ? `It runs every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`
-          : "Scheduled runs are off.",
-        requireEmail && requirePhone
-          ? "Both email and phone are required."
-          : requireEmail
-            ? "Email is required."
-            : requirePhone
-              ? "Phone is required."
-              : "No email or phone requirement is enabled.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "automations.settings.get") {
-      const automations = Array.isArray(result?.automations) ? (result.automations as unknown[]) : [];
-      const labels = automations
-        .map((item) => {
-          if (!item || typeof item !== "object" || Array.isArray(item)) return "";
-          const rec = item as Record<string, unknown>;
-          return trimSentence(rec.name || rec.title || rec.label || rec.id, 80);
-        })
-        .filter(Boolean);
-
-      const grouped = new Map<string, number>();
-      for (const label of labels) {
-        const key = label.toLowerCase();
-        grouped.set(key, (grouped.get(key) || 0) + 1);
-      }
-
-      const preview = Array.from(grouped.entries())
-        .map(([key, count]) => {
-          const label = labels.find((candidate) => candidate.toLowerCase() === key) || key;
-          return count > 1 ? `${label} (${count} instances)` : label;
-        })
-        .slice(0, 3);
-
-      if (!preview.length) return "Your automations settings are loaded, and there are no saved automations right now.";
-
-      return `Your automations settings include ${pluralize(labels.length, "saved automation")}. Right now that includes ${preview.join(", ")}.`;
-    }
-
-    if (opts.action === "billing.summary.get") {
-      const configured = Boolean(result?.configured);
-      if (!configured) return "Billing is not connected right now.";
-      const monthly = formatMoneyFromCents(result?.monthlyCents, result?.currency);
-      const spent = formatMoneyFromCents(result?.spentThisMonthCents, result?.spentThisMonthCurrency || result?.currency);
-      const breakdown = Array.isArray(result?.monthlyBreakdown) ? (result?.monthlyBreakdown as unknown[]) : [];
-      const topTitles = breakdown
-        .map((item) => {
-          if (!item || typeof item !== "object" || Array.isArray(item)) return "";
-          return trimSentence((item as any).title, 80);
-        })
-        .filter(Boolean)
-        .slice(0, 3);
-      const pieces = [
-        monthly ? `Your recurring billing is ${monthly} per month.` : "Your billing summary is loaded.",
-        spent ? `You have spent ${spent} this month.` : "",
-        topTitles.length ? `Current subscriptions include ${topTitles.join(", ")}.` : "",
-      ].filter(Boolean);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "billing.info.get") {
-      const stripeConfigured = Boolean(result?.stripeConfigured);
-      if (!stripeConfigured) return "Billing details are not connected because Stripe is not configured right now.";
-      const customer = result?.customer && typeof result.customer === "object" && !Array.isArray(result.customer)
-        ? (result.customer as Record<string, unknown>)
-        : null;
-      if (!customer) return null;
-      const name = trimSentence(customer.name, 120);
-      const email = trimSentence(customer.email, 160);
-      const payment = result?.defaultPaymentMethod && typeof result.defaultPaymentMethod === "object" && !Array.isArray(result.defaultPaymentMethod)
-        ? (result.defaultPaymentMethod as Record<string, unknown>)
-        : null;
-      const brand = trimSentence(payment?.brand, 40);
-      const last4 = trimSentence(payment?.last4, 8);
-      const pieces = [
-        name || email ? `Billing contact: ${[name, email].filter(Boolean).join(" • ")}.` : "Billing details are loaded.",
-        brand && last4 ? `Default payment method: ${brand} ending in ${last4}.` : payment ? "A default payment method is saved." : "No default payment method is saved.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "pricing.get") {
-      const credits = result?.credits && typeof result.credits === "object" && !Array.isArray(result.credits)
-        ? (result.credits as Record<string, unknown>)
-        : null;
-      const modules = result?.modules && typeof result.modules === "object" && !Array.isArray(result.modules)
-        ? Object.values(result.modules as Record<string, unknown>)
-        : [];
-
-      const creditUsdValue = typeof credits?.usdValue === "number" && Number.isFinite(credits.usdValue)
-        ? Number(credits.usdValue)
-        : null;
-      const creditsPerPackage = Number((credits as Record<string, unknown> | null)?.topup && typeof (credits as Record<string, unknown>).topup === "object"
-        ? ((credits as Record<string, unknown>).topup as Record<string, unknown>).creditsPerPackage
-        : null);
-
-      const pricedModules = modules
-        .map((item) => {
-          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-          const rec = item as Record<string, unknown>;
-          const title = trimSentence(rec.title, 80);
-          const monthly = formatMoneyFromCents(rec.monthlyCents, rec.currency);
-          if (!title || !monthly) return null;
-          return `${title} ${monthly}/month`;
-        })
-        .filter((item): item is string => Boolean(item))
-        .slice(0, 3);
-
-      const pieces = ["Your pricing details are loaded."];
-      if (creditUsdValue !== null) pieces.push(`Each credit is worth $${creditUsdValue.toFixed(2)}.`);
-      if (Number.isFinite(creditsPerPackage) && creditsPerPackage > 0) pieces.push(`Top-up packages include ${pluralize(creditsPerPackage, "credit")}.`);
-      if (pricedModules.length) pieces.push(`Examples include ${pricedModules.join(", ")}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "credits.get") {
-      const creditsBalance = Number(result?.credits);
-      const autoTopUp = result?.autoTopUp === true;
-      const purchaseAvailable = result?.purchaseAvailable === true;
-      const creditUsdValue = typeof result?.creditUsdValue === "number" && Number.isFinite(result.creditUsdValue)
-        ? Number(result.creditUsdValue)
-        : null;
-      const creditsPerPackage = Number(result?.creditsPerPackage);
-
-      const pieces = [
-        Number.isFinite(creditsBalance) ? `You currently have ${pluralize(creditsBalance, "credit")}.` : "Your credits balance is loaded.",
-        autoTopUp ? "Auto top-up is on." : "Auto top-up is off.",
-        purchaseAvailable ? "Credit purchases are available." : "Credit purchases are unavailable right now.",
-      ];
-      if (creditUsdValue !== null) pieces.push(`Each credit is worth $${creditUsdValue.toFixed(2)}.`);
-      if (Number.isFinite(creditsPerPackage) && creditsPerPackage > 0) pieces.push(`Packages add ${pluralize(creditsPerPackage, "credit")} each.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "onboarding.status.get") {
-      const businessProfileComplete = result?.businessProfileComplete === true;
-      const blogsSetupComplete = result?.blogsSetupComplete === true;
-      const needsOnboarding = result?.needsOnboarding === true;
-
-      if (businessProfileComplete && blogsSetupComplete) {
-        return "Your onboarding basics are complete. Your business profile and blog setup are both done.";
-      }
-
-      const missing: string[] = [];
-      if (!businessProfileComplete) missing.push("business profile");
-      if (!blogsSetupComplete) missing.push("blog setup");
-
-      const pieces = [
-        needsOnboarding ? "You still have onboarding work left." : "Your onboarding status is loaded.",
-        missing.length ? `Still missing: ${missing.join(" and ")}.` : "No onboarding blockers are currently listed.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "suggested_setup.preview.get") {
-      const activationProfile = result?.activationProfile && typeof result.activationProfile === "object" && !Array.isArray(result.activationProfile)
-        ? (result.activationProfile as Record<string, unknown>)
-        : null;
-      const proposedActions = Array.isArray(result?.proposedActions) ? (result.proposedActions as Record<string, unknown>[]) : [];
-
-      const businessName = trimSentence(activationProfile?.businessName, 80);
-      const actionTitles = proposedActions
-        .map((action) => trimSentence(action?.title, 100))
-        .filter(Boolean)
-        .slice(0, 3);
-
-      const pieces = [
-        businessName ? `Suggested setup is ready for ${businessName}.` : "Your suggested setup preview is ready.",
-        `There ${proposedActions.length === 1 ? "is" : "are"} ${pluralize(proposedActions.length, "proposed action")}.`,
-      ];
-      if (actionTitles.length) pieces.push(`Top suggestions include ${actionTitles.join(", ")}.`);
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "contact_tags.list") {
-      const tags = Array.isArray(result?.tags) ? (result.tags as Record<string, unknown>[]) : [];
-      if (!tags.length) return "You do not have any saved contact tags right now.";
-
-      const names = tags
-        .map((tag) => trimSentence(tag?.name, 80))
-        .filter(Boolean)
-        .slice(0, 5);
-
-      return names.length
-        ? `You have ${pluralize(tags.length, "saved contact tag")}. Current tags include ${names.join(", ")}.`
-        : `You have ${pluralize(tags.length, "saved contact tag")}.`;
-    }
-
-    if (opts.action === "people.contacts.custom_variable_keys.get") {
-      const keys = Array.isArray(result?.keys) ? (result.keys as unknown[]) : [];
-      const labels = keys
-        .map((key) => (typeof key === "string" ? key.trim() : ""))
-        .filter(Boolean)
-        .slice(0, 6);
-
-      if (!labels.length) return "Your contacts do not have any saved custom variable keys right now.";
-      return `Your contacts currently use ${pluralize(keys.length, "custom variable key")}. Keys include ${labels.join(", ")}.`;
-    }
-
-    if (opts.action === "people.contacts.duplicates.get") {
-      const groupsCount = Number(result?.groupsCount);
-      const groupsNeedingChoice = Number(result?.groupsNeedingChoice);
-      const totalDuplicateContacts = Number(result?.totalDuplicateContacts);
-      const groups = Array.isArray(result?.groups) ? (result.groups as Record<string, unknown>[]) : [];
-
-      if (Number.isFinite(groupsCount)) {
-        const pieces = [
-          groupsCount > 0 ? `You currently have ${pluralize(groupsCount, "duplicate contact group")}.` : "You do not have any duplicate contact groups right now.",
-        ];
-        if (groupsCount > 0 && Number.isFinite(totalDuplicateContacts)) pieces.push(`${pluralize(totalDuplicateContacts, "duplicate contact")} are involved.`);
-        if (groupsCount > 0 && Number.isFinite(groupsNeedingChoice) && groupsNeedingChoice > 0) pieces.push(`${pluralize(groupsNeedingChoice, "group")} still need an email choice.`);
-        return pieces.join(" ");
-      }
-
-      if (!groups.length) return "You do not have any duplicate contact groups right now.";
-      return `You currently have ${pluralize(groups.length, "duplicate contact group")}.`;
-    }
-
-    if (opts.action === "ai_agents.list") {
-      const agents = Array.isArray(result?.agents) ? (result.agents as Record<string, unknown>[]) : [];
-      if (!agents.length) return "You do not have any saved AI agents right now.";
-
-      const labels = agents
-        .map((agent) => trimSentence(agent?.name || agent?.id, 120))
-        .filter(Boolean)
-        .slice(0, 4);
-
-      return labels.length
-        ? `You have ${pluralize(agents.length, "AI agent")}. Current agents include ${labels.join(", ")}.`
-        : `You have ${pluralize(agents.length, "AI agent")}.`;
-    }
-
-    if (opts.action === "integrations.twilio.get") {
-      const twilio = result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio)
-        ? (result.twilio as Record<string, unknown>)
-        : null;
-      if (!twilio) return null;
-      const configured = Boolean(twilio.configured);
-      const fromNumber = trimSentence(twilio.fromNumberE164, 40);
-      const hasAuthToken = Boolean(twilio.hasAuthToken);
-      if (!configured) return "Twilio is not connected right now.";
-      const pieces = [
-        fromNumber ? `Twilio is connected from ${fromNumber}.` : "Twilio is connected.",
-        hasAuthToken ? "Credentials are in place." : "Auth token is missing.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "integrations.stripe.get") {
-      const stripe = result?.stripe && typeof result.stripe === "object" && !Array.isArray(result.stripe)
-        ? (result.stripe as Record<string, unknown>)
-        : null;
-      if (!stripe) return null;
-      const configured = Boolean(stripe.configured);
-      const prefix = trimSentence(stripe.prefix, 40);
-      const accountId = trimSentence(stripe.accountId, 80);
-      if (!configured) return "Stripe is not connected right now.";
-      const pieces = [
-        prefix ? `Stripe is connected with key prefix ${prefix}.` : "Stripe is connected.",
-        accountId ? `Connected account: ${accountId}.` : "No connected Stripe account is stored.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "integrations.sales_reporting.get") {
-      const activeProvider = trimSentence(result?.activeProvider, 40);
-      const providers = result?.providers && typeof result.providers === "object" && !Array.isArray(result.providers)
-        ? Object.entries(result.providers as Record<string, unknown>)
-        : [];
-      const configuredProviders = providers
-        .filter(([, value]) => value && typeof value === "object" && !Array.isArray(value) && Boolean((value as Record<string, unknown>).configured))
-        .map(([provider, value]) => {
-          const displayHint = trimSentence((value as Record<string, unknown>).displayHint, 60);
-          return displayHint ? `${provider} (${displayHint})` : provider;
-        });
-
-      if (!configuredProviders.length) return "Sales reporting is not connected to any provider right now.";
-
-      const pieces = [
-        activeProvider ? `Sales reporting is active on ${activeProvider}.` : "Sales reporting has connected providers saved.",
-        `Configured providers: ${configuredProviders.slice(0, 3).join(", ")}.`,
-      ];
-      return pieces.join(" ");
-    }
-
-    if (opts.action === "integrations.api_keys.list") {
-      const totalKeyCount = Number(result?.totalKeyCount);
-      const fullAccessKey = result?.fullAccessKey && typeof result.fullAccessKey === "object" && !Array.isArray(result.fullAccessKey)
-        ? (result.fullAccessKey as Record<string, unknown>)
-        : null;
-      const scopedKeys = Array.isArray(result?.scopedKeys) ? (result.scopedKeys as Record<string, unknown>[]) : [];
-
-      if (!Number.isFinite(totalKeyCount) || totalKeyCount <= 0) return "You do not have any active API keys right now.";
-
-      const fullAccessMasked = trimSentence(fullAccessKey?.maskedKey, 80);
-      const scopedPreview = scopedKeys
-        .map((item) => trimSentence(item?.name || item?.maskedKey, 80))
-        .filter(Boolean)
-        .slice(0, 3);
-
-      const pieces = [
-        `You currently have ${pluralize(totalKeyCount, "active API key")}.`,
-        fullAccessMasked ? `Your full-access key is ${fullAccessMasked}.` : "A full-access key is available.",
-        scopedPreview.length ? `Scoped keys include ${scopedPreview.join(", ")}.` : scopedKeys.length ? `You also have ${pluralize(scopedKeys.length, "scoped key")}.` : "There are no scoped keys saved.",
-      ];
-      return pieces.join(" ");
-    }
-
-    if (String(opts.action) === "tasks.list") {
-      const tasks = Array.isArray(result?.tasks) ? (result.tasks as Record<string, unknown>[]) : [];
-      const openTasks = tasks.filter((task) => String(task?.status || "OPEN").toUpperCase() !== "DONE");
-      if (!openTasks.length) return "You do not have any open tasks right now.";
-
-      const titles = Array.from(new Set(openTasks
-        .map((task) => trimSentence(task?.title, 80))
-        .filter(Boolean)))
-        .slice(0, 3);
-
-      return titles.length
-        ? `You currently have ${pluralize(openTasks.length, "open task")}. Top ones include ${titles.join(", ")}.`
-        : `You currently have ${pluralize(openTasks.length, "open task")}.`;
-    }
-
-    if (String(opts.action) === "booking.suggestions.slots") {
-      const slotPreviews = Array.isArray(result?.slotPreviews) ? (result.slotPreviews as Record<string, unknown>[]) : [];
-      const timeZone = trimSentence(result?.timeZone, 60) || "local time";
-      if (!slotPreviews.length) return "I do not see any open booking slots in the current suggestion window.";
-
-      const preview = slotPreviews
-        .map((slot) => {
-          const dateLabel = trimSentence(slot?.dateLabel, 40);
-          const startLabel = trimSentence(slot?.startLabel, 20);
-          const endLabel = trimSentence(slot?.endLabel, 20);
-          if (dateLabel && startLabel && endLabel) return `${dateLabel} ${startLabel}-${endLabel}`;
-          return "";
-        })
-        .filter(Boolean)
-        .slice(0, 3);
-
-      return preview.length
-        ? `I found ${pluralize(slotPreviews.length, "suggested booking slot")}. Good options include ${preview.join(", ")} ${timeZone}.`
-        : `I found ${pluralize(slotPreviews.length, "suggested booking slot")} in ${timeZone}.`;
-    }
-
-    if (String(opts.action) === "booking.availability.set_daily") {
-      const startDateLocal = trimSentence(result?.startDateLocal, 40);
-      const endDateLocal = trimSentence(result?.endDateLocal, 40);
-      const startTimeLocal = trimSentence(result?.startTimeLocal, 20);
-      const endTimeLocal = trimSentence(result?.endTimeLocal, 20);
-      const timeZone = trimSentence(result?.timeZone, 60);
-      const createdCount = Number(result?.createdCount);
-      const deletedCount = Number(result?.deletedCount);
-      const pieces = [
-        startDateLocal && endDateLocal && startTimeLocal && endTimeLocal
-          ? `Booking availability is set from ${startDateLocal} through ${endDateLocal}, ${startTimeLocal}-${endTimeLocal}${timeZone ? ` ${timeZone}` : ""}.`
-          : "Booking availability has been updated.",
-      ];
-      if (Number.isFinite(createdCount) && createdCount > 0) pieces.push(`Created ${pluralize(createdCount, "availability block")}.`);
-      if (Number.isFinite(deletedCount) && deletedCount > 0) pieces.push(`Replaced ${pluralize(deletedCount, "older block")}.`);
-      return pieces.join(" ");
-    }
-
-    if (String(opts.action) === "booking.reminders.settings.get" || String(opts.action) === "booking.reminders.settings.update") {
-      const isReminderUpdate = String(opts.action) === "booking.reminders.settings.update";
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, any>)
-        : null;
-      if (!settings) return isReminderUpdate ? "Booking reminder settings have been updated." : "Booking reminder settings are loaded.";
-
-      const describeChannel = (channel: Record<string, any> | null | undefined, label: string) => {
-        if (!channel || !channel.enabled) return `${label} reminders are off`;
-        const amount = Number(channel.leadAmount);
-        const unit = trimSentence(channel.leadUnit, 20) || "hours";
-        return Number.isFinite(amount) && amount > 0
-          ? `${label} reminders go out ${amount} ${unit} before the appointment`
-          : `${label} reminders are on`;
-      };
-
-      const pieces = [
-        isReminderUpdate ? "Booking reminders are updated." : "Booking reminders are active.",
-        `${describeChannel(settings.email, "Email")}.`,
-        `${describeChannel(settings.sms, "SMS")}.`,
-      ];
-      if (result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio) && Boolean((result.twilio as any).configured)) {
-        pieces.push("Twilio SMS is connected.");
-      }
-      return pieces.join(" ");
-    }
-
-    if (String(opts.action) === "ai_receptionist.settings.update") {
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      const greeting = trimSentencePreserveTerminalPunctuation(settings?.greeting, 280);
-      const enabled = settings?.enabled === true;
-      const pieces = [greeting ? `The AI receptionist greeting now says "${greeting}".` : "The AI receptionist settings have been updated."];
-      pieces.push(enabled ? "The AI receptionist is enabled." : "The AI receptionist is currently disabled.");
-      return pieces.join(" ");
-    }
-
-    if (String(opts.action) === "ai_receptionist.settings.get") {
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      if (!settings) return "AI receptionist settings are loaded.";
-
-      const enabled = settings.enabled === true;
-      const mode = trimSentence(settings.mode, 40);
-      const greeting = trimSentencePreserveTerminalPunctuation(settings.greeting, 280);
-      const events = Array.isArray(result?.events) ? (result.events as Record<string, unknown>[]) : [];
-      const completedCalls = events.filter((event) => String(event?.status || "").toUpperCase() === "COMPLETED").length;
-      const pieces = [
-        `The AI receptionist is ${enabled ? "enabled" : "disabled"}${mode ? ` and set to ${mode} mode` : ""}.`,
-        greeting ? `Current greeting: "${greeting}".` : "A greeting is saved.",
-      ];
-      if (completedCalls > 0) pieces.push(`There ${completedCalls === 1 ? "has" : "have"} been ${pluralize(completedCalls, "completed call")} in the recent log.`);
-      return pieces.join(" ");
-    }
-
-    if (String(opts.action) === "ai_receptionist.highlights.get") {
-      const stats = result?.stats && typeof result.stats === "object" && !Array.isArray(result.stats)
-        ? (result.stats as Record<string, unknown>)
-        : null;
-      const total = Number(stats?.total);
-      const missingTranscript = Number(stats?.missingTranscript);
-      const notificationErrors = Number(stats?.notificationErrors);
-      const warnings = Array.isArray(result?.warnings) ? (result.warnings as unknown[]) : [];
-      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
-        ? (result.settings as Record<string, unknown>)
-        : null;
-      const pieces = [
-        Number.isFinite(total) && total > 0
-          ? `I found ${pluralize(total, "AI receptionist event")} in the current lookback window.`
-          : "There are no recent AI receptionist events in the current lookback window.",
-      ];
-      if (settings?.enabled === false) pieces.push("The AI receptionist is currently disabled.");
-      if (Number.isFinite(missingTranscript) && missingTranscript > 0) pieces.push(`${pluralize(missingTranscript, "event")} still need a transcript.`);
-      if (Number.isFinite(notificationErrors) && notificationErrors > 0) pieces.push(`${pluralize(notificationErrors, "event")} had notification issues.`);
-      if (warnings.length) pieces.push(`Top warning: ${trimSentence(warnings[0], 140)}.`);
-      return pieces.join(" ");
-    }
-
-    return null;
-  }
-
-  const deterministicReply = cleanPuraGeneratedReply(String(buildDeterministicAssistantText() || "").trim(), {
-    allowBullets: false,
-    maxLength: 12_000,
-  });
-  const preferDeterministicReply = new Set<PortalAgentActionKey>([
-    "tasks.list",
-    "booking.suggestions.slots",
-    "booking.availability.set_daily",
-    "booking.reminders.settings.get",
-    "booking.reminders.settings.update",
-    "ai_receptionist.settings.get",
-    "ai_receptionist.settings.update",
-    "ai_receptionist.highlights.get",
-    "tasks.assignees.list",
-    "nurture.campaigns.list",
-    "ai_outbound_calls.campaigns.list",
-    "ai_outbound_calls.manual_calls.list",
-    "ai_chat.threads.list",
-    "ai_chat.threads.status.list",
-    "ai_chat.scheduled.list",
-    "credit.contacts.list",
-    "credit.pulls.list",
-    "credit.reports.list",
-    "credit.disputes.letters.list",
-    "media.list.get",
-  ]);
-  if (deterministicReply && (preferDeterministicReply.has(opts.action) || !isLowQualityPuraGeneratedReply(deterministicReply, { allowBullets: false }))) {
-    return deterministicReply;
-  }
-
-  const strippedResult = sanitizeAssistantVisibleResult(opts.action, opts.result ?? null);
-
-  const buildAssistantResponseHints = (action: PortalAgentActionKey, result: unknown) => {
-    const lowSignalLabelPattern = /\b(?:qa|test|testing|demo|sweep|phase\s+\d+|new campaign|untitled|sample)\b/i;
-
-    const cleanLabel = (value: unknown, maxLen = 120) => trimSentence(value, maxLen);
-
-    const rankLabels = <T,>(
-      rows: T[],
-      getLabel: (row: T) => string,
-      getPriority?: (row: T) => number,
-    ) => {
-      const seen = new Set<string>();
-      const ranked = rows
-        .map((row, index) => {
-          const label = cleanLabel(getLabel(row), 140);
-          if (!label) return null;
-          const key = label.toLowerCase();
-          if (seen.has(key)) return null;
-          seen.add(key);
-          const lowSignal = lowSignalLabelPattern.test(label);
-          const priority = Number(getPriority ? getPriority(row) : 0) || 0;
-          return { label, lowSignal, priority, index };
-        })
-        .filter(Boolean) as Array<{ label: string; lowSignal: boolean; priority: number; index: number }>;
-
-      const preferredPool = ranked.some((item) => !item.lowSignal) ? ranked.filter((item) => !item.lowSignal) : ranked;
-      return preferredPool
-        .sort((a, b) => b.priority - a.priority || a.index - b.index)
-        .slice(0, 4)
-        .map((item) => item.label);
-    };
-
-    if (action === "ai_chat.threads.list") {
-      const threads = Array.isArray((result as any)?.threads) ? ((result as any).threads as Record<string, unknown>[]) : [];
-      const userFacingThreads = threads.filter((thread) => !lowSignalLabelPattern.test(String(thread?.title || "")));
-      const totalThreads = Number((result as any)?.totalThreads) || threads.length;
-      return {
-        selectionGuidance:
-          userFacingThreads.length
-            ? "Prefer distinct, user-facing thread titles. Avoid internal QA/test/sweep titles when the payload contains better examples."
-            : "If the available thread titles look internal, QA, or sweep-related, summarize the total count instead of quoting those titles.",
-        totalThreads,
-        preferredExamples: rankLabels(userFacingThreads, (thread) => String(thread?.title || ""), (thread) => {
-          const hasLastMessage = typeof thread?.lastMessageAt === "string" && String(thread.lastMessageAt).trim() ? 3 : 0;
-          const hasUpdatedAt = typeof thread?.updatedAt === "string" && String(thread.updatedAt).trim() ? 1 : 0;
-          return hasLastMessage + hasUpdatedAt;
-        }),
-      };
-    }
-
-    if (action === "ai_chat.threads.status.list") {
-      const threads = Array.isArray((result as any)?.threads) ? ((result as any).threads as Record<string, unknown>[]) : [];
-      const totalThreads = Number((result as any)?.totalThreads) || threads.length;
-      const statusCounts = threads.reduce<Record<string, number>>((acc, thread) => {
-        const status = String(thread?.status || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
-        acc[status] = (acc[status] || 0) + 1;
-        return acc;
-      }, {});
-      return {
-        selectionGuidance:
-          "Prefer pinned, running, or otherwise active thread examples first, then distinct completed ones. Avoid internal QA/test/sweep titles when possible, and do not add navigation or section-reference sentences.",
-        totalThreads,
-        statusCounts,
-        preferredExamples: rankLabels(threads, (thread) => String(thread?.title || ""), (thread) => {
-          const pinned = thread?.pinned === true ? 6 : 0;
-          const status = String(thread?.status || "").trim().toUpperCase();
-          const running = status === "RUNNING" ? 5 : 0;
-          const active = status === "PENDING" || status === "QUEUED" ? 3 : 0;
-          const completed = status === "COMPLETED" ? 1 : 0;
-          return pinned + running + active + completed;
-        }),
-      };
-    }
-
-    if (action === "media.list.get") {
-      const folders = Array.isArray((result as any)?.folders) ? ((result as any).folders as Record<string, unknown>[]) : [];
-      const items = Array.isArray((result as any)?.items) ? ((result as any).items as Record<string, unknown>[]) : [];
-      return {
-        selectionGuidance:
-          "Prefer user-facing folder and file names. Avoid QA/test/demo assets when the payload contains clearer customer-facing examples. If both folders and items are present, mention both, and do not bring up share or download links unless the user explicitly asked for links.",
-        totalFolders: folders.length,
-        totalItems: items.length,
-        preferredFolderExamples: rankLabels(folders, (folder) => String(folder?.name || "")),
-        preferredItemExamples: rankLabels(items, (item) => String(item?.fileName || ""), (item) => {
-          const isImage = /^image\//i.test(String(item?.mimeType || "")) ? 2 : 0;
-          return isImage;
-        }),
-      };
-    }
-
-    if (action === "credit.contacts.list") {
-      const contacts = Array.isArray((result as any)?.contacts) ? ((result as any).contacts as Record<string, unknown>[]) : [];
-      return {
-        selectionGuidance:
-          "Prefer distinct contacts with real names plus email or phone details. Avoid duplicates and low-signal demo/test entries when stronger examples exist.",
-        totalContacts: contacts.length,
-        preferredExamples: rankLabels(contacts, (contact) => String(contact?.name || contact?.email || contact?.phone || ""), (contact) => {
-          const hasName = String(contact?.name || "").trim() ? 2 : 0;
-          const hasEmail = String(contact?.email || "").trim() ? 2 : 0;
-          const hasPhone = String(contact?.phone || "").trim() ? 1 : 0;
-          return hasName + hasEmail + hasPhone;
-        }),
-      };
-    }
-
-    if (action === "tasks.assignees.list") {
-      const members = Array.isArray((result as any)?.members) ? ((result as any).members as Record<string, unknown>[]) : [];
-      const roleCounts = members.reduce<Record<string, number>>((acc, member) => {
-        const role = String(member?.role || "MEMBER").trim().toUpperCase() || "MEMBER";
-        acc[role] = (acc[role] || 0) + 1;
-        return acc;
-      }, {});
-      return {
-        selectionGuidance:
-          "Prefer active assignees with clear human names. Mention the owner and admin roles first, then summarize repeated member roles instead of listing duplicates. Do not add directions about where to view or manage assignees.",
-        totalMembers: members.length,
-        roleCounts,
-        preferredExamples: rankLabels(members, (member) => {
-          const user = member?.user && typeof member.user === "object" && !Array.isArray(member.user)
-            ? (member.user as Record<string, unknown>)
-            : null;
-          return String(user?.name || user?.email || "");
-        }, (member) => {
-          const user = member?.user && typeof member.user === "object" && !Array.isArray(member.user)
-            ? (member.user as Record<string, unknown>)
-            : null;
-          const active = user && user.active !== false ? 2 : 0;
-          const role = String(member?.role || "").trim().toUpperCase();
-          if (role === "OWNER") return active + 5;
-          if (role === "ADMIN") return active + 4;
-          return active + 1;
-        }),
-      };
-    }
-
-    if (action === "tasks.list") {
-      const tasks = Array.isArray((result as any)?.tasks) ? ((result as any).tasks as Record<string, unknown>[]) : [];
-      return {
-        selectionGuidance:
-          "Prefer open tasks with real titles and nearer due dates. Avoid synthetic or duplicate-looking task titles when better examples exist.",
-        totalTasks: tasks.length,
-        preferredExamples: rankLabels(tasks, (task) => String(task?.title || ""), (task) => {
-          const status = String(task?.status || "").trim().toUpperCase();
-          const open = status === "OPEN" ? 3 : 0;
-          const due = String(task?.dueAt || task?.dueDate || "").trim() ? 1 : 0;
-          return open + due;
-        }),
-      };
-    }
-
-    if (action === "nurture.campaigns.list") {
-      const campaigns = Array.isArray((result as any)?.campaigns) ? ((result as any).campaigns as Record<string, unknown>[]) : [];
-      return {
-        selectionGuidance:
-          "Prefer distinct campaign names and summarize repeated duplicate names instead of treating them as varied examples. Avoid placeholder names like New campaign or Untitled, and do not add portal navigation instructions.",
-        totalCampaigns: campaigns.length,
-        preferredExamples: rankLabels(campaigns, (campaign) => String(campaign?.name || ""), (campaign) => {
-          const name = String(campaign?.name || "").trim();
-          if (!name) return -10;
-          if (/^new campaign\b/i.test(name)) return -5;
-          if (/^untitled\b/i.test(name)) return -5;
-          if (/\b(?:demo|test|qa|sample)\b/i.test(name)) return -3;
-          return 1;
-        }),
-      };
-    }
-
-    if (action === "ai_outbound_calls.campaigns.list") {
-      const campaigns = Array.isArray((result as any)?.campaigns) ? ((result as any).campaigns as Record<string, unknown>[]) : [];
-      return {
-        selectionGuidance:
-          "Prefer active campaigns before draft ones, and prefer distinct names over near-duplicates.",
-        totalCampaigns: campaigns.length,
-        preferredExamples: rankLabels(campaigns, (campaign) => String(campaign?.name || ""), (campaign) => {
-          const status = String(campaign?.status || "").trim().toUpperCase();
-          if (status === "ACTIVE") return 4;
-          if (status === "DRAFT") return 1;
-          return 0;
-        }),
-      };
-    }
-
-    if (action === "ai_outbound_calls.manual_calls.list") {
-      const calls = Array.isArray((result as any)?.manualCalls) ? ((result as any).manualCalls as Record<string, unknown>[]) : [];
-      const statusCounts = calls.reduce<Record<string, number>>((acc, call) => {
-        const status = String(call?.status || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
-        acc[status] = (acc[status] || 0) + 1;
-        return acc;
-      }, {});
-      return {
-        selectionGuidance:
-          "Prefer recent completed calls with a real number, duration, or campaign name. Do not invent transcript themes or call topics unless the payload explicitly includes them.",
-        totalCalls: calls.length,
-        statusCounts,
-        preferredExamples: rankLabels(calls, (call) => String(call?.campaignName || call?.toNumberE164 || call?.id || ""), (call) => {
-          const status = String(call?.status || "").trim().toUpperCase();
-          const completed = status === "COMPLETED" ? 4 : status === "CALLING" ? 2 : 0;
-          const hasDuration = Number.isFinite(Number(call?.recordingDurationSec)) ? 2 : 0;
-          const hasCampaign = String(call?.campaignName || "").trim() ? 1 : 0;
-          return completed + hasDuration + hasCampaign;
-        }),
-      };
-    }
-
-    if (action === "ai_chat.scheduled.list") {
-      const scheduled = Array.isArray((result as any)?.scheduled) ? ((result as any).scheduled as Record<string, unknown>[]) : [];
-      return {
-        selectionGuidance:
-          "Prefer the nearest upcoming scheduled reminders, and prefer clear thread titles over raw reminder text when naming examples.",
-        totalScheduled: scheduled.length,
-        repeatingCount: scheduled.filter((item) => Number(item?.repeatEveryMinutes) > 0).length,
-        preferredExamples: rankLabels(scheduled, (item) => String(item?.threadTitle || item?.text || ""), (item) => {
-          const repeating = Number(item?.repeatEveryMinutes) > 0 ? 2 : 0;
-          const hasThreadTitle = String(item?.threadTitle || "").trim() ? 2 : 0;
-          return repeating + hasThreadTitle;
-        }),
-      };
-    }
-
-    if (action === "credit.disputes.letters.list") {
-      const letters = Array.isArray((result as any)?.letters) ? ((result as any).letters as Record<string, unknown>[]) : [];
-      const statusCounts = letters.reduce<Record<string, number>>((acc, letter) => {
-        const status = String(letter?.status || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
-        acc[status] = (acc[status] || 0) + 1;
-        return acc;
-      }, {});
-      return {
-        selectionGuidance:
-          "Prefer recent letters with a real contact name or subject. Summarize repeated statuses instead of listing near-identical dispute letters.",
-        totalLetters: letters.length,
-        statusCounts,
-        preferredExamples: rankLabels(letters, (letter) => {
-          const contact = letter?.contact && typeof letter.contact === "object" && !Array.isArray(letter.contact)
-            ? (letter.contact as Record<string, unknown>)
-            : null;
-          return String(contact?.name || letter?.subject || "");
-        }, (letter) => {
-          const contact = letter?.contact && typeof letter.contact === "object" && !Array.isArray(letter.contact)
-            ? (letter.contact as Record<string, unknown>)
-            : null;
-          const hasContact = String(contact?.name || "").trim() ? 2 : 0;
-          const hasSubject = String(letter?.subject || "").trim() ? 1 : 0;
-          const sent = String(letter?.status || "").trim().toUpperCase() === "SENT" ? 2 : 0;
-          return hasContact + hasSubject + sent;
-        }),
-      };
-    }
-
-    return null;
-  };
-
-  const responseHints = buildAssistantResponseHints(opts.action, strippedResult);
-  const actionKey = String(opts.action || "");
-
   const assistantLinkUrl = normalizeAssistantLinkUrl(opts.linkUrl ?? null);
-  const payload = {
-    action: opts.action,
-    ok: opts.ok,
-    status: opts.status,
-    linkUrl: assistantLinkUrl,
-    args: opts.args ?? {},
-    result: strippedResult,
-    responseHints,
-    clientUiAction: opts.clientUiAction ?? null,
-  };
-
-  const runDraft = async (
-    mode: "draft" | "rewrite" | "salvage",
-    priorDraft?: string,
-    opts?: { omitGroundedText?: boolean },
-  ) => {
-    const system = [
-      "You are Pura, an AI assistant inside a SaaS business portal.",
-      "Write the exact assistant chat reply that should appear after one action runs.",
-      "This must sound like a live AI chat reply, not a status report, template, or release note.",
-      "Hard constraints:",
-      "- Write in first person as Pura.",
-      "- If result.question exists, ask only that question and stop there.",
-      "- If result.question does not exist, do not ask a new follow-up or clarifying question.",
-      "- Be explicit about what changed, what failed, or what decision is still needed.",
-      "- For read-only actions such as get/list/status/preview, describe the retrieved state only and never claim you set up, changed, enabled, created, updated, or configured anything unless the payload explicitly reflects that change.",
-      "- Mention unchanged settings only if they directly explain the outcome.",
-      "- Never imply success unless ok=true and status is 2xx.",
-      "- Never invent details, URLs, placeholder domains, or outcomes.",
-      "- Only mention facts that are explicitly present in the payload; if a field is absent, do not infer it from context or fill it in with assumptions.",
-      "- Do not guess about message activity, recency, authorship, counts, reasons, or history unless the payload explicitly includes that information.",
-      "- Do not mention omitted or unspecified fields just to say they are missing unless that absence directly explains the answer.",
-      "- If responseHints is present, use it as the preferred ranking and example-selection guidance instead of freehanding examples from the raw list.",
-      "- If responseHints includes preferred examples, prefer those exact examples over other low-signal or QA/test/demo examples from the raw payload.",
-      "- Use grounded facts from the payload and do not replace them with generic portal-tour wording.",
-      "- Ignore incidental discovery/list/read results unless they materially changed the answer the user asked for.",
-      "- Never mention internal IDs, raw slugs, method names, stack traces, or implementation symbols.",
-      "- If the action partly worked or returned warnings, say that plainly instead of asking whether the user wants details.",
-      "- Never output a bare raw URL. If you include a link, it must be one markdown link using the provided linkUrl.",
-      "- If linkUrl is present, never invent a different URL, placeholder token, or angle-bracket variable such as <canvasUrl>; either use the exact provided linkUrl or omit the link entirely.",
-      "- Never use phrases like 'The action to...', 'The action was...', 'completed successfully', 'has been successfully created', 'was sent successfully', 'for more details', or 'let me know if you need anything else'.",
-      "- Do not append generic tails like 'you can check them here', 'you can review it here', 'you can edit it here', 'feel free to ask', 'just let me know', or 'if you want to explore that further'.",
-      "- Never end with invitation lines like 'If you have specific areas you want to dive deeper into' or 'You can visit/check/view it in the portal' unless the user explicitly asked for navigation help.",
-      "- When the user asked for an audit, review, diagnosis, weak spots, priorities, or what needs attention, lead with the strongest grounded conclusion instead of a generic portal summary.",
-      "- For analysis-style replies, rank the most important issues or wins by impact when the payload supports that ranking, and prefer concrete evidence over broad adjectives.",
-      "- Do not describe a portal area as operational, accessible, organized, healthy, solid, or running smoothly unless the payload explicitly proves that claim.",
-      "- If the evidence is partial or mixed, say that directly instead of smoothing it into an all-clear summary.",
-      "Style rules:",
-      "- 1 or 2 short paragraphs max.",
-      "- Avoid formulaic openers like 'I've retrieved', 'I retrieved', or 'I found' when a more direct sentence would sound more natural.",
-      "- Start with the main fact or state itself rather than a meta sentence about listing, retrieving, or checking.",
-      "- Unless the user explicitly asked for steps, priorities, a ranked list, or one sentence per step, do not use headings, bullet lists, numbered lists, markdown emphasis, tables, code blocks, or JSON.",
-      "- If the user explicitly asked for steps, top priorities, exact next moves, or one sentence per step, you may use a very short numbered list and keep each item to one sentence.",
-      "- For list-heavy readbacks, summarize counts/statuses in plain sentences and mention at most 2 to 4 concrete examples inline instead of enumerating every item.",
-      "- When the payload contains many examples, prefer examples that are distinct, user-facing, and high-signal rather than QA/test/demo duplicates.",
-      "- Prefer active, open, pinned, recent, or otherwise relevant examples when that ranking information is present in the payload or responseHints.",
-      "- If many items share the same status or pattern, group them in one sentence instead of listing each one.",
-      "- Keep it concise and human.",
-      "- For audits and diagnoses, avoid empty opener sentences like 'I analyzed the dashboard' or 'I reviewed the portal' unless the very next words deliver the actual finding.",
-      "- For audits and diagnoses, prefer specific statements like what is missing, blocked, stale, inconsistent, or highest priority over vague reassurance.",
-      "- Do not end with a separate sentence whose only purpose is telling the user to check, view, manage, open, review, or edit something at a link.",
-      "- If linkUrl is provided, you may include one markdown link using only that exact linkUrl.",
-      "- If you include a link, weave it into the main sentence instead of appending a generic CTA.",
-      "- Avoid stiff status-report wording like 'currently in draft status' unless it directly matters.",
-      "- Do not paste long chunks of newsletter, blog, funnel, or email body copy unless the user explicitly asked to see the copy itself.",
-      "- For content create/update actions, summarize what changed instead of quoting the rewritten body, intro, or template copy.",
-      "- If a send action did not reach anyone because no channels or audience were requested, say that plainly in one sentence and stop.",
-      "- If a lookup finds nothing, say that plainly in one short sentence and stop.",
-      "- Do not add advice like 'adjust your settings', 'review it before it goes live', or 'check the generated HTML' unless the user explicitly asked for next steps.",
-      "- Do not mention share links, download links, or navigation help unless the user explicitly asked for links or how to open something.",
-      "- Never include bundles of action links like open/download/share after an import result; just state the result plainly.",
-      "- Mention draft status only when it materially affects whether something is live; do not add extra review/go-live commentary.",
-      "- Avoid lines like 'You can view it in the nurture campaigns section', 'You can check the newsletter service', or bare markdown links on their own line.",
-    ].join("\n");
-
-    const promptPayload = opts?.omitGroundedText
-      ? { ...payload, directMessage: null, fallbackCandidate: null, assistantText: null }
-      : payload;
-
-    const user = mode === "draft"
-      ? `Action execution result (JSON):\n${safeJsonForPrompt(promptPayload)}`
-      : mode === "rewrite"
-        ? `Rewrite this Pura reply so it follows the rules exactly and sounds natural in chat.\n\nDraft reply:\n${String(priorDraft || "").trim()}\n\nAction execution result (JSON):\n${safeJsonForPrompt(promptPayload)}`
-        : `This draft is still too stiff or generic for chat. Rewrite it in plain first-person language, keep only supported facts, remove canned follow-up lines, and do not expose internal IDs. Do not reuse portal-tour wording, instructional steps, or filler from the draft. Reground the reply from the structured action result.\n\nDraft reply:\n${String(priorDraft || "").trim()}\n\nAction execution result (JSON):\n${safeJsonForPrompt(promptPayload)}`;
-
-    const rawOut = String(await generateText({ system, user })).trim();
-    const cleanedOut = cleanPuraGeneratedReply(rawOut, { allowBullets: false, maxLength: 12_000 });
-    let normalizedOut = cleanedOut || rawOut;
-
-    if (normalizedOut && assistantLinkUrl) {
-      normalizedOut = normalizedOut
-        .replace(/the live booking link is available here\.?/i, `the live booking link is available [here](${assistantLinkUrl}).`)
-        .replace(/the live booking page is available here\.?/i, `the live booking page is available [here](${assistantLinkUrl}).`)
-        .replace(/the booking site information is also accessible at this link\.?/i, `The live booking link is [here](${assistantLinkUrl}).`);
-      if (/\/book\//i.test(assistantLinkUrl) && !new RegExp(assistantLinkUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(normalizedOut)) {
-        if (/live booking link|booking site information|booking page/i.test(normalizedOut)) {
-          normalizedOut = `${normalizedOut.trim()}\n\nThe live booking link is [here](${assistantLinkUrl}).`;
-        }
-      }
-    }
-
-    if (normalizedOut && /ai_receptionist\.settings\.(?:update|get)/i.test(actionKey)) {
-      normalizedOut = normalizedOut
-        .replace(/(greeting now says\s+")([^".!?\n]+)(")/i, (_match, prefix, greeting, suffix) => `${prefix}${greeting.trim()}.${suffix}`)
-        .replace(/(Current greeting:\s+")([^".!?\n]+)(")/i, (_match, prefix, greeting, suffix) => `${prefix}${greeting.trim()}.${suffix}`);
-    }
-
-    return normalizedOut;
-  };
+  const deterministic = renderDeterministicAssistantTextForActionResult({ ...opts, linkUrl: assistantLinkUrl });
+  if (deterministic) return deterministic;
 
   try {
-    const firstDraft = await runDraft("draft");
-    if (firstDraft && !isLowQualityPuraGeneratedReply(firstDraft, { allowBullets: false })) {
-      return firstDraft;
-    }
+    const system = [
+      "You are Pura, an AI assistant inside a SaaS business portal.",
+      "Summarize the outcome of running a tool/action for the user.",
+      "Write concise markdown.",
+      "Rules:",
+      "- Be explicit about what happened, whether it succeeded, and what the user should understand next.",
+      "- Never imply that work finished successfully unless ok=true and status is 2xx.",
+      "- Do not invent details that are not present in the JSON.",
+      "- If the action failed, say what failed and include the error message if provided.",
+      "- If the action partially succeeded or needs follow-up, say that plainly.",
+      "- Do not mention internal IDs unless the user must paste one.",
+      "- If a linkUrl is provided, include ONE markdown link CTA.",
+      "- Do not say 'all set' or similar unless the result clearly shows success.",
+      "- No JSON output.",
+    ].join("\n");
 
-    const rewritten = await runDraft("rewrite", firstDraft);
-    if (rewritten && !isLowQualityPuraGeneratedReply(rewritten, { allowBullets: false })) {
-      return rewritten;
-    }
+    const payload = {
+      action: opts.action,
+      ok: opts.ok,
+      status: opts.status,
+      linkUrl: assistantLinkUrl,
+      args: opts.args ?? {},
+      result: stripAssistantVisibleAccountingFields(opts.result ?? null),
+      clientUiAction: opts.clientUiAction ?? null,
+    };
 
-    const regrounded = await runDraft("salvage", rewritten || firstDraft, { omitGroundedText: true });
-    if (regrounded && !isLowQualityPuraGeneratedReply(regrounded, { allowBullets: false })) {
-      return regrounded;
-    }
-
-    const salvageSource = String(regrounded || rewritten || firstDraft || "").trim();
-    if (salvageSource) {
-      const salvaged = await runDraft("salvage", salvageSource, { omitGroundedText: true });
-      if (salvaged && !isLowQualityPuraGeneratedReply(salvaged, { allowBullets: false })) {
-        return salvaged;
-      }
-
-      const cleanedFallback = cleanPuraGeneratedReply(String(salvaged || regrounded || rewritten || firstDraft || "").trim(), {
-        allowBullets: false,
-        maxLength: 12_000,
-      });
-      if (cleanedFallback && !isLowQualityPuraGeneratedReply(cleanedFallback, { allowBullets: false })) {
-        return cleanedFallback;
-      }
-
-      const lastResort = cleanPuraGeneratedReply(String(cleanedFallback || salvaged || regrounded || rewritten || firstDraft || "").trim(), {
-        allowBullets: false,
-        maxLength: 12_000,
-      });
-      if (lastResort) return lastResort;
-
-      return cleanedFallback || "";
-    }
-
-    return "";
+    const user = `Action execution result (JSON):\n${safeJsonForPrompt(payload)}`;
+    const out = String(await generateText({ system, user })).trim();
+    return out ? out.slice(0, 12000) : "";
   } catch {
     return "";
   }
+}
+
+function shortIso(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleString();
+}
+
+function assistantLink(label: string, raw: unknown, prefix = ""): string {
+  const link = formatAssistantMarkdownLink(label, raw);
+  return link ? `${prefix}${link}` : "";
+}
+
+function renderDeterministicAssistantTextForActionResult(opts: {
+  action: PortalAgentActionKey;
+  ok: boolean;
+  status: number;
+  args: Record<string, unknown>;
+  result: any;
+  linkUrl?: string | null;
+}): string | null {
+  if (!opts.ok || opts.status < 200 || opts.status >= 300 || !opts.result || typeof opts.result !== "object") return null;
+
+  if (opts.action === "tasks.list") {
+    const tasks = Array.isArray((opts.result as any).tasks) ? ((opts.result as any).tasks as any[]) : [];
+    const q = typeof (opts.args as any)?.q === "string" ? String((opts.args as any).q).trim() : "";
+    const statusRaw = typeof (opts.args as any)?.status === "string" ? String((opts.args as any).status).trim().toUpperCase() : "OPEN";
+    const label = statusRaw === "ALL" ? "tasks" : statusRaw === "DONE" ? "done tasks" : statusRaw === "CANCELED" ? "canceled tasks" : "open tasks";
+    if (!tasks.length) {
+      return q
+        ? `I didn’t find any ${label} matching “${q}”.${assistantLink("Open Tasks", opts.linkUrl, " Review them here: ")}`
+        : `You don’t have any ${label} right now.${assistantLink("Open Tasks", opts.linkUrl, " Review them here: ")}`;
+    }
+
+    const lines = tasks.slice(0, 6).map((task) => {
+      const title = String(task?.title || "Task").trim() || "Task";
+      const status = String(task?.status || "OPEN").trim().toUpperCase();
+      const due = shortIso(task?.dueAtIso);
+      return `- [${status}] ${title}${due ? ` - due ${due}` : ""}`;
+    });
+
+    return `${q ? `I found ${tasks.length} task${tasks.length === 1 ? "" : "s"} matching “${q}”` : `Here ${tasks.length === 1 ? "is" : "are"} your ${label}`}:
+
+  ${lines.join("\n")}${assistantLink("Open Tasks", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "contacts.list") {
+    const contacts = Array.isArray((opts.result as any).contacts) ? ((opts.result as any).contacts as any[]) : [];
+    const q = typeof (opts.args as any)?.q === "string" ? String((opts.args as any).q).trim() : "";
+    if (!contacts.length) {
+      return q
+        ? `I couldn’t find a contact matching “${q}”.${assistantLink("Open Contacts", opts.linkUrl, " Review contacts here: ")}`
+        : `I couldn’t find any contacts to show right now.${assistantLink("Open Contacts", opts.linkUrl, " Review contacts here: ")}`;
+    }
+
+    const lines = contacts.slice(0, 6).map((contact) => {
+      const name = String(contact?.name || "Contact").trim() || "Contact";
+      const email = typeof contact?.email === "string" && contact.email.trim() ? ` - ${String(contact.email).trim()}` : "";
+      const phone = typeof contact?.phone === "string" && contact.phone.trim() ? `${email ? " | " : " - "}${String(contact.phone).trim()}` : "";
+      return `- ${name}${email}${phone}`;
+    });
+
+    return `${q ? `I found ${contacts.length} contact${contacts.length === 1 ? "" : "s"} matching “${q}”` : `Here ${contacts.length === 1 ? "is" : "are"} the contact${contacts.length === 1 ? "" : "s"} I found`}:
+
+  ${lines.join("\n")}${assistantLink("Open Contacts", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "contacts.get") {
+    const contact = (opts.result as any)?.contact && typeof (opts.result as any).contact === "object" ? (opts.result as any).contact : null;
+    if (!contact) return null;
+    const name = String(contact?.name || "Contact").trim() || "Contact";
+    const lines = [
+      `- Name: ${name}`,
+      typeof contact?.email === "string" && contact.email.trim() ? `- Email: ${String(contact.email).trim()}` : null,
+      typeof contact?.phone === "string" && contact.phone.trim() ? `- Phone: ${String(contact.phone).trim()}` : null,
+    ].filter(Boolean);
+    return `Here are the important details I found for ${name}:\n\n${lines.join("\n")}${assistantLink("Open Contact", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "inbox.threads.list") {
+    const threads = Array.isArray((opts.result as any).threads) ? ((opts.result as any).threads as any[]) : [];
+    const q = typeof (opts.args as any)?.q === "string" ? String((opts.args as any).q).trim() : "";
+    if (!threads.length) {
+      return q
+        ? `I couldn’t find any inbox threads matching “${q}”.${assistantLink("Open Inbox", opts.linkUrl, " Review the inbox here: ")}`
+        : `I couldn’t find any inbox threads to summarize.${assistantLink("Open Inbox", opts.linkUrl, " Review the inbox here: ")}`;
+    }
+
+    const lines = threads.slice(0, 6).map((thread) => {
+      const contactName = typeof thread?.contact?.name === "string" && thread.contact.name.trim()
+        ? String(thread.contact.name).trim()
+        : String(thread?.peerAddress || "Conversation").trim() || "Conversation";
+      const channel = String(thread?.channel || "").trim().toUpperCase();
+      const preview = typeof thread?.lastMessagePreview === "string" ? String(thread.lastMessagePreview).trim().replace(/\s+/g, " ").slice(0, 140) : "";
+      const needsReply = thread?.needsReply === true ? " - needs reply" : "";
+      return `- ${contactName}${channel ? ` (${channel})` : ""}${preview ? ` - ${preview}` : ""}${needsReply}`;
+    });
+
+    return `${q ? `I found ${threads.length} inbox thread${threads.length === 1 ? "" : "s"} matching “${q}”` : `Here ${threads.length === 1 ? "is" : "are"} the inbox thread${threads.length === 1 ? "" : "s"} I found`}:
+
+  ${lines.join("\n")}${assistantLink("Open Inbox", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "inbox.thread.messages.list") {
+    const messages = Array.isArray((opts.result as any).messages) ? ((opts.result as any).messages as any[]) : [];
+    if (!messages.length) {
+      return `I found the conversation, but there aren’t any messages in it yet.${assistantLink("Open Conversation", opts.linkUrl, " Open it here: ")}`;
+    }
+
+    const summaryLines = messages.slice(-6).map((message) => {
+      const direction = String(message?.direction || "").trim().toUpperCase() === "OUT" ? "You" : "Contact";
+      const body = typeof message?.bodyText === "string" ? String(message.bodyText).trim().replace(/\s+/g, " ").slice(0, 160) : "";
+      return `- ${direction}: ${body || "(no text)"}`;
+    });
+
+    return `Here’s the recent message flow from that conversation:\n\n${summaryLines.join("\n")}${assistantLink("Open Conversation", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "reviews.inbox.list") {
+    const reviews = Array.isArray((opts.result as any).reviews) ? ((opts.result as any).reviews as any[]) : [];
+    if (!reviews.length) {
+      return `You don’t have any reviews to summarize right now.${assistantLink("Open Reviews", opts.linkUrl, " Review them here: ")}`;
+    }
+    const lines = reviews.slice(0, 6).map((review) => {
+      const name = String(review?.name || "Review").trim() || "Review";
+      const rating = Number(review?.rating || 0);
+      const body = typeof review?.body === "string" ? String(review.body).trim().replace(/\s+/g, " ").slice(0, 140) : "";
+      return `- ${name}${rating ? ` - ${rating}★` : ""}${body ? ` - ${body}` : ""}`;
+    });
+    return `Here are your latest reviews:\n\n${lines.join("\n")}${assistantLink("Open Reviews", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "blogs.posts.generate_draft") {
+    const draft = (opts.result as any)?.draft && typeof (opts.result as any).draft === "object" ? (opts.result as any).draft : null;
+    if (!draft) return null;
+    const title = String(draft?.title || "Blog draft").trim() || "Blog draft";
+    const excerpt = typeof draft?.excerpt === "string" ? String(draft.excerpt).trim().replace(/\s+/g, " ").slice(0, 220) : "";
+    return `I generated a stronger blog draft for “${title}.”${excerpt ? `\n\n${excerpt}` : ""}${assistantLink("Open Blogs", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "blogs.posts.publish") {
+    const post = (opts.result as any)?.post && typeof (opts.result as any).post === "object" ? (opts.result as any).post : null;
+    if (!post) return null;
+    const title = String(post?.title || post?.slug || "Blog post").trim() || "Blog post";
+    const publishedAt = typeof post?.publishedAt === "string" ? shortIso(post.publishedAt) : "";
+    return `I published “${title}.”${publishedAt ? `\n\n- Published: ${publishedAt}` : ""}${assistantLink("Open Blogs", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "newsletter.newsletters.create") {
+    const newsletter = (opts.result as any)?.newsletter && typeof (opts.result as any).newsletter === "object" ? (opts.result as any).newsletter : null;
+    if (!newsletter) return null;
+    const title = typeof (opts.args as any)?.title === "string" ? String((opts.args as any).title).trim() : "Newsletter";
+    const status = String(newsletter?.status || "DRAFT").trim().toUpperCase();
+    return `I created the newsletter “${title || "Newsletter"}.”\n\n- Status: ${status}${assistantLink("Open Newsletter", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "newsletter.newsletters.update") {
+    const resultTitle = typeof (opts.result as any)?.newsletter?.title === "string" ? String((opts.result as any).newsletter.title).trim() : "";
+    const title = resultTitle || (typeof (opts.args as any)?.title === "string" ? String((opts.args as any).title).trim() : "Newsletter");
+    return `I updated the newsletter${title ? ` “${title}”` : ""}.${assistantLink("Open Newsletter", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "booking.settings.update") {
+    const site = (opts.result as any)?.site && typeof (opts.result as any).site === "object" ? (opts.result as any).site : null;
+    const title = typeof site?.title === "string" ? String(site.title).trim() : "Booking settings";
+    const slug = typeof site?.slug === "string" ? String(site.slug).trim() : "";
+    const editorLink = assistantLink("Open Booking Settings", opts.linkUrl, "\n\n");
+    const liveLink = slug ? `\n- Live booking link: [Open Live Booking](/book/${encodeURIComponent(slug)})` : "";
+    return `I updated the booking settings for “${title || "Booking settings"}.”${editorLink}${liveLink}`;
+  }
+
+  if (opts.action === "funnel.create") {
+    const funnel = (opts.result as any)?.funnel && typeof (opts.result as any).funnel === "object" ? (opts.result as any).funnel : null;
+    if (!funnel) return null;
+    const name = String(funnel?.name || funnel?.slug || "Funnel").trim() || "Funnel";
+    return `I created the funnel “${name}.”${assistantLink("Open Funnel Builder", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "funnel_builder.pages.create" || opts.action === "funnel_builder.pages.generate_html") {
+    const page = (opts.result as any)?.page && typeof (opts.result as any).page === "object" ? (opts.result as any).page : null;
+    const title = String(page?.title || page?.slug || "Page").trim() || "Page";
+    const verb = opts.action === "funnel_builder.pages.create" ? "created" : "updated";
+    return `I ${verb} the funnel page “${title}.”${assistantLink("Open Funnel Builder", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "reviews.reply") {
+    return `I posted the review reply.${assistantLink("Open Reviews", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "ai_receptionist.highlights.get") {
+    const stats = (opts.result as any)?.stats && typeof (opts.result as any).stats === "object" ? (opts.result as any).stats : null;
+    const warnings = Array.isArray((opts.result as any).warnings) ? ((opts.result as any).warnings as string[]) : [];
+    const issues = Array.isArray((opts.result as any).issues) ? ((opts.result as any).issues as any[]) : [];
+    if (!stats) return null;
+    const lines = [
+      `- Total recent calls: ${Number(stats.total || 0)}`,
+      `- Completed: ${Number(stats.completed || 0)}`,
+      `- Failed: ${Number(stats.failed || 0)}`,
+      `- In progress: ${Number(stats.inProgress || 0)}`,
+    ];
+    if (warnings.length) lines.push(`- Warning: ${String(warnings[0]).trim()}`);
+    if (issues.length) lines.push(`- Top issue: ${String(issues[0]?.summary || "").trim()}`);
+    return `Here’s the recent AI receptionist snapshot:\n\n${lines.join("\n")}`;
+  }
+
+  if (opts.action === "me.get") {
+    const role = typeof (opts.result as any)?.role === "string" ? String((opts.result as any).role).trim().toUpperCase() : "UNKNOWN";
+    const memberId = typeof (opts.result as any)?.memberId === "string" ? String((opts.result as any).memberId).trim() : "";
+    const ownerId = typeof (opts.result as any)?.ownerId === "string" ? String((opts.result as any).ownerId).trim() : "";
+    const permissions = (opts.result as any)?.permissions && typeof (opts.result as any).permissions === "object" ? (opts.result as any).permissions : {};
+    const enabledAreas = Object.entries(permissions)
+      .filter(([, value]) => value && typeof value === "object" && Object.values(value as Record<string, unknown>).some(Boolean))
+      .slice(0, 6)
+      .map(([key]) => key);
+    return `You’re signed in as ${role === "OWNER" ? "the account owner" : role.toLowerCase()}. ${memberId && ownerId && memberId === ownerId ? "This member is the owner record for the account." : ""}${enabledAreas.length ? ` Enabled areas include ${enabledAreas.join(", ")}.` : ""}${assistantLink("Open Profile", opts.linkUrl, " ")}`.trim();
+  }
+
+  return null;
 }
 
 function sanitizeHumanName(raw: unknown, maxLen: number) {
@@ -5181,11 +3329,6 @@ async function ensureBookingSite(ownerId: string, flags: BookingSiteColumnFlags)
   return created as any;
 }
 
-function buildBookingPublicUrl(slug: unknown): string | null {
-  const cleanSlug = typeof slug === "string" ? slug.trim() : "";
-  return cleanSlug ? `/book/${encodeURIComponent(cleanSlug)}` : null;
-}
-
 async function resolveNewsletterRecordForSite(opts: {
   siteId: string;
   newsletterIdOrHint: string;
@@ -5296,7 +3439,6 @@ async function runDirectAction(opts: {
   args: any;
 }): Promise<{ status: number; json: any }> {
   const { action, ownerId, actorUserId, args } = opts;
-  type HostedPageDocumentRecord = NonNullable<Awaited<ReturnType<typeof getHostedPageDocument>>>;
 
   function readStringArray(json: unknown): string[] {
     if (!Array.isArray(json)) return [];
@@ -5334,134 +3476,6 @@ async function runDirectAction(opts: {
     }
 
     return { body: raw };
-  }
-
-  function normalizeWhitespace(value: unknown, maxLen = 500): string {
-    return String(value || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, maxLen);
-  }
-
-  function stripLeadingInstructionLabel(value: string): string {
-    return value
-      .replace(/^(rewrite|topic) instruction\s*:/i, "")
-      .replace(/^keep the draft centered on this exact topic\/title\s*:/i, "")
-      .replace(/^current (excerpt|draft context)\s*:/i, "")
-      .trim();
-  }
-
-  function extractOfferPhrase(prompt: string): string {
-    const text = normalizeWhitespace(prompt, 240);
-    if (!text) return "";
-    const offerMatch = text.match(/\boffers?\s+(?:an?\s+)?(.+?)(?:[.!,]|$)/i);
-    if (offerMatch?.[1]) return stripLeadingInstructionLabel(offerMatch[1]).slice(0, 120);
-    const forMatch = text.match(/\bfor\s+those leads\s+that\s+(.+?)(?:[.!,]|$)/i);
-    if (forMatch?.[1]) return stripLeadingInstructionLabel(forMatch[1]).slice(0, 120);
-    return stripLeadingInstructionLabel(text).slice(0, 120);
-  }
-
-  function buildLeadOutboundFallback(opts: {
-    kind: "EMAIL" | "SMS";
-    prompt: string;
-    existingSubject?: string;
-    existingBody?: string;
-    senderBusinessName?: string;
-  }): { subject?: string; body: string } {
-    const offer = extractOfferPhrase(opts.prompt) || "a quick outreach idea";
-    const senderName = normalizeWhitespace(opts.senderBusinessName, 120) || "The team";
-
-    if (opts.kind === "SMS") {
-      const body = [
-        `Hi {businessName}, I noticed your ${"{website}"} could be a fit for ${offer}.`,
-        "If helpful, I can send over 2 or 3 practical ideas you could use right away.",
-        `- ${senderName}`,
-      ]
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 320);
-      return { body };
-    }
-
-    const subject = normalizeWhitespace(opts.existingSubject, 200) || `Quick idea for {businessName}`;
-    const opening = normalizeWhitespace(opts.existingBody, 240)
-      || `I came across {website} and thought ${offer} could help turn more interest into real conversations.`;
-    const body = [
-      "Hi {businessName} team,",
-      "",
-      opening,
-      "",
-      `We help businesses tighten the path from first click to booked call, and I thought a ${offer} could be a useful next step.`,
-      "",
-      "If you want, I can send over 2 or 3 practical recommendations based on your current flow.",
-      "",
-      `Best,\n${senderName}`,
-    ]
-      .join("\n")
-      .trim()
-      .slice(0, 8000);
-
-    return { subject, body };
-  }
-
-  function buildBlogDraftFallback(opts: {
-    existingTitle?: string;
-    existingExcerpt?: string;
-    existingContent?: string;
-    prompt?: string;
-    topic?: string;
-    businessName?: string;
-    brandVoice?: string;
-  }) {
-    const resolvedTitle = normalizeWhitespace(opts.existingTitle, 180)
-      || stripLeadingInstructionLabel(normalizeWhitespace(opts.prompt || opts.topic, 180))
-      || "How to tighten a conversion-focused draft";
-    const resolvedExcerpt = normalizeWhitespace(opts.existingExcerpt, 320)
-      || `A sharper, more practical take on ${resolvedTitle.toLowerCase()} with a clearer promise and next steps.`;
-    const cleanedExistingContent = String(opts.existingContent || "").trim();
-    const businessName = normalizeWhitespace(opts.businessName, 120) || "your business";
-    const brandVoice = normalizeWhitespace(opts.brandVoice, 120);
-
-    const content = [
-      `## ${resolvedTitle}`,
-      "",
-      resolvedExcerpt,
-      "",
-      "## What to sharpen",
-      "- Lead with the concrete outcome the reader wants.",
-      "- Replace vague claims with specific webinar or funnel steps and examples.",
-      brandVoice ? `- Keep the tone ${brandVoice.toLowerCase()} while staying clear and practical.` : "- Keep the tone clear, confident, and practical.",
-      "",
-      cleanedExistingContent
-        ? "## Refined draft direction"
-        : "## Draft direction",
-      cleanedExistingContent
-        ? cleanedExistingContent.slice(0, 4000)
-        : [
-            `If ${businessName.toLowerCase()} wants this piece to convert, the opening should immediately explain why ${resolvedTitle.toLowerCase()} matters now.`,
-            "",
-            "A stronger version should move from the core pain point, to the practical fix, to a short list of actions the reader can take this week.",
-            "",
-            "Include a short section with examples, a section that removes likely objections, and a closing CTA that points the reader toward the next conversation or audit.",
-          ].join("\n"),
-      "",
-      "## Next step",
-      "Use this as the working draft, then do a final voice pass when AI generation is available again.",
-      "",
-      "For a publish-ready automation stack, see [Purely Automation](https://purelyautomation.com).",
-    ]
-      .filter(Boolean)
-      .join("\n")
-      .trim()
-      .slice(0, 200000);
-
-    return {
-      title: resolvedTitle,
-      excerpt: resolvedExcerpt,
-      content,
-      seoKeywords: [],
-    };
   }
 
   async function requireOwnerOrAdmin() {
@@ -5572,7 +3586,7 @@ async function runDirectAction(opts: {
     const webhookUrl = normalizeWebhookUrl(rec.webhookUrl);
     const webhookSecret = typeof rec.webhookSecret === "string" && rec.webhookSecret.trim().length >= 16
       ? rec.webhookSecret.trim()
-      : crypto.randomBytes(24).toString("hex");
+      : "";
     return { notifyEmails, webhookUrl, webhookSecret };
   }
 
@@ -6023,233 +4037,7 @@ async function runDirectAction(opts: {
     automations: z.array(automationSchema).max(50),
   });
 
-  async function resolveHostedPageDocumentTarget(
-    rawArgs: Record<string, unknown>,
-    capability: PortalServiceCapability,
-  ): Promise<
-    | { ok: true; document: HostedPageDocumentRecord }
-    | { ok: false; status: number; error: string }
-  > {
-    const documentId = typeof rawArgs.documentId === "string" ? rawArgs.documentId.trim() : "";
-    if (documentId) {
-      const document = await getHostedPageDocument(ownerId, documentId);
-      if (!document) return { ok: false, status: 404, error: "Hosted page document not found" };
-      if (!(await requireServiceCapability(portalServiceKeyForHostedPageService(document.service), capability))) {
-        return { ok: false, status: 403, error: "Forbidden" };
-      }
-      return { ok: true, document };
-    }
-
-    const rawService = typeof rawArgs.service === "string" ? rawArgs.service.trim() : "";
-    const service = parseHostedPageService(rawService);
-    if (!service) {
-      return { ok: false, status: 400, error: "Invalid service" };
-    }
-    if (!(await requireServiceCapability(portalServiceKeyForHostedPageService(service), capability))) {
-      return { ok: false, status: 403, error: "Forbidden" };
-    }
-
-    const documents = await bootstrapHostedPageDocuments(ownerId, service);
-    const requestedKey = typeof rawArgs.pageKey === "string" ? rawArgs.pageKey.trim().toLowerCase() : "";
-    const requestedSlug = typeof rawArgs.slug === "string" ? rawArgs.slug.trim().toLowerCase() : "";
-    let document: HostedPageDocumentRecord | null =
-      documents.find((entry: HostedPageDocumentRecord) => String(entry?.pageKey || "").trim().toLowerCase() === requestedKey) ||
-      documents.find((entry: HostedPageDocumentRecord) => String(entry?.slug || "").trim().toLowerCase() === requestedKey) ||
-      documents.find((entry: HostedPageDocumentRecord) => String(entry?.slug || "").trim().toLowerCase() === requestedSlug) ||
-      null;
-
-    if (!document) {
-      const defaultPageKeyByService: Record<string, string> = {
-        BOOKING: "booking_main",
-        NEWSLETTER: "newsletter_home",
-        REVIEWS: "reviews_home",
-        BLOGS: "blogs_index",
-      };
-      const defaultPageKey = defaultPageKeyByService[String(service).toUpperCase()] || "";
-      document = documents.find((entry: HostedPageDocumentRecord) => String(entry?.pageKey || "").trim().toLowerCase() === defaultPageKey) || documents[0] || null;
-    }
-
-    if (!document) return { ok: false, status: 404, error: "Hosted page document not found" };
-    return { ok: true, document };
-  }
-
   switch (action) {
-    case "hosted_pages.documents.list": {
-      const rawService = typeof args.service === "string" ? args.service.trim() : "";
-      if (rawService.toUpperCase() === "ALL") {
-        if (!(await requireAnyServiceCapability(["booking", "newsletter", "reviews", "blogs"], "view"))) {
-          return { status: 403, json: { ok: false, error: "Forbidden" } };
-        }
-        const documents = await listAllHostedPageDocuments(ownerId);
-        return { status: 200, json: { ok: true, service: "ALL", generatorPrompt: null, documents } };
-      }
-
-      const service = parseHostedPageService(rawService);
-      if (!service) return { status: 400, json: { ok: false, error: "Invalid service" } };
-      if (!(await requireServiceCapability(portalServiceKeyForHostedPageService(service), "view"))) {
-        return { status: 403, json: { ok: false, error: "Forbidden" } };
-      }
-
-      const documents = await bootstrapHostedPageDocuments(ownerId, service);
-      return {
-        status: 200,
-        json: { ok: true, service, generatorPrompt: getDefaultHostedPagePrompt(service), documents },
-      };
-    }
-
-    case "hosted_pages.documents.bootstrap": {
-      const service = parseHostedPageService(typeof args.service === "string" ? args.service.trim() : "");
-      if (!service) return { status: 400, json: { ok: false, error: "Invalid service" } };
-      if (!(await requireServiceCapability(portalServiceKeyForHostedPageService(service), "edit"))) {
-        return { status: 403, json: { ok: false, error: "Forbidden" } };
-      }
-      const documents = await bootstrapHostedPageDocuments(ownerId, service);
-      return {
-        status: 200,
-        json: { ok: true, service, generatorPrompt: getDefaultHostedPagePrompt(service), documents },
-      };
-    }
-
-    case "hosted_pages.documents.get": {
-      const target = await resolveHostedPageDocumentTarget(args, "view");
-      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          document: target.document,
-          generatorPrompt: getDefaultHostedPagePrompt(target.document.service, target.document),
-        },
-      };
-    }
-
-    case "hosted_pages.documents.update": {
-      const target = await resolveHostedPageDocumentTarget(args, "edit");
-      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
-      const document = await updateHostedPageDocument(ownerId, target.document.id, {
-        title: args.title,
-        slug: args.slug,
-        status: args.status,
-        contentMarkdown: args.contentMarkdown,
-        editorMode: args.editorMode,
-        customHtml: args.customHtml,
-        blocksJson: args.blocksJson,
-        customChatJson: args.customChatJson,
-        themeJson: args.themeJson,
-        dataBindingsJson: args.dataBindingsJson,
-        seo: Object.prototype.hasOwnProperty.call(args ?? {}, "seo") ? ((args as any).seo ?? null) : undefined,
-      });
-      if (!document) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          document,
-          generatorPrompt: getDefaultHostedPagePrompt(document.service, document),
-        },
-      };
-    }
-
-    case "hosted_pages.documents.preview_data": {
-      const target = await resolveHostedPageDocumentTarget(args, "view");
-      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
-      const previewData = await getHostedPagePreviewData(ownerId, target.document.id);
-      if (!previewData) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          document: target.document,
-          previewData,
-          generatorPrompt: getDefaultHostedPagePrompt(target.document.service, target.document),
-        },
-      };
-    }
-
-    case "hosted_pages.documents.publish": {
-      const target = await resolveHostedPageDocumentTarget(args, "edit");
-      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
-      const document = await setHostedPageDocumentStatus(ownerId, target.document.id, "PUBLISHED");
-      if (!document) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
-      return {
-        status: 200,
-        json: { ok: true, document, generatorPrompt: getDefaultHostedPagePrompt(document.service, document) },
-      };
-    }
-
-    case "hosted_pages.documents.reset_to_default": {
-      const target = await resolveHostedPageDocumentTarget(args, "edit");
-      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
-      const document = await resetHostedPageDocumentToDefault(ownerId, target.document.id);
-      if (!document) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
-      return {
-        status: 200,
-        json: { ok: true, document, generatorPrompt: getDefaultHostedPagePrompt(document.service, document) },
-      };
-    }
-
-    case "hosted_pages.documents.generate_html": {
-      const target = await resolveHostedPageDocumentTarget(args, "edit");
-      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
-      const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
-      if (!prompt) return { status: 400, json: { ok: false, error: "Missing prompt" } };
-      let result;
-      try {
-        result = await generateHostedPageHtml({
-          ownerId,
-          documentId: target.document.id,
-          prompt,
-          currentHtml: typeof args.currentHtml === "string" ? args.currentHtml : undefined,
-          attachments: args.attachments,
-          requestOrigin: getAppBaseUrl(),
-        });
-      } catch (error) {
-        return {
-          status: 502,
-          json: {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error ?? "Hosted page generation failed."),
-          },
-        };
-      }
-      if (!result) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          ...(result.question ? { question: result.question } : { html: result.html }),
-          document: result.document,
-          generatorPrompt: getDefaultHostedPagePrompt(result.document.service, result.document),
-        },
-      };
-    }
-
-    case "hosted_pages.documents.export_custom_html": {
-      const target = await resolveHostedPageDocumentTarget(args, "edit");
-      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
-      const result = await exportHostedPageDocumentCustomHtml({
-        ownerId,
-        documentId: target.document.id,
-        title: typeof args.title === "string" ? args.title : undefined,
-        blocksJson: args.blocksJson,
-        setEditorMode:
-          typeof args.setEditorMode === "string" && (args.setEditorMode === "BLOCKS" || args.setEditorMode === "CUSTOM_HTML")
-            ? args.setEditorMode
-            : undefined,
-        basePath: portalBasePath("portal"),
-      });
-      if (!result) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          html: result.html,
-          document: result.document,
-          generatorPrompt: getDefaultHostedPagePrompt(result.document.service, result.document),
-        },
-      };
-    }
-
     case "tasks.create": {
       if (!(await requireServiceCapability("tasks", "edit"))) {
         return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -6329,183 +4117,12 @@ async function runDirectAction(opts: {
 
       // Best-effort automation trigger.
       try {
-        void runOwnerAutomationsForEvent({ ownerId, triggerKind: "task_added", message: { from: "", to: "", body: title } }).catch(() => null);
+        await runOwnerAutomationsForEvent({ ownerId, triggerKind: "task_added", message: { from: "", to: "", body: title } });
       } catch {
         // ignore
       }
 
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          taskId: id,
-          title,
-          dueAtIso: dueAt ? dueAt.toISOString() : null,
-        },
-      };
-    }
-    case "tasks.bulk_create": {
-      if (!(await requireServiceCapability("tasks", "edit"))) {
-        return { status: 403, json: { ok: false, error: "Forbidden" } };
-      }
-
-      await ensurePortalTasksSchema().catch(() => null);
-      const hasTaskCreatedByUserId = await dbHasPublicColumn({ tableNames: ["PortalTask", "portaltask"], columnName: "createdByUserId" }).catch(
-        () => true,
-      );
-
-      const rawItems = Array.isArray((args as any).items) ? ((args as any).items as Array<Record<string, unknown>>) : [];
-      const normalizedItems = rawItems
-        .map((item) => {
-          const title = String(item?.title || "").trim().slice(0, 160);
-          const description = String(item?.description || "").trim().slice(0, 5000);
-          const assignedToUserId =
-            typeof item?.assignedToUserId === "string" && item.assignedToUserId.trim()
-              ? item.assignedToUserId.trim()
-              : typeof item?.assigneeUserId === "string" && item.assigneeUserId.trim()
-                ? item.assigneeUserId.trim()
-                : typeof item?.assignedTo === "string" && item.assignedTo.trim()
-                  ? item.assignedTo.trim()
-                  : typeof item?.assignee === "string" && item.assignee.trim()
-                    ? item.assignee.trim()
-                    : null;
-          const dueAtIso =
-            typeof item?.dueAtIso === "string"
-              ? item.dueAtIso.trim()
-              : typeof item?.dueAt === "string"
-                ? item.dueAt.trim()
-                : typeof item?.dueDate === "string"
-                  ? item.dueDate.trim()
-                  : "";
-          const dueAt = dueAtIso ? new Date(dueAtIso) : null;
-          return {
-            title,
-            description: description || null,
-            assignedToUserId,
-            dueAtIso,
-            dueAt,
-          };
-        })
-        .filter((item) => item.title);
-
-      if (!normalizedItems.length) {
-        return { status: 400, json: { ok: false, error: "No valid tasks provided" } };
-      }
-
-      const invalidIndex = normalizedItems.findIndex((item) => item.dueAt && !Number.isFinite(item.dueAt.getTime()));
-      if (invalidIndex >= 0) {
-        return { status: 400, json: { ok: false, error: `Invalid due date for item ${invalidIndex + 1}` } };
-      }
-
-      const now = new Date();
-      const createdRows = normalizedItems.map((item) => ({
-        id: crypto.randomUUID().replace(/-/g, ""),
-        ownerId,
-        createdByUserId: actorUserId,
-        title: item.title,
-        description: item.description,
-        status: "OPEN" as const,
-        assignedToUserId: item.assignedToUserId,
-        dueAt: item.dueAt,
-        createdAt: now,
-        updatedAt: now,
-      }));
-
-      if (hasTaskCreatedByUserId) {
-        const valuesSql = createdRows
-          .map(
-            (_, index) =>
-              `($${index * 8 + 1},$${index * 8 + 2},$${index * 8 + 3},$${index * 8 + 4},$${index * 8 + 5},'OPEN',$${index * 8 + 6},$${index * 8 + 7},DEFAULT,$${index * 8 + 8})`,
-          )
-          .join(", ");
-        const sql = `
-          INSERT INTO "PortalTask" ("id","ownerId","createdByUserId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
-          VALUES ${valuesSql}
-        `;
-        const params = createdRows.flatMap((row) => [
-          row.id,
-          row.ownerId,
-          row.createdByUserId,
-          row.title,
-          row.description,
-          row.assignedToUserId,
-          row.dueAt,
-          row.updatedAt,
-        ]);
-        await prisma.$executeRawUnsafe(sql, ...params);
-      } else {
-        const valuesSql = createdRows
-          .map(
-            (_, index) => `($${index * 7 + 1},$${index * 7 + 2},$${index * 7 + 3},$${index * 7 + 4},'OPEN',$${index * 7 + 5},$${index * 7 + 6},DEFAULT,$${index * 7 + 7})`,
-          )
-          .join(", ");
-        const sql = `
-          INSERT INTO "PortalTask" ("id","ownerId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
-          VALUES ${valuesSql}
-        `;
-        const params = createdRows.flatMap((row) => [
-          row.id,
-          row.ownerId,
-          row.title,
-          row.description,
-          row.assignedToUserId,
-          row.dueAt,
-          row.updatedAt,
-        ]);
-        await prisma.$executeRawUnsafe(sql, ...params);
-      }
-
-      try {
-        const baseUrl = getAppBaseUrl();
-        for (const row of createdRows) {
-          const text = [
-            row.assignedToUserId ? "A task was assigned to you." : "A new task was created.",
-            "",
-            `Title: ${row.title}`,
-            row.description ? "" : null,
-            row.description ? `Description: ${String(row.description).slice(0, 2000)}` : null,
-            row.dueAt ? `Due: ${row.dueAt.toISOString()}` : null,
-            "",
-            `Open tasks: ${baseUrl}/portal/app/tasks`,
-          ]
-            .filter(Boolean)
-            .join("\n");
-
-          if (row.assignedToUserId) {
-            const userIds = Array.from(new Set([row.assignedToUserId, ownerId].filter(Boolean)));
-            void tryNotifyPortalUserIds({
-              userIds,
-              subject: `Task assigned: ${row.title}`,
-              text,
-            }).catch(() => null);
-          } else {
-            void tryNotifyPortalAccountUsers({
-              ownerId,
-              kind: "task_created",
-              subject: `New task: ${row.title}`,
-              text,
-            }).catch(() => null);
-          }
-
-          void runOwnerAutomationsForEvent({ ownerId, triggerKind: "task_added", message: { from: "", to: "", body: row.title } }).catch(() => null);
-        }
-      } catch {
-        // ignore
-      }
-
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          count: createdRows.length,
-          taskIds: createdRows.map((row) => row.id),
-          items: createdRows.map((row) => ({
-            taskId: row.id,
-            title: row.title,
-            dueAtIso: row.dueAt ? row.dueAt.toISOString() : null,
-          })),
-        },
-      };
+      return { status: 200, json: { ok: true, taskId: id } };
     }
 
     case "tasks.create_for_all": {
@@ -6718,33 +4335,6 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true } };
     }
 
-    case "tasks.delete": {
-      const taskId = String((args as any)?.taskId || "").trim();
-      if (!taskId) return { status: 400, json: { ok: false, error: "Invalid taskId" } };
-
-      const allowed = await requireServiceCapability("tasks", "edit");
-      if (!allowed) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      try {
-        await ensurePortalTasksSchema();
-      } catch (e) {
-        return { status: 500, json: { ok: false, error: e instanceof Error ? e.message : "Task storage not ready" } };
-      }
-
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM "PortalTaskMemberCompletion" WHERE "ownerId" = $1 AND "taskId" = $2`,
-        ownerId,
-        taskId,
-      );
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2`,
-        ownerId,
-        taskId,
-      );
-
-      return { status: 200, json: { ok: true } };
-    }
-
     case "tasks.list": {
       if (!(await requireServiceCapability("tasks", "view"))) {
         return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -6892,11 +4482,17 @@ async function runDirectAction(opts: {
         return { status: 402, json: { ok: false, error: "Insufficient credits", credits: charged.state.balance } };
       }
 
-      const slug = normalizeSlug(args.slug);
       const nameRaw = typeof args.name === "string" ? args.name.trim() : "";
-      const name = nameRaw || (slug ? slug.replace(/-/g, " ") : "");
-
-      const wantsBookingFlow = /\b(book|booking|appointment|schedule)\b/i.test(`${name} ${slug}`);
+      const suggestedNaming = buildSuggestedFunnelNaming({
+        pageType: args?.pageType,
+        funnelGoal: args?.funnelGoal,
+        offer: args?.offer,
+        primaryCta: args?.primaryCta,
+        fallbackSlug: normalizeSlug(args.slug),
+        fallbackName: nameRaw || undefined,
+      });
+      const slug = normalizeSlug(args.slug) || suggestedNaming.slug;
+      const name = nameRaw || suggestedNaming.name;
 
       if (!slug) return { status: 400, json: { ok: false, error: "Invalid slug" } };
       if (!name || name.length > 120) return { status: 400, json: { ok: false, error: "Invalid name" } };
@@ -6922,25 +4518,42 @@ async function runDirectAction(opts: {
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
       const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
-      await canUseCreditFunnelPageDraftHtml();
-
-      const newBlockId = (prefix = "b") => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-      const navItems: FunnelHeaderNavItem[] = [{ id: "home", label: "Home", kind: "page", pageSlug: "home" }];
-      if (wantsBookingFlow) navItems.push({ id: "book", label: "Book", kind: "page", pageSlug: "book" });
-      navItems.push({ id: "thank", label: "Thank You", kind: "page", pageSlug: "thank-you" });
-      const headerNavBlock: CreditFunnelBlock = {
-        id: newBlockId("nav"),
-        type: "headerNav",
-        props: {
-          sticky: true,
-          transparent: false,
-          size: "md",
-          desktopMode: "inline",
-          mobileMode: "dropdown",
-          logoAlt: "Logo",
-          items: navItems,
+      const firstPageIntent = inferFunnelPageIntentProfile({
+        pageType: args?.pageType,
+        pageGoal: args?.pageGoal,
+        audience: args?.audience,
+        offer: args?.offer,
+        primaryCta: args?.primaryCta,
+        companyContext: args?.companyContext,
+        qualificationFields: args?.qualificationFields,
+        routingDestination: args?.routingDestination,
+        formStrategy: args?.formStrategy,
+        heroAssetMode: args?.heroAssetMode,
+        shellFrameId: args?.shellFrameId,
+        shellConcept: args?.shellConcept,
+        sectionPlan: args?.sectionPlan,
+        askClarifyingQuestions: args?.askClarifyingQuestions,
+      });
+      const initializationScaffold = await buildFunnelInitializationScaffold({
+        funnelName: name,
+        pageType: firstPageIntent.pageType,
+        pageGoal: firstPageIntent.pageGoal,
+        primaryCta: firstPageIntent.primaryCta,
+        offer: firstPageIntent.offer,
+        preferCustomMode: args?.preferCustomMode === true,
+        shellConcept: firstPageIntent.shellConcept,
+        sectionPlan: firstPageIntent.sectionPlan,
+        decisionInput: {
+          pageType: args?.pageType,
+          funnelGoal: args?.funnelGoal,
+          offer: args?.offer,
+          audience: args?.audience,
+          primaryCta: args?.primaryCta,
+          name,
+          slug,
+          preferCustomMode: args?.preferCustomMode,
         },
-      };
+      });
 
       const seedWarnings: Array<{ slug: string; step: string; error: string }> = [];
       const summarizeError = (err: unknown, maxLen = 600) => {
@@ -6948,41 +4561,25 @@ async function runDirectAction(opts: {
         return msg.replace(/\s+/g, " ").trim().slice(0, maxLen);
       };
 
-      const seedPage = async (opts: { slug: string; title: string; sortOrder: number; heading: string; paragraph: string }) => {
-        const blocks: CreditFunnelBlock[] = [
-          headerNavBlock,
-          {
-            id: newBlockId("section"),
-            type: "section",
-            props: {
-              layout: "one",
-              style: { align: "center" },
-              children: [
-                { id: newBlockId("h"), type: "heading", props: { level: 1, text: opts.heading, style: { align: "center" } } },
-                { id: newBlockId("p"), type: "paragraph", props: { text: opts.paragraph, style: { align: "center" } } },
-              ],
-            },
-          },
-        ];
-
+      const seedPage = async (seed: { slug: string; title: string; sortOrder: number; blocksJson: CreditFunnelBlock[] }) => {
         const created = await prisma.creditFunnelPage.create({
           data: {
             funnelId: funnel.id,
-            slug: opts.slug,
-            title: opts.title,
-            sortOrder: opts.sortOrder,
+            slug: seed.slug,
+            title: seed.title,
+            sortOrder: seed.sortOrder,
             editorMode: "BLOCKS",
-            blocksJson: blocks as any,
+            blocksJson: seed.blocksJson as any,
             contentMarkdown: "",
           },
-          select: { id: true, funnelId: true, slug: true, title: true, sortOrder: true, editorMode: true, blocksJson: true, customHtml: true, draftHtml: true } as any,
+          select: { id: true, funnelId: true, slug: true, title: true, sortOrder: true, editorMode: true, blocksJson: true, customHtml: true, draftHtml: true },
         });
 
         try {
           return await prisma.creditFunnelPage.update({
             where: { id: created.id },
             data: createFunnelPageBlockSnapshotUpdate({
-              blocks,
+              blocks: seed.blocksJson,
               pageId: created.id,
               ownerId,
               basePath,
@@ -7002,47 +4599,19 @@ async function runDirectAction(opts: {
               customChatJson: true,
               createdAt: true,
               updatedAt: true,
-            } as any,
+            },
           });
         } catch (err) {
-          seedWarnings.push({ slug: opts.slug, step: "html_snapshot", error: summarizeError(err) });
+          seedWarnings.push({ slug: seed.slug, step: "html_snapshot", error: summarizeError(err) });
           return created as any;
         }
       };
 
       let pages: any[] = [];
       try {
-        pages.push(
-          await seedPage({
-            slug: "home",
-            title: funnel.name || "Home",
-            sortOrder: 0,
-            heading: funnel.name || "Welcome",
-            paragraph: "This funnel is ready to edit. Add blocks and a call-to-action to start capturing leads.",
-          }),
-        );
-
-        if (wantsBookingFlow) {
-          pages.push(
-            await seedPage({
-              slug: "book",
-              title: "Book",
-              sortOrder: 1,
-              heading: "Book your appointment",
-              paragraph: "Pick a time that works best for you.",
-            }),
-          );
+        for (const seed of initializationScaffold.seeds) {
+          pages.push(await seedPage(seed));
         }
-
-        pages.push(
-          await seedPage({
-            slug: "thank-you",
-            title: "Thank You",
-            sortOrder: wantsBookingFlow ? 2 : 1,
-            heading: "Thanks - we got it!",
-            paragraph: "We will reach out shortly.",
-          }),
-        );
       } catch (err) {
         // Best-effort only: funnel creation should succeed even if page seeding fails.
         seedWarnings.push({ slug: "(seed)", step: "seed_pages", error: summarizeError(err) });
@@ -7071,8 +4640,57 @@ async function runDirectAction(opts: {
         .catch(() => null);
       if (Array.isArray(pagesFromDb)) pages = pagesFromDb as any[];
 
-      const expectedPages = wantsBookingFlow ? 3 : 2;
+      const expectedPages = initializationScaffold.seeds.length;
       const seedOk = pages.length >= expectedPages && seedWarnings.length === 0;
+
+      try {
+        const seededBrief = inferFunnelBriefProfile({
+          existing: {
+            funnelGoal: args?.funnelGoal,
+            offerSummary: args?.offer,
+            audienceSummary: args?.audience,
+          },
+          funnelName: funnel.name,
+          funnelSlug: funnel.slug,
+        });
+        const briefsBySlug = new Map(initializationScaffold.seeds.map((seed) => [seed.slug, seed.briefSeed] as const));
+
+        await mutateCreditFunnelBuilderSettings(ownerId, (current) => ({
+          next: (() => {
+            let nextSettings = writeFunnelBrief(current, funnel.id, seededBrief);
+            for (const createdPage of pages) {
+              const briefSeed = briefsBySlug.get(String(createdPage?.slug || ""));
+              if (!briefSeed) continue;
+              const nextBrief = inferFunnelPageIntentProfile({
+                funnelBrief: seededBrief,
+                funnelName: funnel.name,
+                funnelSlug: funnel.slug,
+                pageTitle: createdPage.title,
+                pageSlug: createdPage.slug,
+                pageType: briefSeed.pageType,
+                pageGoal: briefSeed.pageGoal,
+                audience: args?.audience,
+                offer: args?.offer,
+                primaryCta: args?.primaryCta,
+                companyContext: args?.companyContext,
+                qualificationFields: args?.qualificationFields,
+                routingDestination: args?.routingDestination,
+                formStrategy: args?.formStrategy,
+                heroAssetMode: args?.heroAssetMode,
+                shellFrameId: args?.shellFrameId,
+                shellConcept: briefSeed.shellConcept,
+                sectionPlan: briefSeed.sectionPlan,
+                askClarifyingQuestions: briefSeed.askClarifyingQuestions,
+              });
+              nextSettings = writeFunnelPageBrief(nextSettings, createdPage.id, nextBrief);
+            }
+            return nextSettings;
+          })(),
+          value: null,
+        }));
+      } catch {
+        // Best-effort only. The funnel itself already exists.
+      }
 
       return {
         status: 200,
@@ -7086,6 +4704,7 @@ async function runDirectAction(opts: {
             actualPages: pages.length,
             warnings: seedWarnings.slice(0, 6),
           },
+          initialization: initializationScaffold.summary,
         },
       };
     }
@@ -7093,16 +4712,7 @@ async function runDirectAction(opts: {
     case "funnel_builder.settings.get": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
-      const row = await prisma.creditFunnelBuilderSettings
-        .findUnique({ where: { ownerId }, select: { dataJson: true } })
-        .catch(() => null);
-      const settings = parseFunnelBuilderSettings(row?.dataJson);
-
-      if (!row || (row.dataJson as any)?.webhookSecret !== settings.webhookSecret) {
-        await prisma.creditFunnelBuilderSettings
-          .upsert({ where: { ownerId }, update: { dataJson: settings as any }, create: { ownerId, dataJson: settings as any } })
-          .catch(() => null);
-      }
+      const settings = parseFunnelBuilderSettings(await getCreditFunnelBuilderSettings(ownerId));
 
       return { status: 200, json: { ok: true, settings } };
     }
@@ -7110,22 +4720,23 @@ async function runDirectAction(opts: {
     case "funnel_builder.settings.update": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
-      const row = await prisma.creditFunnelBuilderSettings
-        .findUnique({ where: { ownerId }, select: { dataJson: true } })
-        .catch(() => null);
-      const current = parseFunnelBuilderSettings(row?.dataJson);
+      const current = parseFunnelBuilderSettings(await getCreditFunnelBuilderSettings(ownerId));
 
       const next: FunnelBuilderSettings = {
         notifyEmails: normalizeEmailList(args?.notifyEmails ?? current.notifyEmails),
         webhookUrl: normalizeWebhookUrl(args?.webhookUrl) ?? null,
-        webhookSecret: args?.regenerateSecret === true ? crypto.randomBytes(24).toString("hex") : current.webhookSecret,
+        webhookSecret: args?.regenerateSecret === true ? crypto.randomBytes(24).toString("hex") : current.webhookSecret || crypto.randomBytes(24).toString("hex"),
       };
 
-      await prisma.creditFunnelBuilderSettings.upsert({
-        where: { ownerId },
-        update: { dataJson: next as any },
-        create: { ownerId, dataJson: next as any },
-      });
+      await mutateCreditFunnelBuilderSettings(ownerId, (existing) => ({
+        next: {
+          ...existing,
+          notifyEmails: next.notifyEmails,
+          webhookUrl: next.webhookUrl,
+          webhookSecret: next.webhookSecret,
+        },
+        value: next,
+      }));
 
       return { status: 200, json: { ok: true, settings: next } };
     }
@@ -7236,74 +4847,6 @@ async function runDirectAction(opts: {
           rootFunnelSlug: rootMode === "REDIRECT" ? rootFunnelSlug : null,
         },
       };
-    }
-
-    case "funnel_builder.domains.delete": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const domainId = String((args as any)?.domainId || "").trim();
-      const domain = normalizeCustomDomain((args as any)?.domain);
-
-      const existing = domainId
-        ? await prisma.creditCustomDomain.findFirst({
-            where: { id: domainId, ownerId },
-            select: { id: true, domain: true },
-          })
-        : domain
-          ? await prisma.creditCustomDomain.findUnique({
-              where: { ownerId_domain: { ownerId, domain } },
-              select: { id: true, domain: true },
-            })
-          : null;
-
-      if (!existing) return { status: 404, json: { ok: false, error: "Domain not found" } };
-
-      const settings = await prisma.creditFunnelBuilderSettings.findUnique({
-        where: { ownerId },
-        select: { dataJson: true },
-      });
-
-      function removeDomainFromSettings(settingsJson: unknown, removedDomain: string) {
-        if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) {
-          return {};
-        }
-
-        const base: Record<string, unknown> = { ...(settingsJson as Record<string, unknown>) };
-
-        const customDomains =
-          base.customDomains && typeof base.customDomains === "object" && !Array.isArray(base.customDomains)
-            ? { ...(base.customDomains as Record<string, unknown>) }
-            : {};
-        delete customDomains[removedDomain];
-        base.customDomains = customDomains;
-
-        const funnelDomains =
-          base.funnelDomains && typeof base.funnelDomains === "object" && !Array.isArray(base.funnelDomains)
-            ? { ...(base.funnelDomains as Record<string, unknown>) }
-            : {};
-        for (const [funnelId, assignedDomain] of Object.entries(funnelDomains)) {
-          if (String(assignedDomain || "").trim().toLowerCase() === removedDomain) {
-            delete funnelDomains[funnelId];
-          }
-        }
-        base.funnelDomains = funnelDomains;
-
-        return base;
-      }
-
-      const nextJson = removeDomainFromSettings(settings?.dataJson ?? null, existing.domain);
-
-      await prisma.$transaction([
-        prisma.creditCustomDomain.delete({ where: { id: existing.id } }),
-        prisma.creditFunnelBuilderSettings.upsert({
-          where: { ownerId },
-          update: { dataJson: nextJson as any },
-          create: { ownerId, dataJson: nextJson as any },
-          select: { ownerId: true },
-        }),
-      ]);
-
-      return { status: 200, json: { ok: true, domainId: existing.id, domain: existing.domain } };
     }
 
     case "funnel_builder.domains.verify": {
@@ -7548,8 +5091,8 @@ async function runDirectAction(opts: {
             return { status: 200, json: { ok: true, verified: true, domain: updated, debug } };
           }
 
-          await markUnverifiedIfNeeded();
-          const current = await readCurrent();
+              await markUnverifiedIfNeeded();
+              const current = await readCurrent();
 
           return {
             status: 200,
@@ -7559,7 +5102,7 @@ async function runDirectAction(opts: {
               error:
                 https.ok
                   ? "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again."
-                  : `DNS is pointing correctly, but HTTPS isn’t ready yet (SSL/certificate still provisioning). Last check error: ${https.error}. Please wait a few minutes and click Verify DNS again.`,
+                  : `DNS is pointing correctly, but HTTPS isn’t ready yet (SSL/certificate still provisioning). Last check error: ${!https.ok ? https.error : "unknown"}. Please wait a few minutes and click Verify DNS again.`,
               domain: current,
               debug,
             },
@@ -7717,7 +5260,7 @@ async function runDirectAction(opts: {
               error:
                 https.ok
                   ? "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again."
-                  : `DNS is pointing correctly, but HTTPS isn’t ready yet (SSL/certificate still provisioning). Last check error: ${https.error}. Please wait a few minutes and click Verify DNS again.`,
+                  : `DNS is pointing correctly, but HTTPS isn’t ready yet (SSL/certificate still provisioning). Last check error: ${!https.ok ? https.error : "unknown"}. Please wait a few minutes and click Verify DNS again.`,
               domain: current,
               debug: { ...debug, isApex },
             },
@@ -8259,7 +5802,7 @@ async function runDirectAction(opts: {
       const funnelId = String(args?.funnelId || "").trim();
       if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
 
-      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true, name: true, slug: true } });
       if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
 
       const pages = await prisma.creditFunnelPage.findMany({
@@ -8294,7 +5837,7 @@ async function runDirectAction(opts: {
       const funnelId = String(args?.funnelId || "").trim();
       if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
 
-      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true, name: true, slug: true } });
       if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
 
       const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.funnelPageCreate);
@@ -8340,18 +5883,52 @@ async function runDirectAction(opts: {
       const titleRawInput = typeof args?.title === "string" ? args.title.trim() : "";
 
       const titleClean = isNoPrefText(titleRawInput) ? "" : titleRawInput;
-      const autoSlugSeed = `page-${Date.now().toString(36).slice(-6)}-${Math.random().toString(36).slice(2, 5)}`;
       const slugSeed = isNoPrefText(slugRawInput) ? "" : slugRawInput;
-      const slugRaw = (slugSeed || titleClean || autoSlugSeed).trim().toLowerCase();
       const contentMarkdown = typeof args?.contentMarkdown === "string" ? args.contentMarkdown : "";
       const sortOrder = Number.isFinite(Number(args?.sortOrder)) ? Number(args.sortOrder) : 0;
 
-      const normalizedSlug = slugRaw
+      const suggestedNaming = buildSuggestedPageNaming({
+        pageType: args?.pageType,
+        primaryCta: args?.primaryCta,
+        offer: args?.offer,
+        fallbackSlug: slugSeed || undefined,
+        fallbackTitle: titleClean || undefined,
+      });
+      const baseSlug = String(suggestedNaming.slug || "")
+        .trim()
+        .toLowerCase()
         .replace(/[^a-z0-9-]/g, "-")
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 64);
+      let normalizedSlug = baseSlug;
       if (!normalizedSlug) return { status: 400, json: { ok: false, error: "Slug is required" } };
+
+      const requestedExplicitSlug = Boolean(slugSeed);
+
+      const matchingSlugs = await prisma.creditFunnelPage.findMany({ where: { funnelId }, select: { slug: true } });
+      const existingSlugSet = new Set(
+        matchingSlugs
+          .map((page) =>
+            String(page.slug || "")
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9-]/g, "-")
+              .replace(/-+/g, "-")
+              .replace(/^-|-$/g, "")
+              .slice(0, 64),
+          )
+          .filter(Boolean),
+      );
+      if (!requestedExplicitSlug) {
+        let suffix = 2;
+        while (existingSlugSet.has(normalizedSlug)) {
+          const next = `${baseSlug}-${suffix}`.slice(0, 64).replace(/-+/g, "-").replace(/^-|-$/g, "");
+          normalizedSlug = next || baseSlug;
+          suffix += 1;
+          if (suffix > 20) break;
+        }
+      }
 
       const existingBySlug = await prisma.creditFunnelPage.findFirst({
         where: { funnelId, slug: normalizedSlug },
@@ -8374,11 +5951,10 @@ async function runDirectAction(opts: {
         return { status: 200, json: { ok: true, reusedExisting: true, page: existingBySlug } };
       }
 
-      const finalTitle = titleClean || "New Page";
+      const finalTitle = titleClean || suggestedNaming.title || "New Page";
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
       const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
-      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
 
       const newBlockId = (prefix = "b") => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
       const isThankYouPage = /(^|-)thank(-|$)/i.test(normalizedSlug) || /thank/i.test(finalTitle);
@@ -8454,8 +6030,8 @@ async function runDirectAction(opts: {
 
       const page = await prisma.creditFunnelPage.update({
         where: { id: created.id },
-        data: applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(htmlSnapshot), hasDraftHtml),
-        select: withDraftHtmlSelect({
+        data: createFunnelPageMirroredHtmlUpdate(htmlSnapshot),
+        select: {
           id: true,
           funnelId: true,
           slug: true,
@@ -8465,15 +6041,48 @@ async function runDirectAction(opts: {
           editorMode: true,
           blocksJson: true,
           customHtml: true,
+          draftHtml: true,
           customChatJson: true,
           createdAt: true,
           updatedAt: true,
-        }, hasDraftHtml) as any,
+        },
       });
 
-      return { status: 200, json: { ok: true, page: normalizeDraftHtml(page as any), creditsRemaining: charged.state.balance } };
-    }
+      try {
+        await mutateCreditFunnelBuilderSettings(ownerId, (current) => {
+          const funnelBrief = readFunnelBrief(current, funnel.id);
+          const nextBrief = inferFunnelPageIntentProfile({
+            funnelBrief,
+            funnelName: funnel.name,
+            funnelSlug: funnel.slug,
+            pageTitle: page.title,
+            pageSlug: page.slug,
+            pageType: args?.pageType,
+            pageGoal: args?.pageGoal,
+            audience: args?.audience,
+            offer: args?.offer,
+            primaryCta: args?.primaryCta,
+            companyContext: args?.companyContext,
+            qualificationFields: args?.qualificationFields,
+            routingDestination: args?.routingDestination,
+            formStrategy: args?.formStrategy,
+            heroAssetMode: args?.heroAssetMode,
+            shellFrameId: args?.shellFrameId,
+            shellConcept: args?.shellConcept,
+            sectionPlan: args?.sectionPlan,
+            askClarifyingQuestions: args?.askClarifyingQuestions,
+          });
+          return {
+            next: writeFunnelPageBrief(current, page.id, nextBrief),
+            value: nextBrief,
+          };
+        });
+      } catch {
+        // Best-effort only. The page itself already exists.
+      }
 
+      return { status: 200, json: { ok: true, page, creditsRemaining: charged.state.balance } };
+    }
     case "funnel_builder.pages.update": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
@@ -8614,64 +6223,17 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true } };
     }
 
-    case "funnel_builder.pages.publish": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      const pageId = String(args?.pageId || "").trim();
-      if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid id" } };
-
-      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
-
-      const page = await prisma.creditFunnelPage.findFirst({
-        where: { id: pageId, funnelId, funnel: { ownerId } },
-        select: withDraftHtmlSelect({ id: true, customHtml: true }, hasDraftHtml),
-      });
-      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const normalizedPage = normalizeDraftHtml(page as any);
-      if (!hasDraftHtml) {
-        return { status: 200, json: { ok: true, page: normalizedPage } };
-      }
-
-      const publishUpdate = createFunnelPagePublishUpdate(normalizedPage);
-      if (!publishUpdate) {
-        return { status: 400, json: { ok: false, error: "No draft to publish" } };
-      }
-
-      const updated = await prisma.creditFunnelPage.update({
-        where: { id: pageId },
-        data: publishUpdate,
-        select: withDraftHtmlSelect({
-          id: true,
-          slug: true,
-          title: true,
-          sortOrder: true,
-          contentMarkdown: true,
-          editorMode: true,
-          blocksJson: true,
-          customHtml: true,
-          customChatJson: true,
-          createdAt: true,
-          updatedAt: true,
-        }, hasDraftHtml),
-      });
-
-      return { status: 200, json: { ok: true, page: normalizeDraftHtml(updated as any) } };
-    }
-
     case "funnel_builder.pages.export_custom_html": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
       const funnelId = String(args?.funnelId || "").trim();
       const pageId = String(args?.pageId || "").trim();
       if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid id" } };
-      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
 
       const page = await prisma.creditFunnelPage
         .findFirst({
           where: { id: pageId, funnelId, funnel: { ownerId } },
-          select: withDraftHtmlSelect({ id: true, slug: true, title: true, editorMode: true, blocksJson: true, customHtml: true, customChatJson: true, updatedAt: true }, hasDraftHtml) as any,
+          select: { id: true, slug: true, title: true, editorMode: true, blocksJson: true, customHtml: true, draftHtml: true, customChatJson: true, updatedAt: true },
         })
         .catch(() => null);
 
@@ -8699,7 +6261,7 @@ async function runDirectAction(opts: {
 
       const updated = await prisma.creditFunnelPage.update({
         where: { id: page.id },
-        data: applyDraftHtmlWriteCompat({
+        data: {
           ...(blocksFromClient.length
             ? (createFunnelPageBlockSnapshotUpdate({
                 blocks: blocksFromClient,
@@ -8710,20 +6272,21 @@ async function runDirectAction(opts: {
               }) as any)
             : createFunnelPageMirroredHtmlUpdate(html)),
           ...(typeof args?.setEditorMode === "string" ? { editorMode: args.setEditorMode } : null),
-        }, hasDraftHtml),
-        select: withDraftHtmlSelect({
+        },
+        select: {
           id: true,
           slug: true,
           title: true,
           editorMode: true,
           blocksJson: true,
           customHtml: true,
+          draftHtml: true,
           customChatJson: true,
           updatedAt: true,
-        }, hasDraftHtml) as any,
+        },
       });
 
-      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(normalizeDraftHtml(updated as any)), page: normalizeDraftHtml(updated as any) } };
+      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(updated), page: updated } };
     }
 
     case "funnel_builder.pages.generate_html": {
@@ -8794,17 +6357,45 @@ async function runDirectAction(opts: {
         wantsCheckout: boolean;
         wantsCalendar: boolean;
         wantsChatbot: boolean;
+        wantsPricing: boolean;
+        wantsTestimonialGrid: boolean;
+        wantsSyncedReviews: boolean;
         any: boolean;
       } {
         const s = String(text || "").toLowerCase();
-        const wantsShop = /\b(shop|store|product|products|pricing|buy now|buy\b)/.test(s);
-        const wantsCart = /\b(cart|add to cart)\b/.test(s);
-        const wantsCheckout = /\b(checkout|purchase|pay now)\b/.test(s);
-        const wantsCalendar = /\b(calendar|schedule|booking|book a call|book a meeting|appointment)\b/.test(s);
-        const wantsChatbot = /\b(chatbot|chat bot|live chat|website chat)\b/.test(s);
-        const looksLikeDesignEdit = /\b(style|styling|restyle|redesign|design|layout|look|visual|brand|branding|theme|color|colors|font|fonts|spacing|hero|headline|modern|polish|refresh|improve|all pages|page design)\b/.test(s);
-        const any = (wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot) && !looksLikeDesignEdit;
-        return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, any };
+        const embedVerb = /(add|insert|embed|connect|wire|hook up|place|drop in|include|use my|set up|attach)/;
+        const shopNoun = /(shop|store|product|products|buy now|buy\b|cart|checkout|stripe|payment link|price id)/;
+        const calendarNoun = /(calendar|scheduler|schedule|appointment|booking widget|booking calendar|calendar embed|book a meeting|book a call)/;
+        const chatbotNoun = /(chatbot|chat bot|live chat|website chat|chat widget)/;
+        const pricingSurface = /\b(pricing (section|grid|cards?|table)|plan comparison|pricing tiers?|plans? section|packages? section)\b/;
+        const testimonialSurface = /\b(testimonials? (section|grid|cards?)|social proof section|proof section|case stud(?:y|ies) section)\b/;
+        const syncedReviewSurface = /\b(synced reviews?|live reviews?|real reviews?|reviews? (section|block|feed|grid)|customer reviews? section)\b/;
+        const designLedCue = /\b(design|redesign|restyle|style|styling|visual|layout|look|feel|vibe|tone|premium|polished|unique|brand|art direction|concept|hero)\b/;
+        const removeVerb = /(remove|strip|delete|drop|cut|eliminate|without|avoid|not|no)/;
+        const negativeCommerceCue = new RegExp(
+          String.raw`\b(?:not\s+a|not\s+an|not|no|without|remove|strip|delete|drop|cut|eliminate|avoid|stop)\b[^.]{0,80}\b(?:shop|store|cart|checkout|purchase|buy\s*now|buy-now|add\s*to\s*cart|add-to-cart|payment\s+link|stripe\s+checkout)\b`,
+        ).test(s);
+        const negativeCalendarCue = new RegExp(
+          String.raw`\b(?:remove|strip|delete|drop|cut|eliminate|avoid)\b[^.]{0,80}\b(?:calendar|scheduler|booking\s+calendar|booking\s+widget|booking|appointment)\b`,
+        ).test(s);
+        const pricingOnly = /\bpricing\b/.test(s) && !shopNoun.test(s.replace(/pricing/g, ""));
+        const wantsShop = !negativeCommerceCue && !pricingOnly && ((embedVerb.test(s) && shopNoun.test(s)) || /\b(add to cart|checkout|payment link|stripe checkout)\b/.test(s));
+        const wantsCart = !negativeCommerceCue && /\b(add to cart|cart)\b/.test(s) && (embedVerb.test(s) || /\bcheckout\b/.test(s));
+        const wantsCheckout = !negativeCommerceCue && /\b(checkout|purchase|pay now|stripe checkout)\b/.test(s) && (embedVerb.test(s) || /\bstripe\b/.test(s));
+        const wantsCalendar = !negativeCalendarCue && ((embedVerb.test(s) && calendarNoun.test(s)) || /\bembed my calendar\b/.test(s));
+        const wantsChatbot = (embedVerb.test(s) && chatbotNoun.test(s)) || /\bembed my chatbot\b/.test(s);
+        const wantsPricing = pricingSurface.test(s) || (embedVerb.test(s) && /\bpricing\b/.test(s) && /\b(section|grid|cards?|table|plans?)\b/.test(s));
+        const wantsTestimonialGrid = testimonialSurface.test(s) || (embedVerb.test(s) && /\btestimonials?\b/.test(s));
+        const wantsSyncedReviews = syncedReviewSurface.test(s) || (embedVerb.test(s) && /\breviews?\b/.test(s));
+        const explicitRuntimeOnlyCue =
+          /\b(?:just|only|simply)\s+(?:add|insert|embed|connect|wire|hook up|place|drop in|include|use|set up|attach)\b/.test(s) ||
+          /\bdirectly\s+(?:add|insert|embed|connect|wire|attach|place|drop in)\b/.test(s) ||
+          (removeVerb.test(s) && !designLedCue.test(s) && /(calendar|chatbot|checkout|cart|shop)/.test(s) && embedVerb.test(s));
+        const designLedRequest = designLedCue.test(s) && !explicitRuntimeOnlyCue;
+        const any =
+          !designLedRequest &&
+          (wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot || wantsPricing || wantsTestimonialGrid || wantsSyncedReviews);
+        return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, wantsPricing, wantsTestimonialGrid, wantsSyncedReviews, any };
       }
 
       function normalizeAgentId(raw: unknown): string {
@@ -8865,6 +6456,33 @@ async function runDirectAction(opts: {
         intent: ReturnType<typeof detectInteractiveIntent>;
       }): CreditFunnelBlock[] {
         const blocks: CreditFunnelBlock[] = [];
+        const commerceMode = Boolean(opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout);
+        const heroChildren: CreditFunnelBlock[] = [
+          {
+            id: newBlockId("h1"),
+            type: "heading",
+            props: { text: opts.pageTitle || opts.funnelName || "Welcome", level: 1 },
+          },
+          {
+            id: newBlockId("p"),
+            type: "paragraph",
+            props: {
+              text: commerceMode
+                ? "Explore what we offer below, compare options, and move into checkout from the page when you are ready."
+                : opts.intent.wantsCalendar
+                  ? "Use the sections below to understand the offer, qualify the fit, and book the next conversation without extra friction."
+                  : "Use the sections below to explain the offer, build confidence, and move people into the right next step.",
+            },
+          },
+        ];
+
+        if (commerceMode) {
+          heroChildren.push({
+            id: newBlockId("cart"),
+            type: "cartButton",
+            props: { text: "Cart" },
+          });
+        }
 
         blocks.push({ id: newBlockId("page"), type: "page", props: {} });
 
@@ -8882,30 +6500,11 @@ async function runDirectAction(opts: {
           id: newBlockId("hero"),
           type: "section",
           props: {
-            children: [
-              {
-                id: newBlockId("h1"),
-                type: "heading",
-                props: { text: opts.pageTitle || opts.funnelName || "Welcome", level: 1 },
-              },
-              {
-                id: newBlockId("p"),
-                type: "paragraph",
-                props: {
-                  text:
-                    "Explore what we offer below. Add items to your cart, checkout securely, or book a time to talk. You can do it all on this page.",
-                },
-              },
-              {
-                id: newBlockId("cart"),
-                type: "cartButton",
-                props: { text: "Cart" },
-              },
-            ],
+            children: heroChildren,
           },
         });
 
-        if (opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout) {
+        if (commerceMode) {
           const purchasable = opts.stripeProducts.filter((p) => p && p.defaultPriceId).slice(0, 6);
 
           if (purchasable.length) {
@@ -9033,93 +6632,6 @@ async function runDirectAction(opts: {
         }
       }
 
-      function buildFallbackLandingPageHtml(opts: {
-        basePath: string;
-        funnelSlug: string;
-        pageSlug: string;
-        pageTitle: string;
-        funnelName: string;
-        prompt: string;
-        formSlug?: string;
-      }): string {
-        const title = normalizeWhitespace(opts.pageTitle, 160) || normalizeWhitespace(opts.funnelName, 160) || "Landing Page";
-        const promptText = normalizeWhitespace(opts.prompt, 240);
-        const lowerPrompt = promptText.toLowerCase();
-        const isWebinar = /webinar/.test(lowerPrompt);
-        const ctaText = isWebinar ? "Reserve your spot" : "Get started";
-        const ctaHref = opts.formSlug
-          ? `${opts.basePath}/forms/${encodeURIComponent(opts.formSlug)}`
-          : `${opts.basePath}/f/${encodeURIComponent(opts.funnelSlug)}/${encodeURIComponent(opts.pageSlug)}#cta`;
-        const eyebrow = isWebinar ? "Free training" : "Featured offer";
-        const subheadline = promptText
-          || "A polished fallback layout is in place so you can keep refining the page while AI generation catches up.";
-
-        return [
-          "<!doctype html>",
-          '<html lang="en">',
-          "<head>",
-          '  <meta charset="utf-8" />',
-          '  <meta name="viewport" content="width=device-width, initial-scale=1" />',
-          `  <title>${escapeHtml(title)}</title>`,
-          "  <style>",
-          "    :root{color-scheme:light;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}",
-          "    *{box-sizing:border-box}body{margin:0;background:#0f172a;color:#e5eefb;line-height:1.6}a{text-decoration:none}main{display:block}",
-          "    .shell{max-width:1120px;margin:0 auto;padding:24px}.hero,.section{border:1px solid rgba(148,163,184,.18);background:linear-gradient(180deg,rgba(15,23,42,.92),rgba(15,23,42,.82));border-radius:28px;box-shadow:0 24px 80px rgba(2,6,23,.28)}",
-          "    .hero{padding:72px 32px 40px}.eyebrow{display:inline-flex;padding:8px 14px;border-radius:999px;background:rgba(59,130,246,.18);color:#bfdbfe;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}",
-          "    h1,h2,h3,p{margin:0}h1{font-size:clamp(2.4rem,5vw,4.4rem);line-height:1.05;margin-top:18px;max-width:12ch}h2{font-size:clamp(1.6rem,3vw,2.4rem);margin-bottom:14px}",
-          "    .lede{max-width:62ch;margin-top:18px;color:#cbd5e1;font-size:1.05rem}.actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:28px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:14px 20px;border-radius:999px;font-weight:700}.btn-primary{background:#38bdf8;color:#082f49}.btn-secondary{border:1px solid rgba(148,163,184,.3);color:#e2e8f0}",
-          "    .proof{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:32px}.proof-card,.benefit,.quote{padding:20px;border-radius:22px;background:rgba(15,23,42,.72);border:1px solid rgba(148,163,184,.14)}",
-          "    .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.section{padding:32px;margin-top:22px}.muted{color:#94a3b8}.quote strong{display:block;margin-bottom:10px;color:#f8fafc}",
-          "    .cta{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:18px}.cta-copy{max-width:56ch}",
-          "    @media (max-width:720px){.hero,.section{padding:24px}.actions{flex-direction:column}.btn{width:100%}}",
-          "  </style>",
-          "</head>",
-          "<body>",
-          "  <main class=\"shell\">",
-          "    <section class=\"hero\">",
-          `      <span class=\"eyebrow\">${escapeHtml(eyebrow)}</span>`,
-          `      <h1>${escapeHtml(title)}</h1>`,
-          `      <p class=\"lede\">${escapeHtml(subheadline)}</p>`,
-          "      <div class=\"actions\">",
-          `        <a class=\"btn btn-primary\" href=\"${escapeHtml(ctaHref)}\">${escapeHtml(ctaText)}</a>`,
-          "        <a class=\"btn btn-secondary\" href=\"#benefits\">See what’s inside</a>",
-          "      </div>",
-          "      <div class=\"proof\">",
-          "        <div class=\"proof-card\"><strong>Clear promise</strong><p class=\"muted\">The page leads with one outcome and one next step.</p></div>",
-          "        <div class=\"proof-card\"><strong>Low-friction CTA</strong><p class=\"muted\">Visitors get a direct path to raise their hand or book.</p></div>",
-          "        <div class=\"proof-card\"><strong>Premium pacing</strong><p class=\"muted\">Spacing, hierarchy, and contrast stay clean across mobile and desktop.</p></div>",
-          "      </div>",
-          "    </section>",
-          "    <section id=\"benefits\" class=\"section\">",
-          "      <h2>Why this page converts better</h2>",
-          "      <div class=\"grid\">",
-          "        <article class=\"benefit\"><h3>Stronger first impression</h3><p class=\"muted\">The hero establishes the offer quickly so visitors understand the value without hunting for it.</p></article>",
-          "        <article class=\"benefit\"><h3>Credibility built in</h3><p class=\"muted\">The proof strip and supporting sections reinforce why the offer is worth attention.</p></article>",
-          "        <article class=\"benefit\"><h3>Cleaner conversion path</h3><p class=\"muted\">Every section points toward a single CTA instead of competing next steps.</p></article>",
-          "      </div>",
-          "    </section>",
-          "    <section class=\"section\">",
-          "      <h2>What people should feel before they click</h2>",
-          "      <div class=\"grid\">",
-          "        <article class=\"quote\"><strong>\"This feels specific and worth my time.\"</strong><p class=\"muted\">Use this section for your strongest real attendee or client quote once you have it ready.</p></article>",
-          "        <article class=\"quote\"><strong>\"The next step is obvious.\"</strong><p class=\"muted\">Keep one focused CTA and remove anything that distracts from it.</p></article>",
-          "      </div>",
-          "    </section>",
-          "    <section id=\"cta\" class=\"section\">",
-          "      <div class=\"cta\">",
-          "        <div class=\"cta-copy\">",
-          `          <h2>${escapeHtml(isWebinar ? "Save your spot and see the funnel in action" : "Take the next step")}</h2>`,
-          "          <p class=\"muted\">This fallback layout is live so you can keep moving now and do a richer AI pass later without losing momentum.</p>",
-          "        </div>",
-          `        <a class=\"btn btn-primary\" href=\"${escapeHtml(ctaHref)}\">${escapeHtml(ctaText)}</a>`,
-          "      </div>",
-          "    </section>",
-          "  </main>",
-          "</body>",
-          "</html>",
-        ].join("\n");
-      }
-
       type AiAttachment = { url: string; fileName?: string; mimeType?: string };
       type ContextMedia = { url: string; fileName?: string; mimeType?: string };
 
@@ -9244,7 +6756,6 @@ async function runDirectAction(opts: {
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
       const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
-      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
 
       const currentHtmlFromClient = typeof args?.currentHtml === "string" ? args.currentHtml : null;
       const attachments = coerceAttachments(args?.attachments);
@@ -9265,12 +6776,29 @@ async function runDirectAction(opts: {
         },
       });
       if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
-      const normalizedPage = normalizeDraftHtml(page as any);
 
       const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
       const stripeProducts = await getStripeProductsForOwner(ownerId).catch(() => ({ ok: false as const, products: [] as any[] }));
 
-      const intent = detectInteractiveIntent(prompt);
+      const rawIntent = detectInteractiveIntent(prompt);
+      const bookingFirstPage = /\b(book|booking|schedule|call|consult|consultation|appointment|demo)\b/i.test(
+        `${String(page.title || "")} ${String(page.slug || "")} ${prompt}`,
+      );
+      const intent = bookingFirstPage
+        ? {
+            ...rawIntent,
+            wantsShop: false,
+            wantsCart: false,
+            wantsCheckout: false,
+            any: Boolean(
+              (rawIntent as any).wantsCalendar ||
+                (rawIntent as any).wantsChatbot ||
+                (rawIntent as any).wantsPricing ||
+                (rawIntent as any).wantsTestimonialGrid ||
+                (rawIntent as any).wantsSyncedReviews,
+            ),
+          }
+        : rawIntent;
       if (intent.any) {
         const bookingCalendars = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
         const allCalendars = Array.isArray((bookingCalendars as any).calendars)
@@ -9281,43 +6809,21 @@ async function runDirectAction(opts: {
         let calendarId =
           requestedCalendarId && enabledCalendars.some((c: any) => String(c?.id || "").trim() === requestedCalendarId)
             ? requestedCalendarId
-            : enabledCalendars[0]?.id
-              ? String(enabledCalendars[0].id).trim().slice(0, 50)
-              : "";
+            : "";
+        let calendarProvisionError: string | null = null;
 
-        // If the user asked for a calendar block but none are configured/enabled, do the sensible thing:
-        // enable the first existing calendar, or create a default one (charging the normal booking calendar credit).
         if (intent.wantsCalendar && !calendarId) {
-          try {
-            if (allCalendars.length > 0) {
-              const next = {
-                version: 1 as const,
-                calendars: allCalendars.map((c: any, idx: number) => ({ ...c, enabled: idx === 0 ? true : (c as any).enabled !== false })),
-              };
-              const saved = await setBookingCalendarsConfig(ownerId, next as any).catch(() => null);
-              if (saved && Array.isArray((saved as any).calendars)) {
-                enabledCalendars = (saved as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false);
-                calendarId = enabledCalendars[0]?.id ? String(enabledCalendars[0].id).trim().slice(0, 50) : "";
-              }
-            } else {
-              const needCredits = PORTAL_CREDIT_COSTS.bookingCalendarCreate;
-              const charged = await consumeCredits(ownerId, needCredits);
-              if (charged.ok) {
-                const existingIds = new Set(allCalendars.map((c: any) => String(c?.id || "").trim()).filter(Boolean));
-                let id = "appointments";
-                if (existingIds.has(id)) id = `appointments-${Date.now().toString(36).slice(-4)}`;
-                const created = await setBookingCalendarsConfig(ownerId, {
-                  version: 1,
-                  calendars: [{ id, enabled: true, title: "Appointments", description: "Default booking calendar" }],
-                } as any).catch(() => null);
-                if (created && Array.isArray((created as any).calendars)) {
-                  enabledCalendars = (created as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false);
-                  calendarId = enabledCalendars[0]?.id ? String(enabledCalendars[0].id).trim().slice(0, 50) : "";
-                }
-              }
-            }
-          } catch {
-            // ignore and fall back to the missing-calendar question below
+          const ensuredCalendar = await ensureFunnelBookingCalendar({
+            ownerId,
+            funnelId: page.funnel.id,
+            funnelName: page.funnel.name,
+            pageTitle: page.title,
+          });
+          if (ensuredCalendar.ok) {
+            enabledCalendars = ensuredCalendar.config.calendars.filter((c) => c && typeof c === "object" && c.enabled !== false);
+            calendarId = String(ensuredCalendar.calendar.id || "").trim().slice(0, 50);
+          } else {
+            calendarProvisionError = ensuredCalendar.error;
           }
         }
 
@@ -9353,6 +6859,7 @@ async function runDirectAction(opts: {
                   missingChatbot,
                   stripeProductsCount: purchasable.length,
                   bookingCalendarConfigured: Boolean(calendarId),
+                  calendarProvisionError,
                   chatAgentConfigured: Boolean(chatAgentId),
                   intent,
                   funnel: { name: page.funnel.name, slug: page.funnel.slug },
@@ -9432,7 +6939,7 @@ async function runDirectAction(opts: {
 
         const updated = await prisma.creditFunnelPage.update({
           where: { id: page.id },
-          data: applyDraftHtmlWriteCompat({
+          data: {
             editorMode: "BLOCKS",
             ...(createFunnelPageBlockSnapshotUpdate({
               blocks,
@@ -9442,20 +6949,21 @@ async function runDirectAction(opts: {
               title: page.title || page.funnel.name || "Funnel page",
             }) as any),
             customChatJson: nextChat,
-          }, hasDraftHtml),
-          select: withDraftHtmlSelect({
+          },
+          select: {
             id: true,
             slug: true,
             title: true,
             editorMode: true,
             blocksJson: true,
             customHtml: true,
+            draftHtml: true,
             customChatJson: true,
             updatedAt: true,
-          }, hasDraftHtml) as any,
+          },
         });
 
-        return { status: 200, json: { ok: true, page: normalizeDraftHtml(updated as any) } };
+        return { status: 200, json: { ok: true, page: updated } };
       }
 
       const forms = await prisma.creditForm.findMany({
@@ -9508,14 +7016,9 @@ async function runDirectAction(opts: {
           : "";
 
       const effectiveCurrentHtml = (
-        (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || getFunnelPageCurrentHtml(normalizedPage))
+        (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || getFunnelPageCurrentHtml(page))
       ).trim();
       const hasCurrentHtml = Boolean(effectiveCurrentHtml);
-      const canUseFallbackLandingScaffold =
-        !hasCurrentHtml
-        || page.editorMode === "BLOCKS"
-        || effectiveCurrentHtml.length < 1200
-        || !/<section\b/i.test(effectiveCurrentHtml);
       const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|design|redesign|premium|modern|landing page|sales page|polish|refresh)\b/i.test(prompt);
 
       const system = [
@@ -9622,24 +7125,11 @@ async function runDirectAction(opts: {
         if (!question) {
           html = extractHtml(aiRaw);
         }
-      } catch {
-        if (canUseFallbackLandingScaffold) {
-          const activeForm = forms.find((form) => String(form?.status || "").toUpperCase() === "PUBLISHED") || forms[0] || null;
-          html = buildFallbackLandingPageHtml({
-            basePath,
-            funnelSlug: page.funnel.slug,
-            pageSlug: page.slug,
-            pageTitle: page.title,
-            funnelName: page.funnel.name,
-            prompt,
-            formSlug: activeForm?.slug ? String(activeForm.slug) : undefined,
-          });
-        } else {
-          return {
-            status: 500,
-            json: { ok: false, error: "AI generation failed" },
-          };
-        }
+      } catch (e) {
+        return {
+          status: 500,
+          json: { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
+        };
       }
 
       if (question) {
@@ -9648,23 +7138,24 @@ async function runDirectAction(opts: {
 
         const updated = await prisma.creditFunnelPage.update({
           where: { id: page.id },
-          data: applyDraftHtmlWriteCompat({
+          data: {
             editorMode: "CUSTOM_HTML",
             ...(effectiveCurrentHtml ? createFunnelPageDraftUpdate(normalizePortalHostedPaths(effectiveCurrentHtml)) : {}),
             customChatJson: nextChat,
-          }, hasDraftHtml),
-          select: withDraftHtmlSelect({
+          },
+          select: {
             id: true,
             slug: true,
             title: true,
             editorMode: true,
             customHtml: true,
+            draftHtml: true,
             customChatJson: true,
             updatedAt: true,
-          }, hasDraftHtml) as any,
+          },
         });
 
-        return { status: 200, json: { ok: true, question, page: normalizeDraftHtml(updated as any) } };
+        return { status: 200, json: { ok: true, question, page: updated } };
       }
 
       if (!html) return { status: 502, json: { ok: false, error: "AI returned empty HTML" } };
@@ -9678,7 +7169,7 @@ async function runDirectAction(opts: {
           "<head>",
           "  <meta charset=\"utf-8\" />",
           "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />",
-          "  <title>AI Output</title>",
+          "  <title>Generated output</title>",
           "  <style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; padding:24px} pre{white-space:pre-wrap; word-break:break-word}</style>",
           "</head>",
           "<body>",
@@ -9696,19 +7187,20 @@ async function runDirectAction(opts: {
 
       const updated = await prisma.creditFunnelPage.update({
         where: { id: page.id },
-        data: applyDraftHtmlWriteCompat({ editorMode: "CUSTOM_HTML", ...(createFunnelPageDraftUpdate(normalizePortalHostedPaths(html))), customChatJson: nextChat }, hasDraftHtml),
-        select: withDraftHtmlSelect({
+        data: { editorMode: "CUSTOM_HTML", ...(createFunnelPageDraftUpdate(normalizePortalHostedPaths(html))), customChatJson: nextChat },
+        select: {
           id: true,
           slug: true,
           title: true,
           editorMode: true,
           customHtml: true,
+          draftHtml: true,
           customChatJson: true,
           updatedAt: true,
-        }, hasDraftHtml) as any,
+        },
       });
 
-      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(normalizeDraftHtml(updated as any)), page: normalizeDraftHtml(updated as any) } };
+      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(updated), page: updated } };
     }
 
     case "funnel_builder.custom_code_block.generate": {
@@ -10520,605 +8012,6 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, html, css } };
     }
 
-    case "funnel_builder.pages.chat": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      const pageId = String(args?.pageId || "").trim();
-      const prompt = typeof args?.prompt === "string" ? args.prompt.trim() : "";
-      if (!funnelId || !pageId || !prompt) return { status: 400, json: { ok: false, error: "Invalid request" } };
-
-      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
-      const page = await prisma.creditFunnelPage.findFirst({
-        where: { id: pageId, funnelId, funnel: { ownerId } },
-        select: withDraftHtmlSelect(
-          {
-            id: true,
-            slug: true,
-            title: true,
-            editorMode: true,
-            blocksJson: true,
-            customHtml: true,
-            customChatJson: true,
-            funnel: { select: { id: true, slug: true, name: true } },
-          },
-          hasDraftHtml,
-        ) as any,
-      });
-      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const normalizedPage = normalizeDraftHtml(page as any);
-      const currentHtml =
-        typeof args?.currentHtml === "string" && args.currentHtml.trim()
-          ? String(args.currentHtml)
-          : getFunnelPageCurrentHtml(normalizedPage);
-      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
-      const history = normalizeFunnelThreadMessages((normalizedPage as any).customChatJson)
-        .slice(-10)
-        .map((entry) => ({ role: entry.role, content: entry.content }));
-      const contextMedia = Array.isArray(args?.contextMedia)
-        ? (args.contextMedia as unknown[])
-            .map((item) => (item && typeof item === "object" && typeof (item as any).url === "string" ? String((item as any).url).trim() : ""))
-            .filter((url) => /^(https?:\/\/|data:image\/)/i.test(url))
-            .slice(0, 6)
-        : [];
-
-      const system = [
-        "You are Pura inside Funnel Builder.",
-        "Analyze the current funnel page and the user's prompt, then return a single JSON object.",
-        "Do not rewrite the page here. Focus on what should change and why.",
-        "Output schema:",
-        '{"assistantText":"string","sourceActionPlan":{"summary":"string","moves":[{"key":"string","target":"string","change":"string","why":"string","priority":"primary|secondary|optional","executionMode":"bounded-edit|model-led","confidence":"high|medium|low","selectorHint":"optional","diff":["optional before -> after"]}],"watchouts":["optional"]}|null}',
-        `Funnel: ${String((normalizedPage as any).funnel?.name || "Funnel")}`,
-        `Page: ${String((normalizedPage as any).title || (normalizedPage as any).slug || "Page")}`,
-        `Route: /${[String((normalizedPage as any).funnel?.slug || "").trim(), String((normalizedPage as any).slug || "").trim()].filter(Boolean).join("/")}`,
-        businessContext ? `Business context:\n${businessContext.slice(0, 1600)}` : "",
-        currentHtml.trim() ? `Current HTML:\n${currentHtml.slice(0, 22000)}` : "No current HTML is available.",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-      const historyBlock = history.length
-        ? `Recent chat context:\n${history.map((entry) => `${entry.role}: ${entry.content}`).join("\n\n")}`
-        : "";
-      const userPrompt = [historyBlock, prompt].filter(Boolean).join("\n\n");
-
-      let raw = "";
-      try {
-        raw = contextMedia.length
-          ? await generateTextWithImages({
-              system,
-              user: userPrompt,
-              imageUrls: contextMedia,
-              temperature: 0.45,
-            })
-          : await generateText({
-              system,
-              user: userPrompt,
-              temperature: 0.45,
-            });
-      } catch (error: any) {
-        return { status: 500, json: { ok: false, error: String(error?.message || error || "AI chat failed") } };
-      }
-
-      const parsed = extractSourceActionChatPayload(raw);
-      const assistantText = String(parsed?.assistantText || "").trim() || "Pura reviewed the current page and queued a focused edit plan for the next pass.";
-      const sourceActionPlan = (parsed?.sourceActionPlan || null) as SourceActionPlan | null;
-      const userMsg = { role: "user" as const, content: prompt, at: new Date().toISOString() };
-      const assistantMsg = {
-        role: "assistant" as const,
-        content: assistantText,
-        at: new Date().toISOString(),
-        ...(sourceActionPlan ? { sourceActionPlan } : {}),
-      };
-      const nextChat = normalizeFunnelThreadMessages([
-        ...(Array.isArray((normalizedPage as any).customChatJson) ? ((normalizedPage as any).customChatJson as any[]) : []),
-        userMsg,
-        assistantMsg,
-      ]);
-
-      const updated = await prisma.creditFunnelPage.update({
-        where: { id: normalizedPage.id },
-        data: { customChatJson: nextChat as any },
-        select: withDraftHtmlSelect(
-          {
-            id: true,
-            slug: true,
-            title: true,
-            editorMode: true,
-            blocksJson: true,
-            customHtml: true,
-            customChatJson: true,
-            updatedAt: true,
-          },
-          hasDraftHtml,
-        ) as any,
-      });
-
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          assistantText,
-          sourceActionPlan,
-          page: {
-            ...normalizeDraftHtml(updated as any),
-            customChatJson: normalizeFunnelThreadMessages((updated as any).customChatJson),
-          },
-        },
-      };
-    }
-
-    case "funnel_builder.pages.foundation": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      const pageId = String(args?.pageId || "").trim();
-      if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid request" } };
-
-      const hasFoundationArtifact = await dbHasCreditFunnelPageFoundationArtifactColumns();
-      const page = await prisma.creditFunnelPage.findFirst({
-        where: { id: pageId, funnelId, funnel: { ownerId } },
-        select: withFoundationArtifactSelect(
-          {
-            id: true,
-            slug: true,
-            title: true,
-            funnel: { select: { id: true, slug: true, name: true } },
-          },
-          hasFoundationArtifact,
-        ) as any,
-      });
-      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => ({} as Record<string, unknown>));
-      const effectiveBrief = inferFunnelBriefProfile({
-        existing: args?.brief ?? readFunnelBrief(settings, (page as any).funnel.id),
-        funnelName: String((page as any).funnel.name || ""),
-        funnelSlug: String((page as any).funnel.slug || ""),
-      });
-      const effectiveIntent = inferFunnelPageIntentProfile({
-        existing: args?.intent ?? readFunnelPageBrief(settings, (page as any).id),
-        funnelBrief: effectiveBrief,
-        funnelName: String((page as any).funnel.name || ""),
-        funnelSlug: String((page as any).funnel.slug || ""),
-        pageTitle: String((page as any).title || ""),
-        pageSlug: String((page as any).slug || ""),
-      });
-      const businessProfile =
-        args?.businessProfile && typeof args.businessProfile === "object" && !Array.isArray(args.businessProfile)
-          ? (args.businessProfile as any)
-          : await getBusinessProfileFoundationContext(ownerId).catch(() => null);
-      const capabilityInputs =
-        args?.capabilityInputs && typeof args.capabilityInputs === "object" && !Array.isArray(args.capabilityInputs)
-          ? (args.capabilityInputs as any)
-          : null;
-      const routeLabel = `/${[String((page as any).funnel.slug || "").trim(), String((page as any).slug || "").trim()].filter(Boolean).join("/")}` || "/page";
-      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
-      const materialHash = buildFunnelFoundationMaterialHash({
-        routeLabel,
-        funnelName: String((page as any).funnel.name || ""),
-        pageTitle: String((page as any).title || ""),
-        brief: effectiveBrief,
-        intent: effectiveIntent,
-        businessProfile,
-        capabilityInputs,
-        businessContext,
-      });
-      const storedArtifact = hasFoundationArtifact
-        ? coerceStoredFunnelFoundationArtifact((page as any).foundationArtifactJson)
-        : null;
-
-      if (
-        hasFoundationArtifact &&
-        (page as any).foundationArtifactHash === materialHash &&
-        storedArtifact?.materialHash === materialHash
-      ) {
-        return { status: 200, json: { ok: true, cached: true, foundation: storedArtifact } };
-      }
-
-      const foundation = await synthesizeFunnelFoundationArtifact({
-        routeLabel,
-        funnelName: String((page as any).funnel.name || ""),
-        pageTitle: String((page as any).title || ""),
-        brief: effectiveBrief,
-        intent: effectiveIntent,
-        businessProfile,
-        capabilityInputs,
-        businessContext,
-      });
-
-      if (hasFoundationArtifact) {
-        await prisma.creditFunnelPage.update({
-          where: { id: String((page as any).id) },
-          data: applyFoundationArtifactWriteCompat(
-            {
-              foundationArtifactHash: foundation.materialHash,
-              foundationArtifactJson: foundation as any,
-            },
-            hasFoundationArtifact,
-          ) as any,
-          select: { id: true },
-        });
-      }
-
-      return { status: 200, json: { ok: true, cached: false, foundation } };
-    }
-
-    case "funnel_builder.visual_review": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      const pageId = String(args?.pageId || "").trim();
-      const prompt = typeof args?.prompt === "string" ? args.prompt.trim() : "";
-      const html = typeof args?.html === "string" ? args.html : "";
-      const css = typeof args?.css === "string" ? args.css : "";
-      const surface = args?.surface === "source" ? "source" : "structure";
-      if (!funnelId || !pageId || !prompt || !html.trim()) {
-        return { status: 400, json: { ok: false, error: "Missing required review fields" } };
-      }
-
-      const page = await prisma.creditFunnelPage.findFirst({
-        where: { id: pageId, funnelId, funnel: { ownerId } },
-        select: { id: true, slug: true, title: true, funnel: { select: { id: true, slug: true, name: true } } },
-      });
-      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const system = [
-        "You review funnel page output after an AI generation pass.",
-        "Return a single JSON object with keys: summary, warnings, strengths, visualReviewed.",
-        "Keep warnings to at most 4 short items and strengths to at most 3 short items.",
-        "Be specific to conversion clarity, hierarchy, proof, CTA rhythm, and visual composition.",
-        `Funnel: ${String((page as any).funnel?.name || "Funnel")}`,
-        `Page: ${String((page as any).title || (page as any).slug || "Page")}`,
-        `Route: /${[String((page as any).funnel?.slug || "").trim(), String((page as any).slug || "").trim()].filter(Boolean).join("/")}`,
-        `Surface: ${surface}`,
-        `HTML:\n${html.slice(0, 24000)}`,
-        css.trim() ? `CSS:\n${css.slice(0, 12000)}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-
-      const extractFirstJsonObject = (text: string) => {
-        const trimmed = String(text || "").trim();
-        if (!trimmed) return null;
-        const fenced = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
-        const candidate = fenced?.[1] ? fenced[1].trim() : trimmed.match(/\{[\s\S]*\}/)?.[0] || "";
-        if (!candidate) return null;
-        try {
-          return JSON.parse(candidate) as any;
-        } catch {
-          return null;
-        }
-      };
-
-      let raw = "";
-      try {
-        const previewImageDataUrl = typeof args?.previewImageDataUrl === "string" ? args.previewImageDataUrl.trim() : "";
-        raw = previewImageDataUrl
-          ? await generateTextWithImages({
-              system,
-              user: prompt,
-              imageUrls: [previewImageDataUrl],
-              temperature: 0.35,
-            })
-          : await generateText({
-              system,
-              user: prompt,
-              temperature: 0.35,
-            });
-      } catch (error: any) {
-        return { status: 500, json: { ok: false, error: String(error?.message || error || "Visual review failed") } };
-      }
-
-      const parsed = extractFirstJsonObject(raw) || {};
-      const warnings = Array.isArray(parsed?.warnings)
-        ? parsed.warnings.map((item: unknown) => String(item || "").trim()).filter(Boolean).slice(0, 4)
-        : [];
-      const strengths = Array.isArray(parsed?.strengths)
-        ? parsed.strengths.map((item: unknown) => String(item || "").trim()).filter(Boolean).slice(0, 3)
-        : [];
-      const summary = String(parsed?.summary || "").trim() || "Pura reviewed the current visual output and flagged the next structural improvements.";
-      const visualReviewed = parsed?.visualReviewed === false ? false : true;
-
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          summary,
-          warnings,
-          strengths,
-          visualReviewed,
-          scene: {
-            dominantIssue: warnings[0] || null,
-            structuralPriorities: warnings.slice(0, 3),
-          },
-        },
-      };
-    }
-
-    case "funnel_builder.threads.list": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
-
-      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
-      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const sortThreads = (threads: FunnelThreadRecord[]) =>
-        [...threads].sort((left, right) => {
-          const leftAt = Date.parse(left.lastMessageAt || left.updatedAt || left.createdAt || "") || 0;
-          const rightAt = Date.parse(right.lastMessageAt || right.updatedAt || right.createdAt || "") || 0;
-          return rightAt - leftAt;
-        });
-
-      const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => ({} as Record<string, unknown>));
-      let threads = readPersistedFunnelThreads(settings, funnelId);
-
-      if (!threads.length) {
-        const pages = await prisma.creditFunnelPage.findMany({
-          where: { funnelId, funnel: { ownerId } },
-          select: { id: true, title: true, customChatJson: true, updatedAt: true },
-          orderBy: { sortOrder: "asc" },
-        });
-
-        const nowIso = new Date().toISOString();
-        const seededThreads: FunnelThreadRecord[] = [
-          {
-            id: String(crypto.randomUUID()),
-            funnelId,
-            pageId: null,
-            title: buildDefaultFunnelThreadTitle({ kind: "main" }),
-            kind: "main",
-            messages: [],
-            context: { seededFrom: "system" },
-            lastMessageAt: null,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          },
-        ];
-
-        for (const pageRow of pages) {
-          const messages = normalizeFunnelThreadMessages((pageRow as any).customChatJson);
-          if (!messages.length) continue;
-          const updatedAt = pageRow.updatedAt.toISOString();
-          seededThreads.push({
-            id: String(crypto.randomUUID()),
-            funnelId,
-            pageId: pageRow.id,
-            title: buildDefaultFunnelThreadTitle({ kind: "page", pageTitle: pageRow.title }),
-            kind: "page",
-            messages,
-            context: { seededFrom: "page.customChatJson", pageId: pageRow.id, pageTitle: pageRow.title },
-            lastMessageAt: readFunnelThreadLastMessageAt(messages, updatedAt),
-            createdAt: updatedAt,
-            updatedAt,
-          });
-        }
-
-        const result = await mutateCreditFunnelBuilderSettings(ownerId, (current) => ({
-          next: writePersistedFunnelThreads(current, funnelId, sortThreads(seededThreads)),
-          value: sortThreads(seededThreads),
-        }));
-        threads = result.value;
-      }
-
-      return { status: 200, json: { ok: true, threads } };
-    }
-
-    case "funnel_builder.threads.create": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
-
-      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
-      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const pageId = typeof args?.pageId === "string" && args.pageId.trim() ? args.pageId.trim() : null;
-      if (pageId) {
-        const page = await prisma.creditFunnelPage.findFirst({ where: { id: pageId, funnelId, funnel: { ownerId } }, select: { id: true } });
-        if (!page) return { status: 404, json: { ok: false, error: "Page not found" } };
-      }
-
-      const sortThreads = (threads: FunnelThreadRecord[]) =>
-        [...threads].sort((left, right) => {
-          const leftAt = Date.parse(left.lastMessageAt || left.updatedAt || left.createdAt || "") || 0;
-          const rightAt = Date.parse(right.lastMessageAt || right.updatedAt || right.createdAt || "") || 0;
-          return rightAt - leftAt;
-        });
-
-      const result = await mutateCreditFunnelBuilderSettings(ownerId, (current) => {
-        const existingThreads = readPersistedFunnelThreads(current, funnelId);
-        const cloneFromThreadId = typeof args?.cloneFromThreadId === "string" && args.cloneFromThreadId.trim() ? args.cloneFromThreadId.trim() : null;
-        const cloneFrom = cloneFromThreadId ? existingThreads.find((thread) => thread.id === cloneFromThreadId) || null : null;
-        const messages = normalizeFunnelThreadMessages(args?.messagesJson ?? cloneFrom?.messages);
-        const pageTitle =
-          args?.contextJson && typeof args.contextJson === "object" && !Array.isArray(args.contextJson)
-            ? String((args.contextJson as Record<string, unknown>).pageTitle || "").trim()
-            : String(cloneFrom?.context?.pageTitle || "").trim();
-        const kind = normalizeFunnelThreadKind(args?.kind);
-        const nowIso = new Date().toISOString();
-        const thread: FunnelThreadRecord = {
-          id: String(crypto.randomUUID()),
-          funnelId,
-          pageId,
-          title: normalizeFunnelThreadTitle(args?.title, buildDefaultFunnelThreadTitle({ kind, pageTitle })),
-          kind,
-          messages,
-          context: normalizeFunnelThreadContext(args?.contextJson ?? cloneFrom?.context),
-          lastMessageAt: readFunnelThreadLastMessageAt(messages, nowIso),
-          createdAt: nowIso,
-          updatedAt: nowIso,
-        };
-        const nextThreads = sortThreads([thread, ...existingThreads]);
-        return {
-          next: writePersistedFunnelThreads(current, funnelId, nextThreads),
-          value: thread,
-        };
-      });
-
-      return { status: 200, json: { ok: true, thread: result.value } };
-    }
-
-    case "funnel_builder.threads.update": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      const threadId = String(args?.threadId || "").trim();
-      if (!funnelId || !threadId) return { status: 400, json: { ok: false, error: "Invalid id" } };
-
-      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
-      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const requestedPageId = Object.prototype.hasOwnProperty.call(args ?? {}, "pageId")
-        ? typeof args?.pageId === "string" && args.pageId.trim()
-          ? args.pageId.trim()
-          : null
-        : undefined;
-      if (requestedPageId) {
-        const page = await prisma.creditFunnelPage.findFirst({ where: { id: requestedPageId, funnelId, funnel: { ownerId } }, select: { id: true } });
-        if (!page) return { status: 404, json: { ok: false, error: "Page not found" } };
-      }
-
-      const sortThreads = (threads: FunnelThreadRecord[]) =>
-        [...threads].sort((left, right) => {
-          const leftAt = Date.parse(left.lastMessageAt || left.updatedAt || left.createdAt || "") || 0;
-          const rightAt = Date.parse(right.lastMessageAt || right.updatedAt || right.createdAt || "") || 0;
-          return rightAt - leftAt;
-        });
-
-      const result = await mutateCreditFunnelBuilderSettings(ownerId, (current) => {
-        const threads = readPersistedFunnelThreads(current, funnelId);
-        const existing = threads.find((thread) => thread.id === threadId) || null;
-        if (!existing) throw new Error("THREAD_NOT_FOUND");
-
-        const messages = Object.prototype.hasOwnProperty.call(args ?? {}, "messagesJson")
-          ? normalizeFunnelThreadMessages(args?.messagesJson)
-          : existing.messages;
-        const updatedThread: FunnelThreadRecord = {
-          ...existing,
-          pageId: requestedPageId !== undefined ? requestedPageId : existing.pageId,
-          title: Object.prototype.hasOwnProperty.call(args ?? {}, "title")
-            ? normalizeFunnelThreadTitle(args?.title, existing.title)
-            : existing.title,
-          kind: Object.prototype.hasOwnProperty.call(args ?? {}, "kind")
-            ? normalizeFunnelThreadKind(args?.kind)
-            : existing.kind,
-          messages,
-          context: Object.prototype.hasOwnProperty.call(args ?? {}, "contextJson")
-            ? normalizeFunnelThreadContext(args?.contextJson)
-            : existing.context,
-          lastMessageAt:
-            Object.prototype.hasOwnProperty.call(args ?? {}, "messagesJson") || Object.prototype.hasOwnProperty.call(args ?? {}, "lastMessageAt")
-              ? readFunnelThreadLastMessageAt(messages, typeof args?.lastMessageAt === "string" ? args.lastMessageAt : existing.lastMessageAt)
-              : existing.lastMessageAt,
-          updatedAt: new Date().toISOString(),
-        };
-        const nextThreads = sortThreads(threads.map((thread) => (thread.id === threadId ? updatedThread : thread)));
-        return {
-          next: writePersistedFunnelThreads(current, funnelId, nextThreads),
-          value: updatedThread,
-        };
-      }).catch((error) => {
-        if ((error as Error)?.message === "THREAD_NOT_FOUND") return null;
-        throw error;
-      });
-
-      if (!result) return { status: 404, json: { ok: false, error: "Not found" } };
-      return { status: 200, json: { ok: true, thread: result.value } };
-    }
-
-    case "funnel_builder.threads.delete": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      const threadId = String(args?.threadId || "").trim();
-      if (!funnelId || !threadId) return { status: 400, json: { ok: false, error: "Invalid id" } };
-
-      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
-      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const result = await mutateCreditFunnelBuilderSettings(ownerId, (current) => {
-        const threads = readPersistedFunnelThreads(current, funnelId);
-        if (!threads.some((thread) => thread.id === threadId)) throw new Error("THREAD_NOT_FOUND");
-        if (threads.length <= 1) throw new Error("THREAD_MINIMUM");
-
-        return {
-          next: writePersistedFunnelThreads(current, funnelId, threads.filter((thread) => thread.id !== threadId)),
-          value: true,
-        };
-      }).catch((error) => {
-        const message = (error as Error)?.message || "";
-        if (message === "THREAD_NOT_FOUND" || message === "THREAD_MINIMUM") return message;
-        throw error;
-      });
-
-      if (result === "THREAD_NOT_FOUND") return { status: 404, json: { ok: false, error: "Not found" } };
-      if (result === "THREAD_MINIMUM") return { status: 400, json: { ok: false, error: "Keep at least one thread for this funnel" } };
-      return { status: 200, json: { ok: true } };
-    }
-
-    case "funnel_builder.exhibit_archetypes.get": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid id" } };
-
-      const funnel = await prisma.creditFunnel.findFirst({
-        where: { id: funnelId, ownerId },
-        select: { id: true, slug: true, name: true },
-      });
-      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => ({} as Record<string, unknown>));
-      const pack = readFunnelExhibitArchetypePack(settings, funnel.id);
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          funnel,
-          pack,
-          seedPrompt: buildExhibitArchetypeSeedPrompt({ funnelName: funnel.name, routeLabel: `/${funnel.slug}` }),
-        },
-      };
-    }
-
-    case "funnel_builder.exhibit_archetypes.generate": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const funnelId = String(args?.funnelId || "").trim();
-      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid id" } };
-
-      const funnel = await prisma.creditFunnel.findFirst({
-        where: { id: funnelId, ownerId },
-        select: { id: true, slug: true, name: true },
-      });
-      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => ({} as Record<string, unknown>));
-      const brief = readFunnelBrief(settings, funnel.id);
-      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
-      const prompt = typeof args?.prompt === "string" ? args.prompt.trim().slice(0, 2400) : "";
-      const { pack, promptUsed, diagnostics } = await fetchFunnelExhibitArchetypePack({
-        prompt,
-        funnelName: funnel.name,
-        routeLabel: `/${funnel.slug}`,
-        audience: (brief as any)?.audienceSummary,
-        offer: (brief as any)?.offerSummary,
-        primaryCta: "",
-        brief: brief as any,
-        businessContext,
-      });
-
-      await mutateCreditFunnelBuilderSettings(ownerId, (current) => ({
-        next: writeFunnelExhibitArchetypePack(current, funnel.id, pack),
-        value: true,
-      }));
-
-      return { status: 200, json: { ok: true, funnel, pack, promptUsed, diagnostics } };
-    }
-
     case "funnel_builder.pages.global_header": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
@@ -11144,7 +8037,7 @@ async function runDirectAction(opts: {
           customChatJson: true,
           createdAt: true,
           updatedAt: true,
-        } as any,
+        },
       });
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
@@ -11185,7 +8078,7 @@ async function runDirectAction(opts: {
               customChatJson: true,
               createdAt: true,
               updatedAt: true,
-            } as any,
+            },
           });
         });
 
@@ -11228,7 +8121,7 @@ async function runDirectAction(opts: {
               customChatJson: true,
               createdAt: true,
               updatedAt: true,
-            } as any,
+            },
           });
         });
 
@@ -11369,7 +8262,7 @@ async function runDirectAction(opts: {
         ...(canUseSlugColumn ? { slug: true } : {}),
       };
 
-      let site = (await prisma.clientBlogSite.findUnique({ where: { ownerId }, select } as any)) as any;
+      let site = (await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select })) as any;
 
       const currentSlug = (site as any)?.slug as string | null | undefined;
       if (site && canUseSlugColumn && !currentSlug) {
@@ -11393,6 +8286,10 @@ async function runDirectAction(opts: {
             ? {
                 ...(site as any),
                 slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
+                publicUrl:
+                  (canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug)
+                    ? `/book/${encodeURIComponent(String(canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug))}`
+                    : null,
               }
             : null,
         },
@@ -11832,7 +8729,7 @@ async function runDirectAction(opts: {
 
       const existing = await prisma.clientBlogPost.findFirst({
         where: { id: postId, site: { ownerId } },
-        select: { id: true, siteId: true, title: true, slug: true, excerpt: true, content: true, seoKeywords: true },
+        select: { id: true, siteId: true },
       });
       if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
 
@@ -11850,27 +8747,17 @@ async function runDirectAction(opts: {
         return `${base}-${Date.now()}`;
       }
 
-      const nextTitle = typeof (args as any).title === "string" && String((args as any).title).trim()
-        ? String((args as any).title).trim()
-        : String(existing.title || "").trim() || "Blog Post";
-      const desiredSlug = String((args as any).slug || nextTitle || existing.slug || "").trim();
+      const desiredSlug = String((args as any).slug || "").trim();
       const slug = await uniqueSlugForUpdate(existing.siteId, desiredSlug, existing.id);
-      const nextExcerpt = typeof (args as any).excerpt === "string" ? String((args as any).excerpt) : String(existing.excerpt ?? "");
-      const nextContent = typeof (args as any).content === "string" ? String((args as any).content) : String(existing.content ?? "");
-      const nextSeoKeywords = Array.isArray((args as any).seoKeywords)
-        ? (args as any).seoKeywords
-        : typeof (args as any).seoKeywords === "undefined"
-          ? existing.seoKeywords
-          : Prisma.DbNull;
 
       const updated = await prisma.clientBlogPost.update({
         where: { id: existing.id },
         data: {
-          title: nextTitle,
+          title: String((args as any).title || "").trim(),
           slug,
-          excerpt: nextExcerpt,
-          content: nextContent,
-          seoKeywords: Array.isArray(nextSeoKeywords) && nextSeoKeywords.length ? nextSeoKeywords : Prisma.DbNull,
+          excerpt: String((args as any).excerpt ?? ""),
+          content: String((args as any).content ?? ""),
+          seoKeywords: Array.isArray((args as any).seoKeywords) && (args as any).seoKeywords.length ? (args as any).seoKeywords : Prisma.DbNull,
           archivedAt: (args as any).archived ? new Date() : null,
           ...(typeof (args as any).publishedAt !== "undefined"
             ? { publishedAt: (args as any).publishedAt ? new Date(String((args as any).publishedAt)) : null }
@@ -12241,7 +9128,6 @@ async function runDirectAction(opts: {
 
         return { status: 200, json: { ok: true, postId: post.id, creditsRemaining: consumed.state.balance } };
       } catch (e) {
-        await refundCreditsBestEffort(ownerId, needCredits);
         const msg = e instanceof Error ? e.message : "Unknown error";
         return { status: 500, json: { error: msg } };
       }
@@ -12354,26 +9240,9 @@ async function runDirectAction(opts: {
 
         const state = await getCreditsState(ownerId);
         return { status: 200, json: { ok: true, draft, estimatedCredits: needCredits, creditsRemaining: state.balance } };
-      } catch {
-        await refundCreditsBestEffort(ownerId, needCredits);
-        const refundedState = await getCreditsState(ownerId).catch(() => consumed.state);
-        const fallbackDraft = buildBlogDraftFallback({
-          existingTitle,
-          existingExcerpt,
-          existingContent: typeof post.content === "string" ? post.content : "",
-          prompt: prompt || undefined,
-          topic: topic || undefined,
-        });
-        return {
-          status: 200,
-          json: {
-            ok: true,
-            draft: fallbackDraft,
-            estimatedCredits: 0,
-            creditsRemaining: refundedState.balance,
-            fallbackUsed: true,
-          },
-        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        return { status: 500, json: { error: msg } };
       }
     }
 
@@ -13110,24 +9979,6 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, newsletter: { id: updated.id, updatedAtIso: updated.updatedAt.toISOString() } } };
     }
 
-    case "newsletter.newsletters.delete": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const newsletterId = String((args as any)?.newsletterId || "").trim();
-      if (!newsletterId) return { status: 400, json: { ok: false, error: "Missing newsletterId" } };
-
-      const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true } });
-      const existing = await prisma.clientNewsletter.findFirst({
-        where: { id: newsletterId, siteId: site.id },
-        select: { id: true },
-      });
-
-      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      await prisma.clientNewsletter.delete({ where: { id: existing.id } });
-      return { status: 200, json: { ok: true } };
-    }
-
     case "newsletter.newsletters.send": {
       if (!(await requireServiceCapability("newsletter", "edit"))) {
         return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -13188,19 +10039,6 @@ async function runDirectAction(opts: {
         audience,
         fromName,
       });
-
-      const requestedTotal = Number(results.email.requested || 0) + Number(results.sms.requested || 0);
-      if (requestedTotal <= 0) {
-        return {
-          status: 409,
-          json: {
-            ok: false,
-            error: "No recipients were found in the current newsletter audience. Update the audience before sending.",
-            requestedCount: 0,
-            sentCount: 0,
-          },
-        };
-      }
 
       const sentAt = new Date();
       await prisma.clientNewsletter.update({ where: { id: newsletter.id }, data: { status: "SENT", sentAt }, select: { id: true } });
@@ -13329,84 +10167,6 @@ async function runDirectAction(opts: {
           })),
         },
       };
-    }
-
-    case "newsletter.audience.contacts.add": {
-      const ok = await requireServiceCapability("newsletter", "edit");
-      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const contactIds = Array.isArray((args as any)?.contactIds)
-        ? ((args as any).contactIds as unknown[])
-            .map((item) => String(item || "").trim())
-            .filter(Boolean)
-            .slice(0, 200)
-        : [];
-
-      if (!contactIds.length) {
-        return { status: 400, json: { ok: false, error: "No contactIds provided" } };
-      }
-
-      const existing = await prisma.portalServiceSetup.findUnique({
-        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
-        select: { dataJson: true },
-      });
-
-      function normalizeStrings(items: unknown, max: number) {
-        if (!Array.isArray(items)) return [] as string[];
-        const out: string[] = [];
-        const seen = new Set<string>();
-        for (const item of items) {
-          const text = typeof item === "string" ? item.trim() : "";
-          if (!text) continue;
-          const key = text.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          out.push(text);
-          if (out.length >= max) break;
-        }
-        return out;
-      }
-
-      const current = existing?.dataJson && typeof existing.dataJson === "object" && !Array.isArray(existing.dataJson)
-        ? (existing.dataJson as Record<string, unknown>)
-        : {};
-      const external = current.external && typeof current.external === "object" && !Array.isArray(current.external)
-        ? (current.external as Record<string, unknown>)
-        : {};
-      const internal = current.internal && typeof current.internal === "object" && !Array.isArray(current.internal)
-        ? (current.internal as Record<string, unknown>)
-        : {};
-      const audience = external.audience && typeof external.audience === "object" && !Array.isArray(external.audience)
-        ? (external.audience as Record<string, unknown>)
-        : {};
-
-      const previousContactIds = normalizeStrings(audience.contactIds, 200);
-      const nextContactIds = normalizeStrings([...previousContactIds, ...contactIds], 200);
-      const next = {
-        ...current,
-        external: {
-          ...external,
-          audience: {
-            ...audience,
-            tagIds: normalizeStrings(audience.tagIds, 200),
-            contactIds: nextContactIds,
-            emails: normalizeStrings(audience.emails, 200),
-            userIds: normalizeStrings(audience.userIds, 200),
-            sendAllUsers: Boolean(audience.sendAllUsers),
-          },
-        },
-        internal,
-      };
-
-      await prisma.portalServiceSetup.upsert({
-        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
-        create: { ownerId, serviceSlug: "newsletter", status: "IN_PROGRESS", dataJson: next as any },
-        update: { dataJson: next as any },
-        select: { id: true },
-      });
-
-      const added = Math.max(0, nextContactIds.length - previousContactIds.length);
-      return { status: 200, json: { ok: true, added, total: nextContactIds.length } };
     }
 
     case "newsletter.automation.settings.get": {
@@ -14267,7 +11027,7 @@ async function runDirectAction(opts: {
           json: {
             ok: false,
             configured: true,
-            error: "Billing summary did not load. Retry here or open billing home.",
+            error: "Failed to load billing summary",
             details: e instanceof Error ? e.message : "Unknown error",
           },
         };
@@ -14361,7 +11121,7 @@ async function runDirectAction(opts: {
         customer,
         status: "all",
         limit: 100,
-        "expand[]": "data.items.data.price",
+        "expand[]": ["data.items.data.price", "data.items.data.price.product"],
       });
 
       const active = subs.data.filter((s) => ["active", "trialing", "past_due"].includes(String(s.status)));
@@ -16906,7 +13666,7 @@ async function runDirectAction(opts: {
       const fileName = `dispute-letter-${safeContact || "contact"}-${letter.id.slice(0, 8)}.pdf`;
 
       const media = await mirrorUploadToMediaLibrary({ ownerId, fileName, mimeType: "application/pdf", bytes: pdfBytes });
-  if (!media) return { status: 500, json: { ok: false, error: "The PDF did not save. Retry here or open letters again." } };
+      if (!media) return { status: 500, json: { ok: false, error: "Failed to save PDF" } };
 
       await prisma.creditDisputeLetter.updateMany({
         where: { id: letterId, ownerId },
@@ -17866,54 +14626,6 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true } };
     }
 
-    case "automations.test_trigger": {
-      const ok = await requireServiceCapability("automations" as PortalServiceKey, "edit");
-      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const automationId = String((args as any)?.automationId || "").trim();
-      const triggerKind = String((args as any)?.triggerKind || "").trim();
-      const from = String((args as any)?.from || "").trim();
-      const body = typeof (args as any)?.body === "string" ? String((args as any).body).trim().slice(0, 2000) : "";
-      const nowIso = typeof (args as any)?.nowIso === "string" ? String((args as any).nowIso).trim().slice(0, 64) : undefined;
-      const contact = (args as any)?.contact;
-      const event = (args as any)?.event;
-
-      const isPhoneTrigger = triggerKind === "inbound_sms" || triggerKind === "inbound_mms" || triggerKind === "inbound_call" || triggerKind === "missed_call";
-      const isEmailTrigger = triggerKind === "inbound_email";
-      if ((isPhoneTrigger || isEmailTrigger) && !from) {
-        return { status: 400, json: { ok: false, error: "Sender is required for this trigger." } };
-      }
-
-      const defaultContact = from
-        ? {
-            phone: /\+?[0-9][0-9()\-\s]{6,}/.test(from) ? from : undefined,
-            email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(from) ? from : undefined,
-            name: from,
-          }
-        : undefined;
-
-      const twilio = isPhoneTrigger ? await getOwnerTwilioSmsConfig(ownerId).catch(() => null) : null;
-
-      try {
-        await runOwnerAutomationByIdForEvent({
-          ownerId,
-          automationId,
-          triggerKind: triggerKind as any,
-          throwIfMissing: true,
-          nowIso,
-          message: isPhoneTrigger || isEmailTrigger ? { from, to: twilio?.fromNumberE164 || "", body } : undefined,
-          contact: contact ?? defaultContact,
-          event,
-        });
-        return { status: 200, json: { ok: true } };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error || "");
-        const safeMessage = message.trim().slice(0, 200);
-        const status = /not found/i.test(safeMessage) ? 404 : 400;
-        return { status, json: { ok: false, error: safeMessage || "Test failed" } };
-      }
-    }
-
     case "contacts.list": {
       await ensurePortalContactsSchema().catch(() => null);
       const q = typeof args.q === "string" ? String(args.q).trim() : "";
@@ -18263,9 +14975,7 @@ async function runDirectAction(opts: {
       if (!tagId) return { status: 400, json: { ok: false, error: "Invalid input" } };
 
       const ok = await addContactTagAssignment({ ownerId, contactId, tagId });
-      if (!ok) {
-        return { status: 500, json: { ok: false, error: "That tag did not attach to the contact. Retry here or review the selected tags again." } };
-      }
+      if (!ok) return { status: 500, json: { ok: false, error: "Failed to add tag" } };
 
       try {
         await runOwnerAutomationsForEvent({ ownerId, triggerKind: "tag_added", contact: { id: contactId }, event: { tagId } });
@@ -18299,9 +15009,7 @@ async function runDirectAction(opts: {
       if (!tagId) return { status: 400, json: { ok: false, error: "Invalid input" } };
 
       const ok = await removeContactTagAssignment({ ownerId, contactId, tagId });
-      if (!ok) {
-        return { status: 500, json: { ok: false, error: "That tag did not come off the contact. Retry here or review the selected tags again." } };
-      }
+      if (!ok) return { status: 500, json: { ok: false, error: "Failed to remove tag" } };
 
       const tags = await listContactTagsForContact(ownerId, contactId);
       return { status: 200, json: { ok: true, contactId, tags } };
@@ -18368,7 +15076,7 @@ async function runDirectAction(opts: {
           },
         };
       } catch {
-        return { status: 500, json: { ok: false, error: "Suggested setup did not load. Retry here or open Profile to review the basics." } };
+        return { status: 500, json: { ok: false, error: "Unable to load suggested setup" } };
       }
     }
 
@@ -18456,9 +15164,7 @@ async function runDirectAction(opts: {
       const color = typeof (args as any)?.color === "string" ? String((args as any).color).trim().slice(0, 16) : null;
 
       const created = await createOwnerContactTag({ ownerId, name, color: color || null }).catch(() => null);
-      if (!created) {
-        return { status: 500, json: { ok: false, error: "Tag creation did not finish. Retry here or choose a different tag name." } };
-      }
+      if (!created) return { status: 500, json: { ok: false, error: "Failed to create tag" } };
 
       return { status: 200, json: { ok: true, tag: created } };
     }
@@ -19897,19 +16603,7 @@ async function runDirectAction(opts: {
         .filter(Boolean)
         .join("\n");
 
-      let content = "";
-      try {
-        content = await generateText({ system, user });
-      } catch (error) {
-        await refundCreditsBestEffort(ownerId, needCredits);
-        return {
-          status: 502,
-          json: {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error ?? "AI draft generation failed."),
-          },
-        };
-      }
+      const content = await generateText({ system, user });
 
       if (kind === "EMAIL") {
         const fromJson = tryParseJsonDraft(content);
@@ -19963,295 +16657,6 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, note: "Sent." } };
-    }
-
-    case "lead_scraping.assignees.list": {
-      const ok = await requireServiceCapability("leadScraping", "edit");
-      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const owner = await prisma.user.findUnique({
-        where: { id: ownerId },
-        select: { id: true, email: true, name: true, active: true },
-      });
-
-      const rows = await listPortalAccountMembers(ownerId).catch(() => [] as any[]);
-
-      const members = [
-        ...(owner
-          ? [
-              {
-                userId: owner.id,
-                role: "OWNER",
-                user: { id: owner.id, email: owner.email, name: owner.name, active: owner.active },
-                implicit: true,
-              },
-            ]
-          : []),
-        ...rows.map((row) => ({
-          userId: String(row.userId),
-          role: String(row.role || "MEMBER"),
-          user: row.user,
-          implicit: false,
-        })),
-      ].filter((member, index, all) => all.findIndex((candidate) => candidate.userId === member.userId) === index);
-
-      return { status: 200, json: { ok: true, ownerId, members } };
-    }
-
-    case "lead_scraping.backfill_map": {
-      const ok = await requireServiceCapability("leadScraping", "edit");
-      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const leadIds = Array.isArray((args as any)?.leadIds)
-        ? Array.from(new Set(((args as any).leadIds as unknown[]).map((value) => String(value || "").trim()).filter(Boolean))).slice(0, 150)
-        : [];
-
-      if (!leadIds.length) {
-        return { status: 200, json: { ok: true, updated: [] } };
-      }
-
-      const leads = await prisma.portalLead.findMany({
-        where: { ownerId, id: { in: leadIds } },
-        select: { id: true, placeId: true, dataJson: true },
-      });
-
-      const updated: Array<{ id: string; latitude: number; longitude: number }> = [];
-
-      function asRecord(value: unknown): Record<string, unknown> | null {
-        return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-      }
-
-      function toFiniteNumber(value: unknown): number | null {
-        if (typeof value === "number" && Number.isFinite(value)) return value;
-        if (typeof value === "string" && value.trim()) {
-          const parsed = Number(value);
-          if (Number.isFinite(parsed)) return parsed;
-        }
-        return null;
-      }
-
-      function extractCoordinates(dataJson: unknown): { latitude: number; longitude: number } | null {
-        const root = asRecord(dataJson);
-        if (!root) return null;
-
-        const googlePlaces = asRecord(root.googlePlaces);
-        const googleLocation = asRecord(googlePlaces?.location);
-        const googleDetails = asRecord(googlePlaces?.details);
-        const googleDetailsLocation = asRecord(googleDetails?.location);
-        const legacyGeometry = asRecord(googleDetails?.geometry);
-        const legacyGeometryLocation = asRecord(legacyGeometry?.location);
-
-        const googleLatitude =
-          toFiniteNumber(googleLocation?.latitude) ??
-          toFiniteNumber(googleLocation?.lat) ??
-          toFiniteNumber(googleDetailsLocation?.latitude) ??
-          toFiniteNumber(googleDetailsLocation?.lat) ??
-          toFiniteNumber(legacyGeometryLocation?.lat);
-        const googleLongitude =
-          toFiniteNumber(googleLocation?.longitude) ??
-          toFiniteNumber(googleLocation?.lng) ??
-          toFiniteNumber(googleDetailsLocation?.longitude) ??
-          toFiniteNumber(googleDetailsLocation?.lng) ??
-          toFiniteNumber(legacyGeometryLocation?.lng);
-        if (googleLatitude !== null && googleLongitude !== null) {
-          return { latitude: googleLatitude, longitude: googleLongitude };
-        }
-
-        const osm = asRecord(root.osm);
-        const osmElement = asRecord(osm?.element);
-        const osmCenter = asRecord(osmElement?.center);
-        const osmLatitude = toFiniteNumber(osmElement?.lat) ?? toFiniteNumber(osmCenter?.lat);
-        const osmLongitude = toFiniteNumber(osmElement?.lon) ?? toFiniteNumber(osmCenter?.lon);
-        if (osmLatitude !== null && osmLongitude !== null) {
-          return { latitude: osmLatitude, longitude: osmLongitude };
-        }
-
-        return null;
-      }
-
-      function extractLiveCoordinates(details: unknown): { latitude: number; longitude: number } | null {
-        const rec = asRecord(details);
-        const location = asRecord(rec?.location);
-        const geometry = asRecord(rec?.geometry);
-        const geometryLocation = asRecord(geometry?.location);
-
-        const latitude =
-          toFiniteNumber(location?.lat) ??
-          toFiniteNumber(location?.latitude) ??
-          toFiniteNumber(geometryLocation?.lat) ??
-          toFiniteNumber(geometryLocation?.latitude);
-        const longitude =
-          toFiniteNumber(location?.lng) ??
-          toFiniteNumber(location?.longitude) ??
-          toFiniteNumber(geometryLocation?.lng) ??
-          toFiniteNumber(geometryLocation?.longitude);
-
-        if (latitude === null || longitude === null) return null;
-        return { latitude, longitude };
-      }
-
-      for (let index = 0; index < leads.length; index += 4) {
-        const batch = leads.slice(index, index + 4);
-        await Promise.all(
-          batch.map(async (lead) => {
-            const existingCoordinates = extractCoordinates(lead.dataJson);
-            if (existingCoordinates) {
-              updated.push({ id: String(lead.id), latitude: existingCoordinates.latitude, longitude: existingCoordinates.longitude });
-              return;
-            }
-
-            const placeId = String(lead.placeId || "").trim();
-            if (!placeId || placeId.startsWith("osm:")) return;
-
-            try {
-              const details = await placeDetails(placeId);
-              const coordinates = extractLiveCoordinates(details);
-              if (!coordinates) return;
-
-              const root = asRecord(lead.dataJson) ? { ...(lead.dataJson as Record<string, unknown>) } : {};
-              const googlePlaces = asRecord(root.googlePlaces) ? { ...(root.googlePlaces as Record<string, unknown>) } : {};
-              const nextDataJson = {
-                ...root,
-                googlePlaces: {
-                  ...googlePlaces,
-                  details,
-                  location: {
-                    latitude: coordinates.latitude,
-                    longitude: coordinates.longitude,
-                  },
-                },
-              };
-
-              await prisma.portalLead.updateMany({
-                where: { id: lead.id, ownerId },
-                data: { dataJson: nextDataJson as any },
-              });
-
-              updated.push({ id: String(lead.id), latitude: coordinates.latitude, longitude: coordinates.longitude });
-            } catch {
-              // ignore individual failures
-            }
-          }),
-        );
-      }
-
-      return { status: 200, json: { ok: true, updated } };
-    }
-
-    case "lead_scraping.location_suggestions.list": {
-      const ok = await requireServiceCapability("leadScraping", "view");
-      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const query = String((args as any)?.q || "").trim();
-      if (!query) return { status: 400, json: { ok: false, error: "Invalid query" } };
-
-      const STATE_CAPITALS = [
-        { name: "Alabama", city: "Montgomery" },
-        { name: "Alaska", city: "Juneau" },
-        { name: "Arizona", city: "Phoenix" },
-        { name: "Arkansas", city: "Little Rock" },
-        { name: "California", city: "Sacramento" },
-        { name: "Colorado", city: "Denver" },
-        { name: "Connecticut", city: "Hartford" },
-        { name: "Delaware", city: "Dover" },
-        { name: "Florida", city: "Tallahassee" },
-        { name: "Georgia", city: "Atlanta" },
-        { name: "Hawaii", city: "Honolulu" },
-        { name: "Idaho", city: "Boise" },
-        { name: "Illinois", city: "Springfield" },
-        { name: "Indiana", city: "Indianapolis" },
-        { name: "Iowa", city: "Des Moines" },
-        { name: "Kansas", city: "Topeka" },
-        { name: "Kentucky", city: "Frankfort" },
-        { name: "Louisiana", city: "Baton Rouge" },
-        { name: "Maine", city: "Augusta" },
-        { name: "Maryland", city: "Annapolis" },
-        { name: "Massachusetts", city: "Boston" },
-        { name: "Michigan", city: "Lansing" },
-        { name: "Minnesota", city: "Saint Paul" },
-        { name: "Mississippi", city: "Jackson" },
-        { name: "Missouri", city: "Jefferson City" },
-        { name: "Montana", city: "Helena" },
-        { name: "Nebraska", city: "Lincoln" },
-        { name: "Nevada", city: "Carson City" },
-        { name: "New Hampshire", city: "Concord" },
-        { name: "New Jersey", city: "Trenton" },
-        { name: "New Mexico", city: "Santa Fe" },
-        { name: "New York", city: "Albany" },
-        { name: "North Carolina", city: "Raleigh" },
-        { name: "North Dakota", city: "Bismarck" },
-        { name: "Ohio", city: "Columbus" },
-        { name: "Oklahoma", city: "Oklahoma City" },
-        { name: "Oregon", city: "Salem" },
-        { name: "Pennsylvania", city: "Harrisburg" },
-        { name: "Rhode Island", city: "Providence" },
-        { name: "South Carolina", city: "Columbia" },
-        { name: "South Dakota", city: "Pierre" },
-        { name: "Tennessee", city: "Nashville" },
-        { name: "Texas", city: "Austin" },
-        { name: "Utah", city: "Salt Lake City" },
-        { name: "Vermont", city: "Montpelier" },
-        { name: "Virginia", city: "Richmond" },
-        { name: "Washington", city: "Olympia" },
-        { name: "West Virginia", city: "Charleston" },
-        { name: "Wisconsin", city: "Madison" },
-        { name: "Wyoming", city: "Cheyenne" },
-      ] as const;
-
-      const suggestions: Array<{ value: string; label: string; hint?: string }> = [];
-      const seen = new Set<string>();
-      const needle = query.toLowerCase();
-
-      const push = (value: string, label: string, hint?: string) => {
-        const key = value.trim().toLowerCase();
-        if (!key || seen.has(key)) return;
-        seen.add(key);
-        suggestions.push(hint ? { value, label, hint } : { value, label });
-      };
-
-      for (const state of STATE_CAPITALS) {
-        if (state.name.toLowerCase().includes(needle)) {
-          const label = `${state.city}, ${state.name}`;
-          push(label, label, `Suggested city for ${state.name}`);
-        }
-        if (suggestions.length >= 5) break;
-      }
-
-      const normalizeLocationLabel = (input: string) =>
-        String(input || "")
-          .replace(/,\s*USA$/i, "")
-          .replace(/,\s*United States$/i, "")
-          .trim();
-
-      if (hasPlacesKey()) {
-        try {
-          const results = await placesTextSearch(query, 8);
-          for (const result of results) {
-            const label = normalizeLocationLabel(result.formatted_address || result.name || "");
-            if (!label) continue;
-            push(label, label);
-          }
-        } catch {
-          // ignore Google Places failures; static suggestions already help
-        }
-      }
-
-      return { status: 200, json: { ok: true, suggestions: suggestions.slice(0, 10) } };
-    }
-
-    case "lead_scraping.run.cancel": {
-      const ok = await requireServiceCapability("leadScraping", "edit");
-      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const runId = normalizeLeadScrapeRunId((args as any)?.runId);
-      if (!runId) return { status: 400, json: { ok: false, error: "Invalid run id" } };
-
-      const requested = await requestLeadScrapeRunCancellation(ownerId, runId).catch(() => false);
-      if (!requested) {
-        return { status: 404, json: { ok: false, error: "Run not found" } };
-      }
-
-      return { status: 200, json: { ok: true, runId } };
     }
 
     case "lead_scraping.settings.get": {
@@ -20649,10 +17054,12 @@ async function runDirectAction(opts: {
       const businessName = String(templateVars.businessName || templateVars["business.name"] || "").trim().slice(0, 160);
       const websiteUrl = String(templateVars.websiteUrl || templateVars["business.websiteUrl"] || "").trim().slice(0, 300);
       const brandVoice = String(templateVars.brandVoice || templateVars["business.brandVoice"] || "").trim().slice(0, 240);
+      const businessContext = String(templateVars.businessContext || templateVars["business.context"] || "").trim().slice(0, 1200);
       const brandContext = [
         businessName ? `Brand name: ${businessName}` : "",
         websiteUrl ? `Brand website: ${websiteUrl}` : "",
         brandVoice ? `Preferred brand voice: ${brandVoice}` : "",
+        businessContext ? `Operating context: ${businessContext}` : "",
       ]
         .filter(Boolean)
         .join("\n");
@@ -20723,30 +17130,7 @@ async function runDirectAction(opts: {
         .filter(Boolean)
         .join("\n");
 
-      let content = "";
-      try {
-        content = await generateText({ system, user });
-      } catch {
-        await refundCreditsBestEffort(ownerId, needCredits);
-        const refundedState = await getCreditsState(ownerId).catch(() => consumed.state);
-        const fallbackDraft = buildLeadOutboundFallback({
-          kind,
-          prompt,
-          existingSubject,
-          existingBody,
-          senderBusinessName: businessName,
-        });
-        return {
-          status: 200,
-          json: {
-            ok: true,
-            ...(kind === "EMAIL" ? { subject: String(fallbackDraft.subject || "").slice(0, 200) } : {}),
-            body: String(fallbackDraft.body || "").trim().slice(0, 8000),
-            creditsRemaining: refundedState.balance,
-            fallbackUsed: true,
-          },
-        };
-      }
+      const content = await generateText({ system, user });
 
       if (kind === "EMAIL") {
         const fromJson = tryParseJsonDraft(content);
@@ -20787,18 +17171,9 @@ async function runDirectAction(opts: {
       const takeRaw = (args as any)?.take;
       const qRaw = (args as any)?.q;
       const kindRaw = (args as any)?.kind;
-      const leadIdsProvided = Array.isArray((args as any)?.leadIds);
-      const leadIdsRaw = leadIdsProvided ? (((args as any).leadIds as unknown[]) || []) : [];
       const take = typeof takeRaw === "number" && Number.isFinite(takeRaw) ? Math.max(1, Math.min(500, Math.floor(takeRaw))) : 200;
       const q = typeof qRaw === "string" ? qRaw.trim().slice(0, 200) : "";
       const kind = kindRaw === "B2B" || kindRaw === "B2C" ? kindRaw : undefined;
-      const leadIds = Array.from(
-        new Set(
-          leadIdsRaw
-            .map((value) => (typeof value === "string" ? value.trim().slice(0, 64) : ""))
-            .filter(Boolean),
-        ),
-      ).slice(0, 100);
 
       const isMissingColumnError = (e: unknown) => {
         const anyErr = e as any;
@@ -20812,13 +17187,7 @@ async function runDirectAction(opts: {
       await ensurePortalContactTagsReady().catch(() => null);
       const hasContactId = await hasPublicColumn("PortalLead", "contactId").catch(() => false);
 
-      const baseWhere = leadIdsProvided
-        ? kind
-          ? ({ ownerId, kind, id: { in: leadIds } } as const)
-          : ({ ownerId, id: { in: leadIds } } as const)
-        : kind
-          ? ({ ownerId, kind } as const)
-          : ({ ownerId } as const);
+      const baseWhere = kind ? ({ ownerId, kind } as const) : ({ ownerId } as const);
       const searchWhere = q
         ? {
             ...baseWhere,
@@ -21540,265 +17909,154 @@ async function runDirectAction(opts: {
         return msg.includes("does not exist") && msg.includes("column");
       };
 
-      let matchedCount = 0;
-      let newCount = 0;
-      let reusedCount = 0;
+      let createdCount = 0;
       let error: string | null = null;
       const createdLeads: Array<{ id: string; businessName: string; phone: string | null; website: string | null; email: string | null }> = [];
-      const seenPlaceIds = new Set<string>();
-      const hasLeadEmailColumn = await hasPublicColumn("PortalLead", "email").catch(() => false);
 
       const aiCalls = (args as any)?.aiOutbound?.calls;
       const aiMsgs = (args as any)?.aiOutbound?.messages;
-      const shouldAiVerifyBusinesses = Boolean((b2bRaw as any).aiVerifyBusinesses) || requireEmail || requirePhone;
 
       try {
         await ensurePortalContactsSchema().catch(() => null);
 
-        const queryVariants = Array.from(
-          new Set(
-            [`${niche} in ${location}`, `${niche} near ${location}`, `${niche} services in ${location}`, `${niche} company in ${location}`]
-              .map((value) => value.trim())
-              .filter(Boolean),
-          ),
-        );
+        const query = `${niche} in ${location}`;
+        const searchLimit = Math.max(10, Math.min(60, requestedCount * 3));
+        const results = await placesTextSearch(query, searchLimit);
 
-        for (const query of queryVariants) {
-          if (matchedCount >= requestedCount) break;
+        for (const r of results as any[]) {
+          if (createdCount >= requestedCount) break;
+          const placeId = typeof r?.place_id === "string" ? r.place_id : "";
+          if (!placeId) continue;
 
-          const searchLimit = Math.max(12, Math.min(80, requestedCount * 4));
-          const results = await placesTextSearch(query, searchLimit);
+          let details: any = {};
+          try {
+            details = await placeDetails(placeId);
+          } catch {
+            continue;
+          }
 
-          for (const r of results as any[]) {
-            if (matchedCount >= requestedCount) break;
-            const placeId = typeof r?.place_id === "string" ? r.place_id : "";
-            if (!placeId || seenPlaceIds.has(placeId)) continue;
-            seenPlaceIds.add(placeId);
+          const businessName = (
+            typeof details?.name === "string" ? details.name : typeof r?.name === "string" ? r.name : ""
+          )
+            .trim()
+            .slice(0, 200);
+          if (!businessName) continue;
 
-            let details: any = {};
+          const nameKey = businessName.toLowerCase();
+          if (excludeNameContains.some((s) => s && nameKey.includes(s))) continue;
+
+          const phone = normalizePhone(details?.international_phone_number || details?.formatted_phone_number || null);
+          if (phone && excludePhones.has(phone)) continue;
+
+          const website = typeof details?.website === "string" ? details.website.trim().slice(0, 500) : null;
+          const address =
+            typeof details?.formatted_address === "string"
+              ? details.formatted_address.trim().slice(0, 500)
+              : typeof r?.formatted_address === "string"
+                ? r.formatted_address.trim().slice(0, 500)
+                : null;
+
+          const domain = website ? extractDomain(website) : null;
+          if (domain && excludeDomains.has(domain)) continue;
+
+          if (requirePhone && !phone) continue;
+          if (requireWebsite && !website) continue;
+
+          let email: string | null = null;
+          if (website) {
             try {
-              details = await placeDetails(placeId);
-            } catch {
-              continue;
-            }
-
-            const businessName = (
-              typeof details?.name === "string" ? details.name : typeof r?.name === "string" ? r.name : ""
-            )
-              .trim()
-              .slice(0, 200);
-            if (!businessName) continue;
-
-            const nameKey = businessName.toLowerCase();
-            if (excludeNameContains.some((s) => s && nameKey.includes(s))) continue;
-
-            const rawPhone = normalizePhone(details?.international_phone_number || details?.formatted_phone_number || null);
-            if (rawPhone && excludePhones.has(rawPhone)) continue;
-
-            const website = typeof details?.website === "string" ? details.website.trim().slice(0, 500) : null;
-            const address =
-              typeof details?.formatted_address === "string"
-                ? details.formatted_address.trim().slice(0, 500)
-                : typeof r?.formatted_address === "string"
-                  ? r.formatted_address.trim().slice(0, 500)
-                  : null;
-
-            const domain = website ? extractDomain(website) : null;
-            if (domain && excludeDomains.has(domain)) continue;
-
-            if (requireWebsite && !website) continue;
-
-            let email: string | null = null;
-            if (website) {
-              try {
-                const res = await fetch(website, {
-                  method: "GET",
-                  headers: { "user-agent": "purelyautomation/lead-scraping" },
-                  cache: "no-store",
-                });
-                if (res.ok) {
-                  const html = await res.text().catch(() => "");
-                  const emails = extractAllEmailAddresses(html);
-                  if (emails.length) {
-                    const preferred = domain ? emails.find((candidate) => candidate.toLowerCase().endsWith(`@${domain}`)) : null;
-                    email = (preferred || emails[0] || "").trim().slice(0, 200) || null;
-                  }
-                }
-              } catch {
-                // ignore
-              }
-            }
-
-            let phone = rawPhone;
-            let enrichment: Awaited<ReturnType<typeof enrichLeadScrapeBusiness>> | null = null;
-            if (shouldAiVerifyBusinesses && (website || details)) {
-              try {
-                enrichment = await enrichLeadScrapeBusiness({
-                  businessName,
-                  niche: niche || null,
-                  address: address || null,
-                  website,
-                  existingEmail: email,
-                  existingPhone: phone,
-                  placeDetails: details,
-                });
-              } catch {
-                enrichment = null;
-              }
-            }
-
-            email = email || enrichment?.primaryEmail || null;
-            phone = phone || enrichment?.primaryPhone || null;
-
-            if (phone && excludePhones.has(phone)) continue;
-            if (requirePhone && !phone) continue;
-            if (requireEmail && !email) continue;
-
-            const created = await createPortalLeadCompat({
-              ownerId,
-              kind: "B2B",
-              source: "GOOGLE_PLACES",
-              businessName,
-              phone,
-              website,
-              address: address || null,
-              niche: niche || null,
-              placeId,
-              dataJson: {
-                googlePlaces: {
-                  placeId,
-                  details,
-                  location: details?.location ?? null,
-                },
-                leadScraping: {
-                  kind: "B2B",
-                  query,
-                  place: { placeId },
-                },
-                ...(enrichment?.enrichment ? { aiVerification: enrichment.enrichment } : null),
-              },
-            });
-
-            if (!created) {
-              const existingLead = await prisma.portalLead
-                .findFirst({
-                  where: {
-                    ownerId,
-                    OR: [
-                      placeId ? { placeId } : null,
-                      phone ? { phone } : null,
-                    ].filter(Boolean) as any,
-                  },
-                  select: {
-                    id: true,
-                    businessName: true,
-                    phone: true,
-                    website: true,
-                    dataJson: true,
-                    ...(hasLeadEmailColumn ? { email: true } : {}),
-                  },
-                })
-                .catch(() => null);
-
-              if (!existingLead) continue;
-
-              try {
-                const patch: Record<string, unknown> = {};
-                if (hasLeadEmailColumn && email && !(existingLead as any).email) patch.email = email;
-                if (enrichment?.enrichment) {
-                  const root = existingLead.dataJson && typeof existingLead.dataJson === "object" && !Array.isArray(existingLead.dataJson)
-                    ? { ...(existingLead.dataJson as Record<string, unknown>) }
-                    : {};
-                  patch.dataJson = {
-                    ...root,
-                    aiVerification: enrichment.enrichment,
-                  } as any;
-                }
-                if (Object.keys(patch).length) {
-                  await prisma.portalLead.updateMany({ where: { id: existingLead.id, ownerId }, data: patch as any });
-                }
-              } catch (e) {
-                if (!isMissingColumnError(e)) throw e;
-              }
-
-              matchedCount++;
-              reusedCount++;
-              createdLeads.push({
-                id: existingLead.id,
-                businessName: existingLead.businessName,
-                phone: phone || existingLead.phone || null,
-                website: website || existingLead.website || null,
-                email: email || ((existingLead as any).email ?? null),
+              const res = await fetch(website, {
+                method: "GET",
+                headers: { "user-agent": "purelyautomation/lead-scraping" },
+                cache: "no-store",
               });
-              continue;
-            }
-
-            matchedCount++;
-            newCount++;
-            createdLeads.push({ id: created.id, businessName: created.businessName, phone: phone || null, website: created.website || null, email });
-
-            if (email || enrichment?.enrichment) {
-              try {
-                const patch: Record<string, unknown> = {};
-                if (email) patch.email = email;
-                if (enrichment?.enrichment) {
-                  const existingDataJson = await prisma.portalLead.findUnique({ where: { id: created.id }, select: { dataJson: true } }).catch(() => null);
-                  const root = existingDataJson?.dataJson && typeof existingDataJson.dataJson === "object" && !Array.isArray(existingDataJson.dataJson)
-                    ? { ...(existingDataJson.dataJson as Record<string, unknown>) }
-                    : {};
-                  patch.dataJson = {
-                    ...root,
-                    aiVerification: enrichment.enrichment,
-                  } as any;
+              if (res.ok) {
+                const html = await res.text().catch(() => "");
+                const emails = extractAllEmailAddresses(html);
+                if (emails.length) {
+                  const host = domain;
+                  const preferred = host ? emails.find((e) => e.toLowerCase().endsWith(`@${host}`)) : null;
+                  email = (preferred || emails[0] || "").trim().slice(0, 200) || null;
                 }
-                if (Object.keys(patch).length) {
-                  await prisma.portalLead.updateMany({ where: { id: created.id, ownerId }, data: patch as any });
-                }
-              } catch (e) {
-                if (!isMissingColumnError(e)) throw e;
               }
+            } catch {
+              // ignore
             }
+          }
 
-            void runOwnerAutomationsForEvent({
-              ownerId,
-              triggerKind: "lead_scraped",
-              contact: { name: created.businessName || null, phone: phone || null },
-              event: { leadId: created.id },
-            }).catch(() => null);
+          if (requireEmail && !email) continue;
 
-            if ((aiCalls && aiCalls.enabled) || (aiMsgs && aiMsgs.enabled)) {
-              try {
-                const contactId = await findOrCreatePortalContact({
+          const created = await createPortalLeadCompat({
+            ownerId,
+            kind: "B2B",
+            source: "GOOGLE_PLACES",
+            businessName,
+            phone,
+            website,
+            address: address || null,
+            niche: niche || null,
+            placeId,
+            dataJson: {
+              leadScraping: {
+                kind: "B2B",
+                query,
+                place: { placeId },
+              },
+            },
+          });
+
+          if (!created) continue;
+
+          createdCount++;
+          createdLeads.push({ id: created.id, businessName: created.businessName, phone: created.phone || null, website: created.website || null, email });
+
+          if (email) {
+            try {
+              await prisma.portalLead.updateMany({ where: { id: created.id, ownerId }, data: { email } });
+            } catch (e) {
+              if (!isMissingColumnError(e)) throw e;
+            }
+          }
+
+          void runOwnerAutomationsForEvent({
+            ownerId,
+            triggerKind: "lead_scraped",
+            contact: { name: created.businessName || null, phone: created.phone || null },
+            event: { leadId: created.id },
+          }).catch(() => null);
+
+          if ((aiCalls && aiCalls.enabled) || (aiMsgs && aiMsgs.enabled)) {
+            try {
+              const contactId = await findOrCreatePortalContact({
+                ownerId,
+                name: created.businessName,
+                email,
+                phone: created.phone,
+              });
+
+              if (!contactId) continue;
+
+              if (aiCalls && aiCalls.enabled) {
+                await enqueueOutboundCallForContact({
                   ownerId,
-                  name: created.businessName,
-                  email,
-                  phone,
-                });
-
-                if (!contactId) continue;
-
-                if (aiCalls && aiCalls.enabled) {
-                  await enqueueOutboundCallForContact({
-                    ownerId,
-                    contactId,
-                    campaignId: typeof aiCalls.campaignId === "string" ? aiCalls.campaignId : undefined,
-                  }).catch(() => null);
-                }
-
-                if (aiMsgs && aiMsgs.enabled) {
-                  const channelPolicy =
-                    aiMsgs.channelPolicy === "SMS" || aiMsgs.channelPolicy === "EMAIL" || aiMsgs.channelPolicy === "BOTH" ? aiMsgs.channelPolicy : undefined;
-                  await enqueueOutboundMessageForContact({
-                    ownerId,
-                    contactId,
-                    campaignId: typeof aiMsgs.campaignId === "string" ? aiMsgs.campaignId : undefined,
-                    channelPolicy,
-                    source: "MANUAL",
-                  }).catch(() => null);
-                }
-              } catch {
-                // ignore
+                  contactId,
+                  campaignId: typeof aiCalls.campaignId === "string" ? aiCalls.campaignId : undefined,
+                }).catch(() => null);
               }
+
+              if (aiMsgs && aiMsgs.enabled) {
+                const channelPolicy =
+                  aiMsgs.channelPolicy === "SMS" || aiMsgs.channelPolicy === "EMAIL" || aiMsgs.channelPolicy === "BOTH" ? aiMsgs.channelPolicy : undefined;
+                await enqueueOutboundMessageForContact({
+                  ownerId,
+                  contactId,
+                  campaignId: typeof aiMsgs.campaignId === "string" ? aiMsgs.campaignId : undefined,
+                  channelPolicy,
+                  source: "MANUAL",
+                }).catch(() => null);
+              }
+            } catch {
+              // ignore
             }
           }
         }
@@ -21806,7 +18064,7 @@ async function runDirectAction(opts: {
         error = typeof e?.message === "string" ? e.message : "Unknown error";
       }
 
-      const refundedCredits = Math.max(0, reservedCredits - matchedCount);
+      const refundedCredits = Math.max(0, reservedCredits - createdCount);
       if (refundedCredits > 0) {
         await addCredits(ownerId, refundedCredits).catch(() => null);
       }
@@ -21828,7 +18086,7 @@ async function runDirectAction(opts: {
 
       await prisma
         .$transaction([
-          prisma.portalLeadScrapeRun.update({ where: { id: run.id }, data: { createdCount: matchedCount, refundedCredits, error }, select: { id: true } }),
+          prisma.portalLeadScrapeRun.update({ where: { id: run.id }, data: { createdCount, refundedCredits, error }, select: { id: true } }),
           prisma.portalServiceSetup.upsert({
             where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
             create: { ownerId, serviceSlug: SERVICE_SLUG, status: "IN_PROGRESS", dataJson: updatedSettings as any },
@@ -21849,9 +18107,7 @@ async function runDirectAction(opts: {
             "",
             `Kind: B2B`,
             `Requested: ${requestedCount}`,
-            `Returned: ${matchedCount}`,
-            `New: ${newCount}`,
-            `Reused: ${reusedCount}`,
+            `Created: ${createdCount}`,
             `Credits charged: ${reservedCredits}`,
             `Credits refunded: ${refundedCredits}`,
             error ? `Error: ${error}` : null,
@@ -21875,10 +18131,7 @@ async function runDirectAction(opts: {
             requestedCount,
             chargedCredits: reservedCredits,
             refundedCredits,
-            createdCount: matchedCount,
-            matchedCount,
-            newCount,
-            reusedCount,
+            createdCount,
             leads: createdLeads.slice(0, 50),
           },
         };
@@ -21888,14 +18141,10 @@ async function runDirectAction(opts: {
         status: 200,
         json: {
           ok: true,
-          runId: run.id,
           requestedCount,
           chargedCredits: reservedCredits,
           refundedCredits,
-          createdCount: matchedCount,
-          matchedCount,
-          newCount,
-          reusedCount,
+          createdCount,
           leads: createdLeads.slice(0, 50),
         },
       };
@@ -22924,47 +19173,6 @@ async function runDirectAction(opts: {
         return (tzFromArgs || clientTimeZone || String(memberTimeZone || "").trim() || String(ownerTimeZone || "").trim() || "UTC").slice(0, 80);
       })();
 
-      const existingScheduled = await (prisma as any).portalAiChatMessage.findFirst({
-        where: {
-          ownerId,
-          threadId,
-          role: "user",
-          text,
-          sendAt: finalSendAt,
-          sentAt: null,
-          repeatEveryMinutes: repeatEveryMinutes > 0 ? repeatEveryMinutes : null,
-        },
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          threadId: true,
-          text: true,
-          sendAt: true,
-          repeatEveryMinutes: true,
-          createdAt: true,
-        },
-      });
-      if (existingScheduled?.id) {
-        return {
-          status: 200,
-          json: {
-            ok: true,
-            deduped: true,
-            scheduled: {
-              id: String(existingScheduled.id),
-              threadId: String(existingScheduled.threadId),
-              text: String(existingScheduled.text || ""),
-              sendAt: existingScheduled.sendAt ? new Date(existingScheduled.sendAt).toISOString() : null,
-              repeatEveryMinutes:
-                typeof existingScheduled.repeatEveryMinutes === "number" && Number.isFinite(existingScheduled.repeatEveryMinutes)
-                  ? Math.max(0, Math.floor(existingScheduled.repeatEveryMinutes))
-                  : 0,
-              createdAt: existingScheduled.createdAt ? new Date(existingScheduled.createdAt).toISOString() : null,
-            },
-          },
-        };
-      }
-
       const msg = await (prisma as any).portalAiChatMessage.create({
         data: {
           ownerId,
@@ -23243,23 +19451,6 @@ async function runDirectAction(opts: {
             })
           : r?.attachmentsJson ?? null;
 
-        const conflicting = await (prisma as any).portalAiChatMessage.findFirst({
-          where: {
-            ownerId,
-            role: "user",
-            text: String(r?.text || "").trim().slice(0, 4000),
-            sendAt: finalSendAt,
-            sentAt: null,
-            repeatEveryMinutes: repeatEveryMinutes > 0 ? repeatEveryMinutes : null,
-            id: { not: id },
-          },
-          select: { id: true },
-        });
-        if (conflicting?.id) {
-          skipped.push({ id, reason: "Exact pending schedule already exists at target time" });
-          continue;
-        }
-
         try {
           await (prisma as any).portalAiChatMessage.update({
             where: { id },
@@ -23308,7 +19499,7 @@ async function runDirectAction(opts: {
 
       const msg = await (prisma as any).portalAiChatMessage.findFirst({
         where: { id: messageId, ownerId, role: "user" },
-        select: { id: true, threadId: true, text: true, sendAt: true, sentAt: true, repeatEveryMinutes: true, attachmentsJson: true },
+        select: { id: true, sentAt: true, repeatEveryMinutes: true, attachmentsJson: true },
       });
       if (!msg) return { status: 404, json: { ok: false, error: "Not found" } };
       if (msg.sentAt) return { status: 409, json: { ok: false, error: "Already sent" } };
@@ -23366,7 +19557,7 @@ async function runDirectAction(opts: {
       if ("sendAtIso" in (args as any)) {
         const iso = (args as any).sendAtIso;
         if (iso === null) {
-          return { status: 400, json: { ok: false, error: "sendAt cannot be cleared; delete the schedule instead" } };
+          data.sendAt = null;
         } else if (typeof iso === "string") {
           const d = new Date(iso);
           if (!Number.isFinite(d.getTime())) {
@@ -23390,22 +19581,25 @@ async function runDirectAction(opts: {
             : nextRepeatRaw === null
               ? 0
               : currentRepeat;
-        data.attachmentsJson = withScheduledRecurrenceMetadata({
-          attachmentsJson: (msg as any)?.attachmentsJson ?? null,
-          repeatEveryMinutes: nextRepeat,
-          recurrenceTimeZone: nextRepeat > 0 ? computed.timeZone || "UTC" : null,
-        });
+
+        if (nextRepeat > 0) {
+          const prev = (msg as any)?.attachmentsJson;
+          const asObj = prev && typeof prev === "object" && !Array.isArray(prev) ? (prev as any) : {};
+          data.attachmentsJson = {
+            ...asObj,
+            recurrence: {
+              ...(asObj.recurrence && typeof asObj.recurrence === "object" && !Array.isArray(asObj.recurrence) ? asObj.recurrence : {}),
+              timeZone: computed.timeZone || "UTC",
+              mode: "wall_clock",
+            },
+          };
+        }
       }
 
       if ("repeatEveryMinutes" in (args as any)) {
         const v = (args as any).repeatEveryMinutes;
         if (v === null) {
           data.repeatEveryMinutes = null;
-          data.attachmentsJson = withScheduledRecurrenceMetadata({
-            attachmentsJson: data.attachmentsJson ?? (msg as any)?.attachmentsJson ?? null,
-            repeatEveryMinutes: 0,
-            recurrenceTimeZone: null,
-          });
         } else if (typeof v === "number" && Number.isFinite(v)) {
           const next = Math.max(0, Math.floor(v));
           data.repeatEveryMinutes = next > 0 ? next : null;
@@ -23422,50 +19616,18 @@ async function runDirectAction(opts: {
               80,
             );
 
-            data.attachmentsJson = withScheduledRecurrenceMetadata({
-              attachmentsJson: data.attachmentsJson ?? (msg as any)?.attachmentsJson ?? null,
-              repeatEveryMinutes: next,
-              recurrenceTimeZone: recurrenceTimeZone || "UTC",
-            });
-          } else {
-            data.attachmentsJson = withScheduledRecurrenceMetadata({
-              attachmentsJson: data.attachmentsJson ?? (msg as any)?.attachmentsJson ?? null,
-              repeatEveryMinutes: 0,
-              recurrenceTimeZone: null,
-            });
+            const prev = (msg as any)?.attachmentsJson;
+            const asObj = prev && typeof prev === "object" && !Array.isArray(prev) ? (prev as any) : {};
+            data.attachmentsJson = {
+              ...asObj,
+              recurrence: {
+                ...(asObj.recurrence && typeof asObj.recurrence === "object" && !Array.isArray(asObj.recurrence) ? asObj.recurrence : {}),
+                timeZone: recurrenceTimeZone || "UTC",
+                mode: "wall_clock",
+              },
+            };
           }
         }
-      }
-
-      const nextText = typeof data.text === "string" ? String(data.text || "").trim().slice(0, 4000) : String((msg as any).text || "").trim().slice(0, 4000);
-      const nextSendAt = "sendAt" in data ? (data.sendAt instanceof Date ? data.sendAt : null) : ((msg as any).sendAt ? new Date((msg as any).sendAt) : null);
-      const nextRepeatEveryMinutes =
-        "repeatEveryMinutes" in data
-          ? typeof data.repeatEveryMinutes === "number" && Number.isFinite(data.repeatEveryMinutes)
-            ? Math.max(0, Math.floor(data.repeatEveryMinutes))
-            : 0
-          : typeof (msg as any).repeatEveryMinutes === "number" && Number.isFinite((msg as any).repeatEveryMinutes)
-            ? Math.max(0, Math.floor((msg as any).repeatEveryMinutes))
-            : 0;
-
-      if (!nextSendAt || !Number.isFinite(nextSendAt.getTime())) {
-        return { status: 400, json: { ok: false, error: "Scheduled messages must keep a valid send time" } };
-      }
-
-      const conflicting = await (prisma as any).portalAiChatMessage.findFirst({
-        where: {
-          ownerId,
-          role: "user",
-          text: nextText,
-          sendAt: nextSendAt,
-          sentAt: null,
-          repeatEveryMinutes: nextRepeatEveryMinutes > 0 ? nextRepeatEveryMinutes : null,
-          id: { not: messageId },
-        },
-        select: { id: true },
-      });
-      if (conflicting?.id) {
-        return { status: 409, json: { ok: false, error: "An identical pending schedule already exists." } };
       }
 
       await (prisma as any).portalAiChatMessage.update({ where: { id: messageId }, data });
@@ -24009,7 +20171,7 @@ async function runDirectAction(opts: {
       const friendlyVoiceAgentError = (status?: number): string => {
         if (status === 401 || status === 403) return "Voice agent API key is invalid. Update it in Profile and try again.";
         if (status === 429) return "Voice agent is temporarily rate-limited. Please try again in a minute.";
-        return "Voice options did not load. Retry here or review the API key in Profile.";
+        return "Unable to load voices. Please try again.";
       };
 
       const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
@@ -24672,7 +20834,7 @@ async function runDirectAction(opts: {
       const permissionsJson = normalizePortalPermissions((args as any)?.permissions, role);
 
       const invite = await createPortalAccountInvite({ ownerId, email, role, permissionsJson }).catch(() => null);
-      if (!invite) return { status: 500, json: { ok: false, error: "Invite did not send. Check the email and try again." } };
+      if (!invite) return { status: 500, json: { ok: false, error: "Failed to create invite" } };
 
       const base =
         process.env.NODE_ENV === "production"
@@ -25978,9 +22140,14 @@ async function runDirectAction(opts: {
 
       if (!media) return { status: 404, json: { ok: false, error: "Not found" } };
 
-      const resolved = await resolvePortalMediaItemBytes(media);
-      if (!resolved.ok) {
-        return { status: resolved.status, json: { ok: false, error: resolved.error } };
+      if (!media.bytes) {
+        return {
+          status: 400,
+          json: {
+            ok: false,
+            error: "This media item is stored externally and can't be attached from the media library yet.",
+          },
+        };
       }
 
       const publicToken = crypto.randomUUID().replace(/-/g, "");
@@ -25989,9 +22156,9 @@ async function runDirectAction(opts: {
           ownerId,
           messageId: null,
           fileName: String(media.fileName || "attachment").slice(0, 200),
-          mimeType: resolved.mimeType,
-          fileSize: resolved.fileSize,
-          bytes: resolved.bytes,
+          mimeType: String(media.mimeType || "application/octet-stream").slice(0, 120),
+          fileSize: Number(media.fileSize || (media.bytes?.length ?? 0)),
+          bytes: media.bytes as Buffer,
           publicToken,
         },
         select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
@@ -26090,7 +22257,6 @@ async function runDirectAction(opts: {
       const bodyPromptRaw = typeof (args as any).bodyPrompt === "string" ? String((args as any).bodyPrompt).trim() : "";
       const threadIdRaw = typeof (args as any).threadId === "string" ? String((args as any).threadId).trim() : "";
       const contactIdRaw = typeof (args as any).contactId === "string" ? String((args as any).contactId).trim() : "";
-      const threadHintRaw = typeof (args as any).threadHint === "string" ? String((args as any).threadHint).trim() : "";
 
       const body = await (async (): Promise<string> => {
         if (bodyRaw) return bodyRaw.slice(0, 900);
@@ -26127,7 +22293,7 @@ async function runDirectAction(opts: {
 
       // Prefer threadId peerAddress (most reliable / already normalized by inbox).
       let threadId: string | undefined = threadIdRaw || undefined;
-      if (threadIdRaw) {
+      if (threadIdRaw && !to) {
         const thread = await (prisma as any).portalInboxThread
           .findFirst({ where: { ownerId, id: threadIdRaw }, select: { id: true, channel: true, peerAddress: true } })
           .catch(() => null);
@@ -26135,34 +22301,8 @@ async function runDirectAction(opts: {
         if (peer) to = peer;
       }
 
-      // If the provided `to` looks dirty, fall back to contact-backed SMS destinations.
-      const providedToLooksUsable = Boolean(to) && normalizePhoneStrict(to).ok;
-
-      if ((!to || !providedToLooksUsable) && /[x*]/i.test(to)) {
-        const maskedPrefix = to.replace(/[x*]+/gi, "").trim();
-        if (maskedPrefix) {
-          const candidateThreads = await (prisma as any).portalInboxThread
-            .findMany({
-              where: { ownerId, channel: "SMS" },
-              orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
-              take: 25,
-              select: { id: true, peerAddress: true },
-            })
-            .catch(() => []);
-          const matchedThread = (candidateThreads as any[]).find((thread) => {
-            const peer = typeof thread?.peerAddress === "string" ? String(thread.peerAddress).trim() : "";
-            return peer && peer.startsWith(maskedPrefix);
-          });
-          const peer = matchedThread?.peerAddress ? String(matchedThread.peerAddress).trim() : "";
-          if (peer) {
-            to = peer;
-            if (!threadId) threadId = String(matchedThread.id);
-          }
-        }
-      }
-
       // If we have a contactId, prefer an existing SMS thread to mirror manual sending behavior.
-      if (contactIdRaw && (!to || !providedToLooksUsable)) {
+      if (contactIdRaw && !to) {
         const latestSmsThread = await (prisma as any).portalInboxThread
           .findFirst({
             where: { ownerId, channel: "SMS", contactId: contactIdRaw },
@@ -26178,45 +22318,12 @@ async function runDirectAction(opts: {
       }
 
       // Last resort: use the contact's stored phone.
-      if (contactIdRaw && (!to || !providedToLooksUsable)) {
+      if (contactIdRaw && !to) {
         const contact = await (prisma as any).portalContact
           .findFirst({ where: { ownerId, id: contactIdRaw }, select: { phone: true } })
           .catch(() => null);
         const phone = typeof contact?.phone === "string" ? String(contact.phone).trim() : "";
         if (phone) to = phone;
-      }
-
-      if (threadHintRaw && (!to || !providedToLooksUsable)) {
-        const hintNeedle = threadHintRaw.toLowerCase();
-        const candidateThreads = await (prisma as any).portalInboxThread
-          .findMany({
-            where: { ownerId, channel: "SMS" },
-            orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
-            take: 25,
-            select: {
-              id: true,
-              peerAddress: true,
-              contactId: true,
-              contact: { select: { name: true, email: true, phone: true } },
-            },
-          })
-          .catch(() => []);
-        const matchedThread = (candidateThreads as any[]).find((thread) => {
-          const haystack = [
-            String(thread?.peerAddress || ""),
-            String(thread?.contact?.name || ""),
-            String(thread?.contact?.email || ""),
-            String(thread?.contact?.phone || ""),
-          ]
-            .join("\n")
-            .toLowerCase();
-          return hintNeedle && haystack.includes(hintNeedle);
-        });
-        const peer = matchedThread?.peerAddress ? String(matchedThread.peerAddress).trim() : "";
-        if (peer) {
-          to = peer;
-          if (!threadId) threadId = String(matchedThread.id);
-        }
       }
 
       if (!to) return { status: 400, json: { ok: false, error: "Missing recipient (to/contactId/threadId)" } };
@@ -26360,53 +22467,10 @@ async function runDirectAction(opts: {
     }
 
     case "reviews.reply": {
-      const reviewIdRaw = String((args as any).reviewId || "").trim();
-      const reviewName = String((args as any).reviewName || "").trim();
+      const reviewId = String(args.reviewId || "").trim();
       const replyRaw = typeof args.reply === "string" ? args.reply : "";
       const reply = String(replyRaw).trim().slice(0, 2000);
-
-      let reviewId = reviewIdRaw;
-      if (!reviewId && reviewName) {
-        const targetNameKey = normalizeContactNameKey(reviewName);
-        const targetParts = targetNameKey.split(" ").filter(Boolean);
-        const candidates = await prisma.portalReview.findMany({
-          where: { ownerId, archivedAt: null },
-          orderBy: { createdAt: "desc" },
-          take: 200,
-          select: { id: true, name: true, businessReply: true, createdAt: true },
-        }).catch(() => [] as Array<{ id: string; name: string; businessReply: string | null; createdAt: Date }>);
-
-        const ranked = (candidates || [])
-          .map((candidate) => {
-            const candidateName = String(candidate.name || "").trim();
-            const candidateKey = normalizeContactNameKey(candidateName);
-            if (!candidateKey) return null;
-
-            let score = 0;
-            if (targetNameKey && candidateKey === targetNameKey) {
-              score = 400;
-            } else if (targetNameKey && (candidateKey.includes(targetNameKey) || targetNameKey.includes(candidateKey))) {
-              score = 300;
-            } else if (targetParts.length && targetParts.every((part) => candidateKey.includes(part))) {
-              score = 220;
-            } else if (targetParts.some((part) => candidateKey.includes(part))) {
-              score = 120;
-            }
-
-            if (!score) return null;
-            if (!String(candidate.businessReply || "").trim()) score += 25;
-
-            return { id: String(candidate.id), score };
-          })
-          .filter((candidate): candidate is { id: string; score: number } => Boolean(candidate))
-          .sort((left, right) => right.score - left.score);
-
-        reviewId = ranked[0]?.id || "";
-      }
-
-      if (!reviewId) {
-        return { status: 404, json: { ok: false, error: reviewName ? `Could not find a review for ${reviewName}.` : "Missing reviewId" } };
-      }
+      if (!reviewId) return { status: 400, json: { ok: false, error: "Missing reviewId" } };
 
       const [hasReply, hasReplyAt] = await Promise.all([
         hasPublicColumn("PortalReview", "businessReply"),
@@ -26423,21 +22487,6 @@ async function runDirectAction(opts: {
       });
 
       if (!updated?.count) return { status: 404, json: { ok: false, error: "Not found" } };
-      return { status: 200, json: { ok: true } };
-    }
-
-    case "reviews.delete": {
-      const reviewId = String((args as any)?.reviewId || "").trim();
-      if (!reviewId) return { status: 400, json: { ok: false, error: "Missing reviewId" } };
-
-      const existing = await prisma.portalReview.findFirst({
-        where: { id: reviewId, ownerId },
-        select: { id: true },
-      });
-
-      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      await prisma.portalReview.delete({ where: { id: existing.id } });
       return { status: 200, json: { ok: true } };
     }
 
@@ -26846,24 +22895,6 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true } };
     }
 
-    case "reviews.questions.delete": {
-      const questionId = String((args as any)?.questionId || "").trim();
-      if (!questionId) return { status: 400, json: { ok: false, error: "Missing questionId" } };
-
-      const hasTable = await hasPublicColumn("PortalReviewQuestion", "id");
-      if (!hasTable) return { status: 409, json: { ok: false, error: "Q&A is not enabled in this environment yet." } };
-
-      const existing = await (prisma as any).portalReviewQuestion.findFirst({
-        where: { id: questionId, ownerId },
-        select: { id: true },
-      });
-
-      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      await (prisma as any).portalReviewQuestion.delete({ where: { id: existing.id } });
-      return { status: 200, json: { ok: true } };
-    }
-
     case "booking.calendar.create": {
       const title = String(args.title || "").trim().slice(0, 80);
       if (!title) return { status: 400, json: { ok: false, error: "Invalid title" } };
@@ -26892,6 +22923,10 @@ async function runDirectAction(opts: {
         title,
         description: typeof args.description === "string" ? args.description.trim().slice(0, 400) : undefined,
         durationMinutes: typeof args.durationMinutes === "number" && Number.isFinite(args.durationMinutes) ? Math.min(180, Math.max(10, Math.floor(args.durationMinutes))) : undefined,
+        minimumNoticeMinutes:
+          typeof args.minimumNoticeMinutes === "number" && Number.isFinite(args.minimumNoticeMinutes)
+            ? Math.min(60 * 24 * 14, Math.max(0, Math.floor(args.minimumNoticeMinutes)))
+            : undefined,
         meetingLocation: typeof args.meetingLocation === "string" ? args.meetingLocation.trim().slice(0, 120) : undefined,
         meetingDetails: typeof args.meetingDetails === "string" ? args.meetingDetails.trim().slice(0, 600) : undefined,
         notificationEmails: Array.isArray(args.notificationEmails) ? args.notificationEmails.filter((x: any) => typeof x === "string").map((x: string) => x.trim()).filter(Boolean).slice(0, 20) : undefined,
@@ -26904,92 +22939,6 @@ async function runDirectAction(opts: {
     case "booking.calendars.get": {
       const config = await getBookingCalendarsConfig(ownerId);
       return { status: 200, json: { ok: true, config } };
-    }
-
-    case "booking.bootstrap.get": {
-      const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true } });
-      const config = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1, calendars: [] }));
-
-      if (!site) {
-        return { status: 200, json: { ok: true, config, upcoming: [], recent: [] } };
-      }
-
-      const now = new Date();
-
-      await ensurePortalContactTagsReady().catch(() => null);
-
-      const [hasCalendarId, hasContactId] = await Promise.all([
-        hasPublicColumn("PortalBooking", "calendarId"),
-        hasPublicColumn("PortalBooking", "contactId"),
-      ]);
-
-      const select: Record<string, boolean> = {
-        id: true,
-        startAt: true,
-        endAt: true,
-        status: true,
-        contactName: true,
-        contactEmail: true,
-        contactPhone: true,
-        notes: true,
-        createdAt: true,
-        canceledAt: true,
-      };
-
-      if (hasCalendarId) select.calendarId = true;
-      if (hasContactId) select.contactId = true;
-
-      const [upcoming, recent] = await Promise.all([
-        prisma.portalBooking.findMany({
-          where: { siteId: site.id, status: "SCHEDULED", startAt: { gte: now } },
-          orderBy: { startAt: "asc" },
-          take: 25,
-          select: select as any,
-        }),
-        prisma.portalBooking.findMany({
-          where: { siteId: site.id, OR: [{ status: "CANCELED" }, { startAt: { lt: now } }] },
-          orderBy: { startAt: "desc" },
-          take: 25,
-          select: select as any,
-        }),
-      ]);
-
-      const all = [...(upcoming || []), ...(recent || [])] as any[];
-      const contactIds = Array.from(new Set(all.map((b) => String((b as any).contactId || "")).filter(Boolean)));
-
-      const tagsByContactId = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
-      if (contactIds.length) {
-        try {
-          const rows = await (prisma as any).portalContactTagAssignment.findMany({
-            where: { ownerId, contactId: { in: contactIds } },
-            take: 4000,
-            select: {
-              contactId: true,
-              tag: { select: { id: true, name: true, color: true } },
-            },
-          });
-
-          for (const row of rows || []) {
-            const cid = String(row.contactId);
-            const tag = row.tag;
-            if (!tag) continue;
-            const list = tagsByContactId.get(cid) || [];
-            list.push({ id: String(tag.id), name: String(tag.name), color: tag.color ? String(tag.color) : null });
-            tagsByContactId.set(cid, list);
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      const withTags = (list: any[]) =>
-        (list || []).map((booking: any) => ({
-          ...booking,
-          contactId: booking.contactId ? String(booking.contactId) : null,
-          contactTags: booking.contactId ? tagsByContactId.get(String(booking.contactId)) || [] : [],
-        }));
-
-      return { status: 200, json: { ok: true, config, upcoming: withTags(upcoming as any), recent: withTags(recent as any) } };
     }
 
     case "booking.calendars.update": {
@@ -27041,6 +22990,9 @@ async function runDirectAction(opts: {
       if (typeof (args as any).description === "string") next.description = String((args as any).description).trim().slice(0, 400);
       if (typeof (args as any).durationMinutes === "number" && Number.isFinite((args as any).durationMinutes)) {
         next.durationMinutes = Math.min(180, Math.max(10, Math.floor((args as any).durationMinutes)));
+      }
+      if (typeof (args as any).minimumNoticeMinutes === "number" && Number.isFinite((args as any).minimumNoticeMinutes)) {
+        next.minimumNoticeMinutes = Math.min(60 * 24 * 14, Math.max(0, Math.floor((args as any).minimumNoticeMinutes)));
       }
       if (typeof (args as any).meetingLocation === "string") next.meetingLocation = String((args as any).meetingLocation).trim().slice(0, 120);
       if (typeof (args as any).meetingDetails === "string") next.meetingDetails = String((args as any).meetingDetails).trim().slice(0, 600);
@@ -27376,8 +23328,6 @@ async function runDirectAction(opts: {
     }
 
     case "booking.site.get": {
-      const bookingFlags = await getBookingSiteColumnFlags();
-      const bookingSite = await ensureBookingSite(ownerId, bookingFlags).catch(() => null);
       const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
       let site = (await prisma.clientBlogSite
@@ -27427,43 +23377,21 @@ async function runDirectAction(opts: {
         }
       }
 
-      const bookingSlug = typeof bookingSite?.slug === "string" ? String(bookingSite.slug).trim() : "";
-      const bookingPublicUrl = buildBookingPublicUrl(bookingSlug);
-      const sitePayload = site
-        ? {
-            ...(site as any),
-            slug: bookingSlug || null,
-            publicUrl: bookingPublicUrl,
-            bookingEnabled: typeof bookingSite?.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
-            bookingTitle: typeof bookingSite?.title === "string" ? String(bookingSite.title) : null,
-          }
-        : bookingSite
-          ? {
-              id: null,
-              name: typeof bookingSite.title === "string" ? String(bookingSite.title) : "Booking",
-              primaryDomain: null,
-              verifiedAt: null,
-              verificationToken: null,
-              updatedAt: bookingSite.updatedAt,
-              slug: bookingSlug || null,
-              publicUrl: bookingPublicUrl,
-              bookingEnabled: typeof bookingSite.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
-              bookingTitle: typeof bookingSite.title === "string" ? String(bookingSite.title) : null,
-            }
-          : null;
-
       return {
         status: 200,
         json: {
           ok: true,
-          site: sitePayload,
+          site: site
+            ? {
+                ...(site as any),
+                slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
+              }
+            : null,
         },
       };
     }
 
     case "booking.site.update": {
-      const bookingFlags = await getBookingSiteColumnFlags();
-      const bookingSite = await ensureBookingSite(ownerId, bookingFlags).catch(() => null);
       const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
       const existing = (await prisma.clientBlogSite
@@ -27522,10 +23450,7 @@ async function runDirectAction(opts: {
             ok: true,
             site: {
               ...(updated as any),
-              slug: typeof bookingSite?.slug === "string" ? String(bookingSite.slug).trim() || null : null,
-              publicUrl: buildBookingPublicUrl(bookingSite?.slug),
-              bookingEnabled: typeof bookingSite?.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
-              bookingTitle: typeof bookingSite?.title === "string" ? String(bookingSite.title) : null,
+              slug: canUseSlugColumn ? ((updated as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
             },
           },
         };
@@ -27587,17 +23512,14 @@ async function runDirectAction(opts: {
           ok: true,
           site: {
             ...(created as any),
-            slug: typeof bookingSite?.slug === "string" ? String(bookingSite.slug).trim() || null : null,
-            publicUrl: buildBookingPublicUrl(bookingSite?.slug),
-            bookingEnabled: typeof bookingSite?.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
-            bookingTitle: typeof bookingSite?.title === "string" ? String(bookingSite.title) : null,
+            slug: canUseSlugColumn ? ((created as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
           },
         },
       };
     }
 
     case "booking.suggestions.slots": {
-      const site = await (prisma as any).portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, ownerId: true, timeZone: true } });
+      const site = await (prisma as any).portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, ownerId: true } });
       if (!site) {
         return { status: 200, json: { ok: true, slots: [] } };
       }
@@ -27626,26 +23548,8 @@ async function runDirectAction(opts: {
         coverageBlocks: blocks,
         existing: bookings,
       });
-      const timeZone = typeof (site as any)?.timeZone === "string" && String((site as any).timeZone).trim()
-        ? String((site as any).timeZone).trim()
-        : "UTC";
-      const slotPreviews = slots.slice(0, 10).map((slot: any) => {
-        const startDate = new Date(String(slot.startAt || ""));
-        const endDate = new Date(String(slot.endAt || ""));
-        const safeLabel = (date: Date, opts: Intl.DateTimeFormatOptions) =>
-          Number.isFinite(date.getTime())
-            ? new Intl.DateTimeFormat("en-US", { timeZone, ...opts }).format(date)
-            : null;
-        return {
-          startAt: slot.startAt,
-          endAt: slot.endAt,
-          dateLabel: safeLabel(startDate, { weekday: "short", month: "short", day: "numeric" }),
-          startLabel: safeLabel(startDate, { hour: "numeric", minute: "2-digit" }),
-          endLabel: safeLabel(endDate, { hour: "numeric", minute: "2-digit" }),
-        };
-      });
 
-      return { status: 200, json: { ok: true, slots, timeZone, slotPreviews } };
+      return { status: 200, json: { ok: true, slots } };
     }
 
     case "booking.availability.set_daily": {
@@ -27982,16 +23886,8 @@ async function runDirectAction(opts: {
               phone: b.contactPhone ? String(b.contactPhone) : null,
             });
             if (!contactId) continue;
-
-            try {
-              await prisma.portalBooking.updateMany({
-                where: { id: b.id, contactId: null },
-                data: { contactId },
-              });
-              (b as any).contactId = contactId;
-            } catch {
-              // ignore
-            }
+            await prisma.portalBooking.updateMany({ where: { id: String(b.id), siteId: site.id }, data: { contactId } });
+            b.contactId = contactId;
           } catch {
             // ignore
           }
@@ -29048,10 +24944,9 @@ async function runDirectAction(opts: {
           })();
 
       const countsByCampaign = new Map<string, { queued: number; completed: number }>();
-      for (const row of enrollAgg || []) {
-        const campaignId = String((row as any).campaignId || "");
-        if (!campaignId) continue;
-        const status = String((row as any).status || "").trim().toUpperCase();
+      for (const row of enrollAgg) {
+        const campaignId = String((row as any).campaignId);
+        const status = String((row as any).status);
         const count = Number((row as any)?._count?._all ?? 0);
         const next = countsByCampaign.get(campaignId) ?? { queued: 0, completed: 0 };
         if (status === "QUEUED") next.queued += count;
@@ -29339,37 +25234,6 @@ async function runDirectAction(opts: {
         select: { id: true },
       });
 
-      const shouldEnsureVoiceAgent =
-        args.status === "ACTIVE" ||
-        args.voiceAgentConfig !== undefined ||
-        args.voiceId !== undefined ||
-        args.knowledgeBase !== undefined;
-
-      if (shouldEnsureVoiceAgent) {
-        const ensured = await ensureAiOutboundCallCampaignVoiceAgent({ ownerId, campaignId });
-        if (!ensured.ok) {
-          return { status: ensured.status || 400, json: { ok: false, error: ensured.error, partial: true } };
-        }
-      }
-
-      return { status: 200, json: { ok: true } };
-    }
-
-    case "ai_outbound_calls.campaigns.delete": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const campaignId = String(args?.campaignId || "").trim();
-      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
-
-      await ensurePortalAiOutboundCallsSchema();
-
-      const existing = await prisma.portalAiOutboundCallCampaign.findFirst({
-        where: { ownerId, id: campaignId },
-        select: { id: true },
-      });
-      if (!existing) return { status: 404, json: { ok: false, error: "Campaign not found" } };
-
-      await prisma.portalAiOutboundCallCampaign.delete({ where: { id: campaignId }, select: { id: true } });
       return { status: 200, json: { ok: true } };
     }
 
@@ -29446,150 +25310,6 @@ async function runDirectAction(opts: {
           })),
         },
       };
-    }
-
-    case "ai_outbound_calls.campaigns.activity_item.get": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const campaignId = String(args?.campaignId || "").trim();
-      const activityId = String(args?.activityId || "").trim();
-      if (!campaignId || !activityId) return { status: 400, json: { ok: false, error: "Missing campaignId or activityId" } };
-
-      await ensurePortalAiOutboundCallsSchema();
-
-      const hasConversationId = await dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "conversationId" }).catch(() => false);
-      const hasRecordingSid = await dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "recordingSid" }).catch(() => false);
-      const hasTranscriptText = await dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "transcriptText" }).catch(() => false);
-      const hasBookingAnalysisJson = await dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "bookingAnalysisJson" }).catch(() => false);
-
-      const enrollment = await prisma.portalAiOutboundCallEnrollment.findFirst({
-        where: { ownerId, campaignId, id: activityId },
-        select: {
-          id: true,
-          ownerId: true,
-          campaignId: true,
-          contactId: true,
-          status: true,
-          attemptCount: true,
-          lastError: true,
-          callSid: true,
-          ...(hasConversationId ? { conversationId: true } : {}),
-          ...(hasRecordingSid ? { recordingSid: true } : {}),
-          ...(hasTranscriptText ? { transcriptText: true } : {}),
-          ...(hasBookingAnalysisJson ? { bookingAnalysisJson: true } : {}),
-          nextCallAt: true,
-          completedAt: true,
-          createdAt: true,
-          updatedAt: true,
-          contact: { select: { id: true, name: true, phone: true, email: true } },
-        } as any,
-      });
-      if (!enrollment) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const needsRefresh =
-        (enrollment.status === "COMPLETED" || enrollment.status === "FAILED") &&
-        (!String((enrollment as any).transcriptText || "").trim() ||
-          (!String((enrollment as any).recordingSid || "").trim() && String(enrollment.callSid || "").trim()) ||
-          (!((enrollment as any).bookingAnalysisJson && typeof (enrollment as any).bookingAnalysisJson === "object") &&
-            String((enrollment as any).transcriptText || "").trim()));
-
-      const effectiveEnrollment: any = needsRefresh
-        ? ((await refreshAiOutboundEnrollmentArtifacts({ ownerId, enrollmentId: enrollment.id }).catch(() => null))?.enrollment ?? enrollment)
-        : enrollment;
-
-      const contactTags = await listContactTagsForContact(ownerId, effectiveEnrollment.contactId).catch(() => []);
-
-      return {
-        status: 200,
-        json: {
-          ok: true,
-          detail: {
-            enrollmentId: effectiveEnrollment.id,
-            status: effectiveEnrollment.status,
-            attemptCount: effectiveEnrollment.attemptCount,
-            lastError: effectiveEnrollment.lastError,
-            callSid: effectiveEnrollment.callSid,
-            nextCallAtIso: effectiveEnrollment.nextCallAt ? effectiveEnrollment.nextCallAt.toISOString() : null,
-            completedAtIso: effectiveEnrollment.completedAt ? effectiveEnrollment.completedAt.toISOString() : null,
-            createdAtIso: effectiveEnrollment.createdAt.toISOString(),
-            updatedAtIso: effectiveEnrollment.updatedAt.toISOString(),
-            contact: {
-              id: effectiveEnrollment.contact.id,
-              name: effectiveEnrollment.contact.name,
-              phone: effectiveEnrollment.contact.phone,
-              email: effectiveEnrollment.contact.email,
-            },
-            contactTags,
-            transcriptText: String((effectiveEnrollment as any).transcriptText || "").trim() || null,
-            transcriptSource: String((effectiveEnrollment as any).transcriptText || "").trim() ? "enrollment" : "none",
-            transcriptUpdatedAtIso: String((effectiveEnrollment as any).transcriptText || "").trim() ? effectiveEnrollment.updatedAt.toISOString() : null,
-            bookingAnalysis:
-              (effectiveEnrollment as any).bookingAnalysisJson && typeof (effectiveEnrollment as any).bookingAnalysisJson === "object"
-                ? (effectiveEnrollment as any).bookingAnalysisJson
-                : null,
-          },
-        },
-      };
-    }
-
-    case "ai_outbound_calls.campaigns.activity_item.retry": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const campaignId = String(args?.campaignId || "").trim();
-      const activityId = String(args?.activityId || "").trim();
-      if (!campaignId || !activityId) return { status: 400, json: { ok: false, error: "Missing campaignId or activityId" } };
-
-      await ensurePortalAiOutboundCallsSchema();
-
-      const enrollment = await prisma.portalAiOutboundCallEnrollment.findFirst({
-        where: { ownerId, campaignId, id: activityId },
-        select: { id: true },
-      });
-      if (!enrollment) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      const [hasConversationId, hasRecordingSid, hasTranscriptText, hasBookingAnalysisJson] = await Promise.all([
-        dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "conversationId" }).catch(() => false),
-        dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "recordingSid" }).catch(() => false),
-        dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "transcriptText" }).catch(() => false),
-        dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "bookingAnalysisJson" }).catch(() => false),
-      ]);
-
-      await prisma.portalAiOutboundCallEnrollment.update({
-        where: { id: enrollment.id },
-        data: {
-          status: "QUEUED",
-          nextCallAt: new Date(),
-          completedAt: null,
-          lastError: null,
-          callSid: null,
-          ...(hasConversationId ? { conversationId: null } : {}),
-          ...(hasRecordingSid ? { recordingSid: null } : {}),
-          ...(hasTranscriptText ? { transcriptText: null } : {}),
-          ...(hasBookingAnalysisJson ? { bookingAnalysisJson: null } : {}),
-        } as any,
-        select: { id: true },
-      });
-
-      return { status: 200, json: { ok: true } };
-    }
-
-    case "ai_outbound_calls.campaigns.activity_item.delete": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const campaignId = String(args?.campaignId || "").trim();
-      const activityId = String(args?.activityId || "").trim();
-      if (!campaignId || !activityId) return { status: 400, json: { ok: false, error: "Missing campaignId or activityId" } };
-
-      await ensurePortalAiOutboundCallsSchema();
-
-      const enrollment = await prisma.portalAiOutboundCallEnrollment.findFirst({
-        where: { ownerId, campaignId, id: activityId },
-        select: { id: true },
-      });
-      if (!enrollment) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      await prisma.portalAiOutboundCallEnrollment.delete({ where: { id: enrollment.id }, select: { id: true } });
-      return { status: 200, json: { ok: true } };
     }
 
     case "ai_outbound_calls.campaigns.messages_activity.get": {
@@ -29682,25 +25402,6 @@ async function runDirectAction(opts: {
           })),
         },
       };
-    }
-
-    case "ai_outbound_calls.campaigns.messages_activity_item.delete": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const campaignId = String(args?.campaignId || "").trim();
-      const activityId = String(args?.activityId || "").trim();
-      if (!campaignId || !activityId) return { status: 400, json: { ok: false, error: "Missing campaignId or activityId" } };
-
-      await ensurePortalAiOutboundCallsSchema();
-
-      const enrollment = await prisma.portalAiOutboundMessageEnrollment.findFirst({
-        where: { ownerId, campaignId, id: activityId },
-        select: { id: true },
-      });
-      if (!enrollment) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      await prisma.portalAiOutboundMessageEnrollment.delete({ where: { id: enrollment.id }, select: { id: true } });
-      return { status: 200, json: { ok: true } };
     }
 
     case "ai_outbound_calls.contacts.search": {
@@ -29941,23 +25642,6 @@ async function runDirectAction(opts: {
           },
         },
       };
-    }
-
-    case "ai_outbound_calls.manual_calls.delete": {
-      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
-
-      const id = String(args?.id || "").trim();
-      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
-
-      const row = await prisma.portalAiOutboundCallManualCall.findFirst({
-        where: { ownerId, id },
-        select: { id: true },
-      });
-
-      if (!row) return { status: 404, json: { ok: false, error: "Not found" } };
-
-      await prisma.portalAiOutboundCallManualCall.delete({ where: { id: row.id } });
-      return { status: 200, json: { ok: true } };
     }
 
     case "ai_outbound_calls.campaigns.enroll_message": {
@@ -31052,10 +26736,9 @@ async function runDirectAction(opts: {
 
       const knowledgeBase = parseKnowledgeBaseLocators((campaign as any).knowledgeBaseJson);
 
-      const [profile, ownerUser, twilioCfg] = await Promise.all([
+      const [profile, ownerUser] = await Promise.all([
         prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }).catch(() => null),
         prisma.user.findUnique({ where: { id: ownerId }, select: { name: true } }).catch(() => null),
-        getOwnerTwilioSmsConfig(ownerId).catch(() => null),
       ]);
 
       const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
@@ -31065,20 +26748,8 @@ async function runDirectAction(opts: {
         businessContext,
         config,
       });
-      const firstMessage =
-        config.firstMessage.trim() ||
-        buildDefaultAiOutboundCallFirstMessage({ businessName: profile?.businessName || null, ownerName: ownerUser?.name || null, goal: config.goal || null });
-      if (!config.firstMessage.trim() && firstMessage) {
-        await prisma.portalAiOutboundCallCampaign
-          .updateMany({
-            where: { id: campaign.id, ownerId },
-            data: {
-              voiceAgentConfigJson: { ...config, firstMessage } as any,
-              updatedAt: new Date(),
-            },
-          })
-          .catch(() => null);
-      }
+      const prompt = buildElevenLabsAgentPrompt(config, { businessName: profile?.businessName || null, ownerName: ownerUser?.name || null }, { outboundBrief, kind: "calls" });
+      const firstMessage = config.firstMessage.trim();
 
       const localConfigIsEmpty =
         !firstMessage &&
@@ -31115,13 +26786,6 @@ async function runDirectAction(opts: {
         .filter((v, i, a) => a.indexOf(v) === i)
         .slice(0, 50);
 
-      const prompt = buildElevenLabsAgentPrompt(
-        config,
-        { businessName: profile?.businessName || null, ownerName: ownerUser?.name || null, callbackNumber: twilioCfg?.fromNumberE164 || null },
-        { outboundBrief, kind: "calls" },
-        { hasEndCallTool: resolvedToolIds.length > 0 },
-      );
-
       const manualAgentId = String((campaign as any).manualVoiceAgentId || "").trim();
       const hasManualOverride = Boolean(manualAgentId);
 
@@ -31136,11 +26800,12 @@ async function runDirectAction(opts: {
         return raw || env || "";
       })().catch(() => "");
 
-      const existingCampaignAgentId = String((campaign as any).voiceAgentId || "").trim();
-      const sharedProfileAgentId = String(profileAgentId || "").trim();
-      const shouldCreateDedicatedAgent = !hasManualOverride && (!existingCampaignAgentId || (sharedProfileAgentId && existingCampaignAgentId === sharedProfileAgentId));
-      let agentId = manualAgentId || (shouldCreateDedicatedAgent ? "" : existingCampaignAgentId);
+      let agentId = manualAgentId || String((campaign as any).voiceAgentId || "").trim() || String(profileAgentId || "").trim();
       let createdAgentId: string | null = null;
+
+      if (!hasManualOverride && !(campaign as any).voiceAgentId && profileAgentId) {
+        await prisma.portalAiOutboundCallCampaign.updateMany({ where: { id: campaign.id, ownerId }, data: { voiceAgentId: profileAgentId } }).catch(() => null);
+      }
 
       if (!agentId && !hasManualOverride) {
         const create = await createElevenLabsAgent({
@@ -31405,8 +27070,36 @@ async function runDirectAction(opts: {
       const twilio = await getOwnerTwilioSmsConfig(ownerId);
       if (!twilio) return { status: 400, json: { ok: false, error: "Twilio is not configured for this account" } };
 
-      const ensured = await ensureAiOutboundCallCampaignVoiceAgent({ ownerId, campaignId: campaign.id });
-      if (!ensured.ok) return { status: ensured.status || 400, json: { ok: false, error: ensured.error } };
+      const apiKeyFromProfile = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const apiKey = String(apiKeyFromProfile || "").trim();
+      if (!apiKey) return { status: 400, json: { ok: false, error: "Missing voice API key. Set it in Profile first." } };
+
+      const profileAgentId = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentId === "string" ? rec.voiceAgentId.trim().slice(0, 120) : "";
+        const env = String(process.env.VOICE_AGENT_ID || process.env.ELEVENLABS_AGENT_ID || process.env.ELEVEN_LABS_AGENT_ID || "").trim().slice(0, 120);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const agentId =
+        String((campaign as any).manualVoiceAgentId || "").trim() ||
+        String((campaign as any).voiceAgentId || "").trim() ||
+        String(profileAgentId || "").trim();
+      if (!agentId) return { status: 400, json: { ok: false, error: "Missing agent id. Set one on this campaign or in Profile." } };
 
       const manualCallId = crypto.randomUUID();
       const token = crypto.randomUUID();
@@ -31429,11 +27122,6 @@ async function runDirectAction(opts: {
       const voiceUrl = `${getPublicWebhookBaseUrl()}/hooks/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/voice`;
       const statusCallbackUrl = `${getPublicWebhookBaseUrl()}/hooks/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-status`;
       const recordingCallback = `${getPublicWebhookBaseUrl()}/hooks/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-recording`;
-      const manualCallTimeLimitSeconds = (() => {
-        const raw = Number(process.env.TWILIO_MANUAL_OUTBOUND_MAX_SECONDS || 45);
-        if (!Number.isFinite(raw)) return 45;
-        return Math.max(30, Math.min(180, Math.floor(raw)));
-      })();
 
       const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Calls.json`;
       const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
@@ -31443,9 +27131,6 @@ async function runDirectAction(opts: {
       form.set("From", twilio.fromNumberE164);
       form.set("Url", voiceUrl);
       form.set("Method", "POST");
-      form.set("MachineDetection", "DetectMessageEnd");
-      form.set("MachineDetectionTimeout", "45");
-      form.set("TimeLimit", String(manualCallTimeLimitSeconds));
       form.set("Record", "true");
       form.set("RecordingChannels", "dual");
       form.set("RecordingStatusCallback", recordingCallback);
@@ -33285,30 +28970,11 @@ async function runDirectAction(opts: {
       };
 
       if (!isAllowedBlobUrl(url)) {
-        try {
-          const parsed = new URL(url);
-          if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-            return await runDirectAction({
-              action: "media.import_remote_image",
-              ownerId,
-              actorUserId,
-              args: {
-                url,
-                ...(typeof args.fileName === "string" && String(args.fileName).trim() ? { fileName: String(args.fileName).trim() } : {}),
-                ...(typeof args.folderId === "string" && String(args.folderId).trim() ? { folderId: String(args.folderId).trim() } : {}),
-                ...(typeof (args as any).folderName === "string" && String((args as any).folderName).trim() ? { folderName: String((args as any).folderName).trim() } : {}),
-                ...(typeof (args as any).parentId === "string" && String((args as any).parentId).trim() ? { parentId: String((args as any).parentId).trim() } : {}),
-              },
-            } as any);
-          }
-        } catch {
-          // fall through to invalid blob url
-        }
         return { status: 400, json: { ok: false, error: "Invalid blob URL" } };
       }
 
-      const fileName = safeFilename(typeof args.fileName === "string" && args.fileName.trim() ? args.fileName : "upload.bin");
-      const mimeType = normalizeMimeType(typeof args.mimeType === "string" && args.mimeType.trim() ? args.mimeType : "application/octet-stream", fileName);
+      const fileName = safeFilename(typeof args.fileName === "string" ? args.fileName : "upload.bin");
+      const mimeType = normalizeMimeType(typeof args.mimeType === "string" ? args.mimeType : "application/octet-stream", fileName);
       const fileSize = typeof args.fileSize === "number" && Number.isFinite(args.fileSize) ? Math.floor(args.fileSize) : 0;
 
       const MAX_BYTES = 250 * 1024 * 1024;
@@ -33740,9 +29406,10 @@ async function runDirectAction(opts: {
       const meta = await setPortalDashboardQuickAccess(ownerId, slugs);
       return { status: 200, json: { ok: true, slugs: meta.quickAccessSlugs ?? [] } };
     }
-  }
 
-  return { status: 400, json: { ok: false, error: "Unsupported action" } };
+    default:
+      return { status: 400, json: { ok: false, error: "Unsupported direct action" } };
+  }
 }
 
 
@@ -33804,11 +29471,9 @@ export async function executePortalAgentActionForThread(opts: {
         "Rules:",
         "- Ask only for the one missing detail that truly blocks execution.",
         "- Do not ask for anything that can be inferred from thread context, current page context, or the provided choices.",
-        "- If the raw missing-detail prompt is already specific, tighten it instead of broadening it.",
         "- Do not ask for internal IDs unless the user must paste one.",
         "- If clickable choices are available, mention they can click one.",
         "- If the user said to create something new, allow that option.",
-        "- Never say 'I need your input', 'Pura needs your input', 'I paused', or 'to proceed'.",
         "- Be concrete, not vague. Ask for the target, value, or decision that is actually missing.",
         "- No JSON.",
       ].join("\n");
@@ -34159,8 +29824,6 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     if (
       (action === "funnel_builder.pages.update" ||
         action === "funnel_builder.pages.generate_html" ||
-        action === "funnel_builder.pages.chat" ||
-        action === "funnel_builder.pages.foundation" ||
         action === "funnel_builder.pages.export_custom_html") &&
       ((json as any).page?.id || (args as any)?.pageId)
     ) {
@@ -34190,21 +29853,6 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "funnel_builder.pages.delete" && typeof (args as any)?.funnelId === "string") {
-      const id = cleanId((args as any).funnelId);
-      if (id) {
-        return { lastFunnel: { id, label: "Funnel" } };
-      }
-    }
-
-    if (
-      (action === "funnel_builder.threads.list" ||
-        action === "funnel_builder.threads.create" ||
-        action === "funnel_builder.threads.update" ||
-        action === "funnel_builder.threads.delete" ||
-        action === "funnel_builder.exhibit_archetypes.get" ||
-        action === "funnel_builder.exhibit_archetypes.generate") &&
-      typeof (args as any)?.funnelId === "string"
-    ) {
       const id = cleanId((args as any).funnelId);
       if (id) {
         return { lastFunnel: { id, label: "Funnel" } };
@@ -34245,16 +29893,10 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       }
     }
 
-    if ((action === "tasks.create" || action === "tasks.bulk_create") && (typeof (json as any).taskId === "string" || Array.isArray((json as any).taskIds))) {
-      const bulkIds = Array.isArray((json as any).taskIds) ? ((json as any).taskIds as unknown[]) : [];
-      const id = cleanId(typeof (json as any).taskId === "string" ? (json as any).taskId : bulkIds[bulkIds.length - 1]);
-      const bulkItems = Array.isArray((args as any).items) ? ((args as any).items as Array<Record<string, unknown>>) : [];
+    if (action === "tasks.create" && typeof (json as any).taskId === "string") {
+      const id = cleanId((json as any).taskId);
       if (id) {
-        const titleHint = typeof (args as any).title === "string"
-          ? String((args as any).title).trim().slice(0, 120)
-          : typeof bulkItems[bulkItems.length - 1]?.title === "string"
-            ? String(bulkItems[bulkItems.length - 1].title).trim().slice(0, 120)
-            : "";
+        const titleHint = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 120) : "";
         return { lastTask: { id, label: titleHint || "Task" } };
       }
     }
@@ -34270,17 +29912,14 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     // Track the most recently used AI outbound campaign so follow-ups like
     // “update the same campaign” can resolve without re-asking.
     if (action.startsWith("ai_outbound_calls.")) {
-      const fromManualCallArgs = action === "ai_outbound_calls.campaigns.manual_call"
-        ? (typeof (args as any).campaignId === "string" ? String((args as any).campaignId).trim() : "")
-        : "";
       const fromJson =
         typeof (json as any).campaign?.id === "string"
           ? String((json as any).campaign.id).trim()
-          : action !== "ai_outbound_calls.campaigns.manual_call" && typeof (json as any).id === "string"
+          : typeof (json as any).id === "string"
             ? String((json as any).id).trim()
             : "";
       const fromArgs = typeof (args as any).campaignId === "string" ? String((args as any).campaignId).trim() : "";
-      const id = cleanId(fromManualCallArgs || fromJson || fromArgs);
+      const id = cleanId(fromJson || fromArgs);
       if (id) {
         const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
         const label = nameHint || "AI outbound campaign";
@@ -34363,26 +30002,6 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       }
     }
 
-    if (action === "inbox.send_sms") {
-      const threadId = cleanId((json as any).threadId || (args as any).threadId || "");
-      const contactId = cleanId((args as any).contactId || "");
-      const label =
-        (typeof (args as any).to === "string" && String((args as any).to).trim().slice(0, 120)) ||
-        (typeof (json as any).to === "string" && String((json as any).to).trim().slice(0, 120)) ||
-        "Contact";
-      return {
-        ...(contactId ? { lastContact: { id: contactId, label: label || "Contact" } } : {}),
-        ...(threadId ? { lastInboxThread: { id: threadId, channel: "sms" } } : {}),
-      };
-    }
-
-    if (action === "inbox.send_email") {
-      const threadId = cleanId((json as any).threadId || (args as any).threadId || "");
-      if (threadId) {
-        return { lastInboxThread: { id: threadId, channel: "email" } };
-      }
-    }
-
     if (action === "blogs.posts.create" && typeof (json as any).post?.id === "string") {
       const id = cleanId((json as any).post.id);
       if (id) {
@@ -34407,71 +30026,6 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       if (id) {
         const label = String((args as any)?.title || "Newsletter").trim().slice(0, 120) || "Newsletter";
         return { lastNewsletter: { id, label } };
-      }
-    }
-
-    if (action === "lead_scraping.run" && typeof (json as any).runId === "string") {
-      const runId = cleanId((json as any).runId);
-      if (runId) {
-        const rawLeads = Array.isArray((json as any).leads) ? ((json as any).leads as unknown[]) : [];
-        const leadIds = rawLeads
-          .map((lead) => cleanId(lead && typeof lead === "object" ? (lead as any).id : ""))
-          .filter(Boolean)
-          .slice(0, 100);
-        const sampleLeads = rawLeads
-          .map((lead) => {
-            if (!lead || typeof lead !== "object") return null;
-            const id = cleanId((lead as any).id);
-            const businessName = typeof (lead as any).businessName === "string" ? String((lead as any).businessName).trim().slice(0, 160) : "";
-            const email = typeof (lead as any).email === "string" ? String((lead as any).email).trim().slice(0, 200) : "";
-            const phone = typeof (lead as any).phone === "string" ? String((lead as any).phone).trim().slice(0, 40) : "";
-            const website = typeof (lead as any).website === "string" ? String((lead as any).website).trim().slice(0, 300) : "";
-            return {
-              ...(id ? { id } : null),
-              ...(businessName ? { businessName } : null),
-              ...(email ? { email } : null),
-              ...(phone ? { phone } : null),
-              ...(website ? { website } : null),
-            };
-          })
-          .filter((lead): lead is { id?: string; businessName?: string; email?: string; phone?: string; website?: string } => Boolean(lead))
-          .slice(0, 10);
-        const missingEmailCount = rawLeads.reduce<number>((count, lead) => {
-          const email = lead && typeof lead === "object" && typeof (lead as any).email === "string" ? String((lead as any).email).trim() : "";
-          return count + (email ? 0 : 1);
-        }, 0);
-        const missingPhoneCount = rawLeads.reduce<number>((count, lead) => {
-          const phone = lead && typeof lead === "object" && typeof (lead as any).phone === "string" ? String((lead as any).phone).trim() : "";
-          return count + (phone ? 0 : 1);
-        }, 0);
-        const missingWebsiteCount = rawLeads.reduce<number>((count, lead) => {
-          const website = lead && typeof lead === "object" && typeof (lead as any).website === "string" ? String((lead as any).website).trim() : "";
-          return count + (website ? 0 : 1);
-        }, 0);
-        const niche = typeof (args as any)?.niche === "string" ? String((args as any).niche).trim().slice(0, 80) : "";
-        const location = typeof (args as any)?.location === "string" ? String((args as any).location).trim().slice(0, 80) : "";
-        const labelBase = [niche, location].filter(Boolean).join(" in ");
-        return {
-          lastLeadScrape: {
-            runId,
-            label: (labelBase || "Lead scrape").slice(0, 120),
-            leadIds,
-            createdCount: typeof (json as any).createdCount === "number" ? Number((json as any).createdCount) : leadIds.length,
-            matchedCount: typeof (json as any).matchedCount === "number" ? Number((json as any).matchedCount) : leadIds.length,
-            newCount: typeof (json as any).newCount === "number" ? Number((json as any).newCount) : null,
-            reusedCount: typeof (json as any).reusedCount === "number" ? Number((json as any).reusedCount) : null,
-            requireEmail: typeof (args as any)?.requireEmail === "boolean" ? Boolean((args as any).requireEmail) : null,
-            requirePhone: typeof (args as any)?.requirePhone === "boolean" ? Boolean((args as any).requirePhone) : null,
-            requireWebsite: typeof (args as any)?.requireWebsite === "boolean" ? Boolean((args as any).requireWebsite) : null,
-            missingEmailCount,
-            missingPhoneCount,
-            missingWebsiteCount,
-            sampleLeads: sampleLeads.map((lead) => ({
-              ...lead,
-              ...(niche ? { niche } : null),
-            })),
-          },
-        };
       }
     }
 
@@ -34945,7 +30499,6 @@ export async function executePortalAgentActionRaw(opts: {
     status >= 200 &&
     status < 300 &&
     !(json && typeof json === "object" && typeof (json as any).ok === "boolean" && (json as any).ok === false);
-  const linkUrl = deriveLinkUrlForAction(opts.action, json, (argsParsed.data as any) ?? {});
 
   return {
     ok,
@@ -34953,7 +30506,7 @@ export async function executePortalAgentActionRaw(opts: {
     action: opts.action,
     result: json,
     failureMeta: ok ? null : classifyPortalAgentFailure({ status, result: json, action: opts.action }),
-    linkUrl,
+    linkUrl: typeof (json as any)?.linkUrl === "string" ? String((json as any).linkUrl) : undefined,
     clientUiAction,
   };
 }

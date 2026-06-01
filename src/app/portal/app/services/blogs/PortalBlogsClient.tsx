@@ -364,7 +364,7 @@ export function PortalBlogsClient({
           <div className={portalSidebarSectionStackClass}>
             {([
               { key: "posts", label: "Posts" },
-              { key: "automation", label: "Blog Automation" },
+              { key: "automation", label: "SEO Autopilot" },
               { key: "settings", label: "Settings" },
             ] as const).map((item) => (
               <PortalSidebarNavButton
@@ -1354,7 +1354,7 @@ export function PortalBlogsClient({
                       {blogCreditsUsed30d === null ? "Watching usage" : blogCreditsUsed30d.toLocaleString()}
                     </div>
                     <div className="mt-1 text-xs text-zinc-500">
-                      Last 30 days · {blogGenerations30d === null ? "No generations yet" : `${blogGenerations30d} generation${blogGenerations30d === 1 ? "" : "s"}`}
+                      Last 30 days · {blogGenerations30d === null ? "No drafts generated in this window" : `${blogGenerations30d} generation${blogGenerations30d === 1 ? "" : "s"}`}
                     </div>
                   </div>
                 </div>
@@ -1406,7 +1406,7 @@ export function PortalBlogsClient({
                           <td className="px-4 py-4 text-zinc-600" colSpan={4}>
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <div>
-                                <div className="font-semibold text-zinc-900">No blog posts yet</div>
+                                <div className="font-semibold text-zinc-900">Your blog is ready for the first post</div>
                                 <div className="mt-1 text-sm text-zinc-600">Create the first draft when you’re ready, or open the page editor if you want the blog shell polished first.</div>
                               </div>
                               <div className="flex flex-wrap items-center gap-2">
@@ -1495,9 +1495,9 @@ export function PortalBlogsClient({
 
       {routeTab === "automation" ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="text-sm font-semibold text-zinc-900">Blog automation schedule</div>
+          <div className="text-sm font-semibold text-zinc-900">SEO content schedule</div>
           <div className="mt-2 text-sm text-zinc-600">
-            Set a cadence and a topic list. We’ll generate SEO-ready drafts automatically so your website stays fresh and searchable.
+            Set a cadence and an optional topic queue. We use your business details to generate SEO-ready drafts automatically so your website stays fresh and searchable.
           </div>
 
           <div className="mt-5 space-y-4">
@@ -1596,7 +1596,7 @@ export function PortalBlogsClient({
               <div className="mt-1 space-y-2">
                 {autoTopics.length === 0 ? (
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-                    Add a few topics to guide what gets generated.
+                    Add a few topics to guide what gets generated, or leave this empty and we’ll lean on your business profile for broader SEO content ideas.
                   </div>
                 ) : null}
 
@@ -1635,6 +1635,9 @@ export function PortalBlogsClient({
                 </button>
               </div>
               <div className="mt-1 text-xs text-zinc-500">Topics in queue: {sanitizeTopics(autoTopics).length}</div>
+              <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
+                Topics run in order and loop back around after the list is exhausted, so the schedule can keep publishing without you having to rebuild the queue every time.
+              </div>
             </div>
 
             <div>
@@ -1789,7 +1792,7 @@ export function PortalBlogsClient({
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
                 <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "Not generated yet"}</div>
                 <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "Not scheduled yet"}</div>
-                <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "No recent run yet"}</div>
+                <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "Scheduler has not checked in yet"}</div>
                 <div className="mt-1 text-zinc-500">Scheduler checks about hourly. If Next due is in the past, a new post should appear within about an hour when the heartbeat is healthy.</div>
               </div>
             ) : null}

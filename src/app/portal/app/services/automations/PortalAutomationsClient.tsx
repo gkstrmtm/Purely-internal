@@ -4249,7 +4249,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     </div>
                   ) : (
                     <div className="rounded-3xl border border-dashed border-white/60 bg-white/30 px-3 py-3 text-sm text-zinc-600">
-                      <div className="font-semibold text-zinc-900">No demo fields ready for this form yet</div>
+                      <div className="font-semibold text-zinc-900">This form needs questions before realistic testing can start</div>
                       <div className="mt-1">Open the form editor to add questions first, then come back here to test the automation with realistic sample responses.</div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {testFormId ? (
@@ -4532,7 +4532,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             <div className="mt-4 space-y-2">
               {automations.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No automations built yet</div>
+                  <div className="font-semibold text-zinc-900">Automations are ready for the first workflow</div>
                   <div className="mt-1">Create the first automation to connect a trigger, actions, and follow-up logic in one workflow.</div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
@@ -5477,7 +5477,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                     />
                                     {!bookingCalendars.length ? (
                                       <div className="mt-1 text-[11px] text-zinc-600">
-                                        No calendars are ready yet. Create one in Booking → Calendars.
+                                        Booking calendars are not ready yet. Create the first one in Booking → Calendars.
                                         <div className="mt-2 flex flex-wrap items-center gap-2">
                                           <Link
                                             href={`${appBase}/services/booking/settings`}

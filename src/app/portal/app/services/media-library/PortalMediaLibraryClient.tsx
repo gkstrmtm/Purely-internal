@@ -306,25 +306,25 @@ function providerConnectionLabel(value: ProviderConnectionState | string | null 
     case "coming_soon":
       return "Coming soon";
     case "not_connected":
-      return "Not connected";
+      return "Setup needed";
     case "connection_required":
-      return "Connection required";
+      return "Connection needed";
     case "connected":
       return "Connected";
     case "needs_permissions":
-      return "Needs permissions";
+      return "Permissions needed";
     case "permission_missing":
-      return "Permission missing";
+      return "Permissions needed";
     case "reconnect_required":
-      return "Reconnect required";
+      return "Reconnect needed";
     case "disabled":
-      return "Disabled";
+      return "Paused";
     case "direct_publish_unsupported":
       return "Direct publish unsupported";
     case "metrics_unavailable":
       return "Metrics syncing";
     default:
-      return "Connection required";
+      return "Connection needed";
   }
 }
 
@@ -1153,7 +1153,7 @@ export function PortalMediaLibraryClient() {
       case "manual_only":
         return "Nothing is sitting in a manual-only lane right now. When a provider stays manual, that work will surface here so the workflow stays honest.";
       case "posted":
-        return "No assets have been marked posted manually yet. Mark manual posts here so continuity and reporting stay grounded in real work.";
+        return "Manual posting history will appear here after the first marked post. Mark manual posts here so continuity and reporting stay grounded in real work.";
       default:
         return isCreditWorkspace
           ? "Upload media, add the draft, attach the consultation link, choose the workflow plan, then mark it posted manually when it goes live."
@@ -1647,7 +1647,7 @@ export function PortalMediaLibraryClient() {
     const nextStep = buildWorkflowNextStep(profile, continuity, portalVariant);
     const scheduleLabel = profile.plannedForIso ? `${formatCalendarDay(profile.plannedForIso)} at ${formatCalendarTime(profile.plannedForIso)}` : "No schedule";
     const campaignLabel = profile.campaignLabel || profile.relatedOffer || "Not labeled";
-    const ctaLabel = profile.ctaLabel || (profile.ctaHref ? "Tracked link attached" : isCreditWorkspace ? "No consultation link yet" : "No booking link yet");
+    const ctaLabel = profile.ctaLabel || (profile.ctaHref ? "Tracked link attached" : isCreditWorkspace ? "Consultation link not attached yet" : "Booking link not attached yet");
     const providerLabel = `${continuity.providerLabel} · ${continuity.connectionLabel}`;
     const cardSummary = profile.captionDraft
       ? profile.captionDraft.slice(0, 140)
@@ -2982,14 +2982,14 @@ export function PortalMediaLibraryClient() {
 
                           <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Connection state</div>
-                            <div className="mt-2 font-semibold text-zinc-900">{previewContinuity?.connectionLabel || "Connection required"}</div>
+                            <div className="mt-2 font-semibold text-zinc-900">{previewContinuity?.connectionLabel || "Connection needed"}</div>
                             <div className="mt-1 text-xs text-zinc-500">{previewContinuity?.detail}</div>
                           </div>
 
                           <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-700">
                             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Metrics continuity</div>
                             <div className="mt-2 font-semibold text-zinc-900">{previewContinuity?.metricsLabel || "Metrics require a connected provider post."}</div>
-                            <div className="mt-1 text-xs text-zinc-500">{previewGrowthProfile.providerPostId ? `Provider post ID: ${previewGrowthProfile.providerPostId}` : previewGrowthProfile.workflowState === "posted_manually" ? "Posted-manual records do not create provider metrics or a provider post ID here." : "No provider post ID stored yet."}</div>
+                            <div className="mt-1 text-xs text-zinc-500">{previewGrowthProfile.providerPostId ? `Provider post ID: ${previewGrowthProfile.providerPostId}` : previewGrowthProfile.workflowState === "posted_manually" ? "Posted-manual records do not create provider metrics or a provider post ID here." : "Provider post ID will appear after a connected publish."}</div>
                           </div>
                         </div>
 

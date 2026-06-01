@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { findAvailabilityCoverage } from "@/lib/bookingAvailability";
-import { createTaskForBookedCall } from "@/lib/bookingTasks";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { parseCreditFunnelTrackingContext, trackCreditFunnelEvent } from "@/lib/funnelEventTracking";
 import { getBookingFormConfig } from "@/lib/bookingForm";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
@@ -16,7 +16,9 @@ import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { sendEmail as sendOutboundEmail } from "@/lib/leadOutbound";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { BookingMeetingIntegrationError, createNativeBookingMeeting } from "@/lib/bookingMeetingIntegrations.server";
 import { createConnectRoom } from "@/lib/connectRoomCreate";
+import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,6 +30,7 @@ const postSchema = z.object({
   contactPhone: z.string().trim().max(40).optional().nullable(),
   notes: z.string().trim().max(1200).optional().nullable(),
   answers: z.record(z.string(), z.any()).optional(),
+  trackingContext: z.unknown().optional(),
 });
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -73,14 +76,17 @@ export async function POST(
 ) {
   const { ownerId, calendarId } = await params;
   const origin = getRequestOrigin(req);
+  const requestUrl = new URL(req.url);
+  const requestedFunnelId = requestUrl.searchParams.get("funnelId")?.trim() || "";
 
   const json = await req.json().catch(() => null);
   const parsed = postSchema.safeParse(json ?? {});
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid payload" }, { status: 400 });
   }
+  const trackingContext = parseCreditFunnelTrackingContext(parsed.data.trackingContext);
 
-  const [site, calendars, flags] = await Promise.all([
+  const [site, calendars, flags, settingsRow] = await Promise.all([
     (prisma as any).portalBookingSite.findUnique({
       where: { ownerId },
       select: {
@@ -100,10 +106,17 @@ export async function POST(
       hasPublicColumn("PortalBookingSite", "meetingDetails"),
       hasPublicColumn("PortalBookingSite", "notificationEmails"),
     ]).then(([meetingLocation, meetingDetails, notificationEmails]) => ({ meetingLocation, meetingDetails, notificationEmails })),
+    requestedFunnelId
+      ? prisma.creditFunnelBuilderSettings.findUnique({ where: { ownerId }, select: { dataJson: true } }).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const cal = calendars.calendars.find((c) => c.id === calendarId);
-  if (!site || !site.enabled || !cal || !cal.enabled) {
+  const funnelCalendarId = requestedFunnelId
+    ? readFunnelBookingRouting(settingsRow?.dataJson ?? null, requestedFunnelId)?.calendarId ?? ""
+    : "";
+  const bookingEnabled = Boolean(cal?.enabled) && (Boolean(site?.enabled) || funnelCalendarId === calendarId);
+  if (!site || !bookingEnabled || !cal || !cal.enabled) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -160,6 +173,13 @@ export async function POST(
   }
 
   const durationMinutes = cal.durationMinutes ?? site.durationMinutes;
+  const minimumNoticeMinutes = cal.minimumNoticeMinutes ?? 0;
+  if (minimumNoticeMinutes > 0 && startAt.getTime() < Date.now() + minimumNoticeMinutes * 60_000) {
+    const leadTimeLabel = minimumNoticeMinutes % 60 === 0
+      ? `${minimumNoticeMinutes / 60} hour${minimumNoticeMinutes === 60 ? "" : "s"}`
+      : `${minimumNoticeMinutes} minutes`;
+    return NextResponse.json({ error: `This calendar requires at least ${leadTimeLabel} notice. Please choose a later time.` }, { status: 409 });
+  }
   const endAt = new Date(startAt.getTime() + durationMinutes * 60_000);
 
   const coverage = await findAvailabilityCoverage({ userId: site.ownerId, startAt, endAt, calendarId });
@@ -219,6 +239,7 @@ export async function POST(
 
   // Purely Connect Meeting Logic (per-calendar booking)
   let purelyConnectJoinUrl: string | null = null;
+  let nativeMeetingLabel: string | null = null;
   let effectiveLocation: string | null =
     cal.meetingLocation ?? (meeting as any)?.meetingLocation ?? null;
 
@@ -240,8 +261,23 @@ export async function POST(
 
       // Override the location with the unique Purely Connect link
       effectiveLocation = purelyConnectJoinUrl;
+    } else if (setupData.meetingPlatform === "ZOOM" || setupData.meetingPlatform === "GOOGLE_MEET") {
+      const nativeMeeting = await createNativeBookingMeeting({
+        ownerId: String(ownerId),
+        provider: setupData.meetingPlatform === "ZOOM" ? "zoom" : "google_meet",
+        title: `Booking: ${cal.title}`,
+        startAt,
+        endAt,
+        timeZone: site.timeZone,
+        attendeeName: parsed.data.contactName,
+      });
+      effectiveLocation = nativeMeeting.joinUrl;
+      nativeMeetingLabel = setupData.meetingPlatform === "ZOOM" ? "Zoom" : "Google Meet";
     }
   } catch (err) {
+    if (err instanceof BookingMeetingIntegrationError) {
+      return NextResponse.json({ error: err.message }, { status: err.statusCode });
+    }
     console.error("Failed to setup Purely Connect meeting for calendar booking", err);
   }
 
@@ -249,6 +285,9 @@ export async function POST(
   let finalNotes = combinedNotes;
   if (purelyConnectJoinUrl) {
     const prefix = `[Purely Connect Meeting]\n${purelyConnectJoinUrl}\n\n`;
+    finalNotes = finalNotes ? prefix + finalNotes : prefix.trim();
+  } else if (nativeMeetingLabel && effectiveLocation) {
+    const prefix = `[${nativeMeetingLabel} Meeting]\n${effectiveLocation}\n\n`;
     finalNotes = finalNotes ? prefix + finalNotes : prefix.trim();
   }
 
@@ -275,6 +314,35 @@ export async function POST(
       notes: true,
     },
   });
+
+  if (trackingContext?.pageId) {
+    const page = await prisma.creditFunnelPage
+      .findUnique({
+        where: { id: trackingContext.pageId },
+        select: { id: true, funnelId: true, funnel: { select: { ownerId: true } } },
+      })
+      .catch(() => null);
+    if (page?.funnel?.ownerId === ownerId) {
+      await trackCreditFunnelEvent({
+        ownerId: String(ownerId),
+        funnelId: page.funnelId,
+        pageId: page.id,
+        eventType: "booking_created",
+        eventPath: trackingContext?.path || null,
+        source: trackingContext?.source || "hosted_booking",
+        sessionId: trackingContext?.sessionId || null,
+        referrer: trackingContext?.referrer || req.headers.get("referer") || null,
+        utmSource: trackingContext?.utmSource || null,
+        utmMedium: trackingContext?.utmMedium || null,
+        utmCampaign: trackingContext?.utmCampaign || null,
+        utmContent: trackingContext?.utmContent || null,
+        utmTerm: trackingContext?.utmTerm || null,
+        contactId,
+        bookingId: String(booking.id),
+        payloadJson: { bookingSiteId: site.id, calendarId: String(calendarId) },
+      });
+    }
+  }
 
   // Best-effort: notify portal users (never block a successful booking).
   try {
@@ -306,24 +374,6 @@ export async function POST(
   // Best-effort follow-up scheduling (never block a successful booking).
   try {
     await scheduleFollowUpsForBooking(String(ownerId), String(booking.id), { calendarId: String(calendarId) });
-  } catch {
-    // ignore
-  }
-
-  try {
-    await createTaskForBookedCall({
-      ownerId: String(ownerId),
-      bookingId: String(booking.id),
-      calendarId: String(calendarId),
-      title: `Attend booking: ${parsed.data.contactName}`,
-      contactName: parsed.data.contactName,
-      contactEmail: parsed.data.contactEmail,
-      contactPhone: parsed.data.contactPhone || null,
-      notes: finalNotes || null,
-      meetingLocation: effectiveLocation,
-      meetingDetails: cal.meetingDetails ?? (meeting as any)?.meetingDetails ?? null,
-      startAt,
-    });
   } catch {
     // ignore
   }
@@ -444,5 +494,5 @@ export async function POST(
     // ignore
   }
 
-  return NextResponse.json({ ok: true, booking, rescheduleUrl });
+  return NextResponse.json({ ok: true, booking, rescheduleUrl, meetingLocation: effectiveLocation });
 }

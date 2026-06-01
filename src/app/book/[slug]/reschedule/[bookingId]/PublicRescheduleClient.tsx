@@ -320,7 +320,7 @@ export function PublicRescheduleClient({
       >
         <div className="mx-auto max-w-3xl px-6 py-12">
           <div className="rounded-3xl border p-8" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--booking-link)" }}>
+            <div className="text-xs font-medium" style={{ color: "var(--booking-link)" }}>
               Rescheduled
             </div>
             <h1 className="mt-3 text-2xl font-bold" style={{ color: "var(--booking-text)" }}>

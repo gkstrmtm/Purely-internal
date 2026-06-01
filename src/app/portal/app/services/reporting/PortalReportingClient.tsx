@@ -456,7 +456,7 @@ function formatIsoDay(isoDay: string) {
 }
 
 function formatRating(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "No rating yet";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Rating not available yet";
   return value.toFixed(1);
 }
 
@@ -775,8 +775,8 @@ function buildContentWorkflowCardSummary(args: {
       ? `${usable.toLocaleString()} usable asset${usable === 1 ? "" : "s"} currently support consultation demand inside the shared Media Library workflow.`
       : `${usable.toLocaleString()} usable asset${usable === 1 ? "" : "s"} currently support the stored business-growth content pipeline.`
     : variant === "credit"
-      ? "No consultation-support content is ready, planned, or marked posted yet."
-      : "No usable content is ready, planned, or marked posted yet.";
+      ? "Consultation-support content has not been staged, scheduled, or marked posted yet."
+      : "Content has not been staged, scheduled, or marked posted yet.";
 
   const note = trackedHandoffs > 0
     ? `${trackedHandoffs.toLocaleString()} booking handoff${trackedHandoffs === 1 ? " is" : "s are"} tracked separately in booking reporting. Asset-level attribution is still not automatic.`
@@ -803,7 +803,7 @@ function buildContentWorkflowCardSummary(args: {
     {
       label: "Manual posts",
       value: manual.toLocaleString(),
-      sub: manual > 0 ? "Marked posted here" : "No posted history yet",
+      sub: manual > 0 ? "Marked posted here" : "Waiting for the first posted record",
     },
     {
       label: "Manual-only lane",
@@ -2607,13 +2607,13 @@ export function PortalReportingClient() {
                     <>
                       Twilio SMS: <span className="font-semibold text-emerald-700">connected</span>
                       <div className="mt-1 text-xs text-zinc-500">
-                        From: {twilio.fromNumberE164 ?? "No sender number yet"}
+                        From: {twilio.fromNumberE164 ?? "Sender number still being configured"}
                       </div>
                     </>
                   ) : (
                     <>
-                      Twilio SMS: <span className="font-semibold text-zinc-700">not connected</span>
-                      <div className="mt-1 text-xs text-zinc-500">Connect in Billing or Integrations as needed.</div>
+                      Twilio SMS: <span className="font-semibold text-zinc-700">setup still needed</span>
+                      <div className="mt-1 text-xs text-zinc-500">Finish the connection in Billing or Integrations before reporting can show live sending posture.</div>
                     </>
                   )}
                 </div>

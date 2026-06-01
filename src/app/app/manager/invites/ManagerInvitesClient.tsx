@@ -2,12 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  EMPLOYEE_INVITE_ROLE_LABELS,
+  EMPLOYEE_INVITE_ROLES,
+  canCreateEmployeeInviteRole,
+  type EmployeeInviteRole,
+} from "@/lib/employeeInviteRoles";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type InviteRow = {
   id: string;
   code: string;
+  invitedRole: EmployeeInviteRole;
   createdAt: string;
   expiresAt: string | null;
   usedAt: string | null;
@@ -22,12 +29,19 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleString();
 }
 
-export default function ManagerInvitesClient() {
+export default function ManagerInvitesClient({
+  currentRole,
+  canCreateElevatedInviteRoles,
+}: {
+  currentRole: string;
+  canCreateElevatedInviteRoles: boolean;
+}) {
   const [invites, setInvites] = useState<InviteRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expiresInDays, setExpiresInDays] = useState<number>(30);
+  const [inviteRole, setInviteRole] = useState<EmployeeInviteRole>("DIALER");
   const [emailModal, setEmailModal] = useState<null | {
     invite: InviteRow;
     toEmail: string;
@@ -36,6 +50,7 @@ export default function ManagerInvitesClient() {
     sending: boolean;
     error: string | null;
     success: string | null;
+    providerMessageId: string | null;
   }>(null);
 
   async function load() {
@@ -73,7 +88,7 @@ export default function ManagerInvitesClient() {
     const res = await fetch("/api/manager/invites", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ expiresInDays }),
+      body: JSON.stringify({ expiresInDays, role: inviteRole }),
     });
 
     const body = await res.json().catch(() => ({}));
@@ -112,18 +127,41 @@ export default function ManagerInvitesClient() {
     return true;
   }, [emailModal]);
 
+  const availableRoleOptions = useMemo(
+    () =>
+      EMPLOYEE_INVITE_ROLES.filter((value) =>
+        canCreateEmployeeInviteRole(currentRole, value, canCreateElevatedInviteRoles),
+      ).map((value) => ({
+        value,
+        label: EMPLOYEE_INVITE_ROLE_LABELS[value],
+      })),
+    [canCreateElevatedInviteRoles, currentRole],
+  );
+
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-zinc-200 bg-brand-mist p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="text-base font-semibold text-brand-ink">Create a new invite</div>
+            <div className="text-base font-semibold text-brand-ink">Create a new invite code</div>
             <div className="mt-1 text-sm text-zinc-600">
-              New employees sign up at <span className="font-medium text-brand-ink">{signupUrl || "/signup"}</span>.
+              This step creates a one-time code only. Use Send email after creation if you want Purely to deliver the signup link.
             </div>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div>
+              <label className="text-sm font-semibold text-zinc-700">Role</label>
+              <div className="mt-2">
+                <PortalSelectDropdown<EmployeeInviteRole>
+                  value={inviteRole}
+                  onChange={setInviteRole}
+                  options={availableRoleOptions}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="text-sm font-semibold text-zinc-700">Expires in</label>
               <div className="mt-2">
@@ -148,7 +186,7 @@ export default function ManagerInvitesClient() {
               disabled={creating}
               className="mt-6 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:mt-0"
             >
-              {creating ? "Creating…" : "Create invite"}
+              {creating ? "Creating…" : "Create invite code"}
             </button>
           </div>
         </div>
@@ -164,7 +202,7 @@ export default function ManagerInvitesClient() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-base font-semibold text-brand-ink">Recent invites</div>
-            <div className="mt-1 text-sm text-zinc-600">Codes are one-time use.</div>
+            <div className="mt-1 text-sm text-zinc-600">Codes are one-time use. Copy uses the code-first flow. Send email delivers the signup link as a second step.</div>
           </div>
           <button
             type="button"
@@ -179,8 +217,9 @@ export default function ManagerInvitesClient() {
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full border-separate border-spacing-0">
             <thead>
-              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <tr className="text-left text-xs font-medium text-zinc-500">
                 <th className="border-b border-zinc-200 px-3 py-2">Code</th>
+                <th className="border-b border-zinc-200 px-3 py-2">Role</th>
                 <th className="hidden border-b border-zinc-200 px-3 py-2 md:table-cell">Created</th>
                 <th className="hidden border-b border-zinc-200 px-3 py-2 md:table-cell">Expires</th>
                 <th className="hidden border-b border-zinc-200 px-3 py-2 md:table-cell">Used</th>
@@ -192,6 +231,7 @@ export default function ManagerInvitesClient() {
               {invites.map((i) => (
                 <tr key={i.id} className="text-sm text-zinc-700">
                   <td className="border-b border-zinc-100 px-3 py-3 font-mono text-xs text-zinc-900">{i.code}</td>
+                  <td className="border-b border-zinc-100 px-3 py-3">{EMPLOYEE_INVITE_ROLE_LABELS[i.invitedRole]}</td>
                   <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{fmtDate(i.createdAt)}</td>
                   <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{fmtDate(i.expiresAt)}</td>
                   <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{fmtDate(i.usedAt)}</td>
@@ -209,7 +249,7 @@ export default function ManagerInvitesClient() {
                           }
                         }}
                       >
-                        Copy
+                        Copy code
                       </button>
 
                       <button
@@ -225,10 +265,11 @@ export default function ManagerInvitesClient() {
                             sending: false,
                             error: null,
                             success: null,
+                            providerMessageId: null,
                           });
                         }}
                       >
-                        Email
+                        Send email
                       </button>
                     </div>
                   </td>
@@ -259,9 +300,9 @@ export default function ManagerInvitesClient() {
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-base font-semibold text-brand-ink">Email invite</div>
+                <div className="text-base font-semibold text-brand-ink">Send invite email</div>
                 <div className="mt-1 text-sm text-zinc-600">
-                  Sends from <span className="font-medium text-brand-ink">contact@purelyautomation.com</span>
+                  The invite code already exists. This step emails the signup link from <span className="font-medium text-brand-ink">contact@purelyautomation.com</span>.
                 </div>
               </div>
               <button
@@ -277,6 +318,9 @@ export default function ManagerInvitesClient() {
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm text-zinc-700">
                   Invite code: <span className="font-mono font-semibold text-zinc-900">{emailModal.invite.code}</span>
+                </div>
+                <div className="text-sm text-zinc-700">
+                  Role: <span className="font-semibold text-zinc-900">{EMPLOYEE_INVITE_ROLE_LABELS[emailModal.invite.invitedRole]}</span>
                 </div>
                 <div className="text-xs font-semibold text-zinc-600">
                   {emailModal.invite.usedAt ? "Already used" : "One-time use"}
@@ -314,7 +358,7 @@ export default function ManagerInvitesClient() {
                   onChange={(e) =>
                     setEmailModal((prev) =>
                       prev
-                        ? { ...prev, toEmail: e.target.value, error: null, success: null }
+                        ? { ...prev, toEmail: e.target.value, error: null, success: null, providerMessageId: null }
                         : prev,
                     )
                   }
@@ -331,7 +375,7 @@ export default function ManagerInvitesClient() {
                   onChange={(e) =>
                     setEmailModal((prev) =>
                       prev
-                        ? { ...prev, subject: e.target.value, error: null, success: null }
+                        ? { ...prev, subject: e.target.value, error: null, success: null, providerMessageId: null }
                         : prev,
                     )
                   }
@@ -349,7 +393,7 @@ export default function ManagerInvitesClient() {
                   onChange={(e) =>
                     setEmailModal((prev) =>
                       prev
-                        ? { ...prev, note: e.target.value, error: null, success: null }
+                        ? { ...prev, note: e.target.value, error: null, success: null, providerMessageId: null }
                         : prev,
                     )
                   }
@@ -402,6 +446,7 @@ export default function ManagerInvitesClient() {
                         ? {
                             ...prev,
                             sending: false,
+                            providerMessageId: null,
                             error: [body?.error ?? "Failed to send email", body?.details].filter(Boolean).join(" • "),
                           }
                         : prev,
@@ -410,12 +455,14 @@ export default function ManagerInvitesClient() {
                   }
 
                   const provider = typeof body?.provider === "string" ? body.provider : "email";
+                  const providerMessageId = typeof body?.providerMessageId === "string" && body.providerMessageId.trim() ? body.providerMessageId.trim() : null;
                   setEmailModal((prev) =>
                     prev
                       ? {
                           ...prev,
                           sending: false,
-                          success: `Sent via ${provider}.`,
+                          success: `Sent via ${provider}.${providerMessageId ? ` Provider message id: ${providerMessageId}.` : ""}`,
+                          providerMessageId,
                         }
                       : prev,
                   );

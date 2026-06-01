@@ -931,8 +931,8 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             </div>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No missed-call activity yet</div>
-              <div className="mt-1">Once missed calls hit the connected number and the text-back rule is live, replies and delivery outcomes will appear here.</div>
+              <div className="font-semibold text-zinc-900">Missed-call activity will appear here after the first live call</div>
+              <div className="mt-1">Once missed calls reach the connected number and the text-back rule is live, replies and delivery outcomes will appear here.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"

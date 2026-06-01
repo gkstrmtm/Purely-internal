@@ -171,7 +171,7 @@ export default async function ClientInternalNewsletterPage(props: PageProps) {
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">
-          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
+          <div className="text-xs font-medium" style={{ color: "var(--client-muted)" }}>
             {formatDate(newsletter.sentAt ?? newsletter.updatedAt)}
           </div>
           <h1 className="mt-3 text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-link)" }}>

@@ -1208,8 +1208,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           ))
                         ) : (
                           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                            <div className="font-semibold text-zinc-900">No follow-up templates saved yet</div>
-                            <div className="mt-1">Load a built-in template first, then save your own version once the timing and copy feel right.</div>
+                            <div className="font-semibold text-zinc-900">Your saved follow-up playbook is still empty</div>
+                            <div className="mt-1">Load a built-in template first, then save your own version once the timing, audience, and copy feel right.</div>
                             <div className="mt-3 flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
@@ -1938,8 +1938,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                           })
                         ) : (
                           <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                            <div className="font-semibold text-zinc-900">No follow-up steps yet</div>
-                            <div className="mt-1">Start with one email or SMS step, or load a template so this chain is ready faster.</div>
+                            <div className="font-semibold text-zinc-900">This follow-up chain has not been built yet</div>
+                            <div className="mt-1">Start with one email or SMS step, or load a template so this chain can begin working without building every step from scratch.</div>
                             <div className="mt-3 flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
@@ -2027,8 +2027,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                       </div>
                     ) : (
                       <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                        <div className="font-semibold text-zinc-900">No calendars ready yet</div>
-                        <div className="mt-1">Follow-up rules can run against specific booking calendars once at least one calendar exists.</div>
+                        <div className="font-semibold text-zinc-900">Calendar-specific follow-up is waiting on the first booking calendar</div>
+                        <div className="mt-1">Follow-up rules can branch by booking calendar once at least one live calendar exists in Booking settings.</div>
                         <div className="mt-3 flex flex-wrap items-center gap-2">
                           <Link
                             href={`${portalBase}/app/services/booking/settings`}
@@ -2147,7 +2147,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                       <div className="col-span-3 truncate text-zinc-700">{q.stepName}</div>
                       <div className="col-span-2 text-zinc-700">{q.channel}</div>
                       <div className="col-span-3 truncate font-medium text-brand-ink">
-                        {recipient || (q.channel === "TAG" ? "(missing contact)" : "")}
+                        {recipient || (q.channel === "TAG" ? "(contact not linked yet)" : "")}
                       </div>
                       <div className="col-span-2 text-zinc-600">
                         {q.status === "FAILED" ? (
@@ -2191,8 +2191,8 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                 })
               ) : (
                 <div className="px-4 py-6 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No follow-ups queued yet for this workflow</div>
-                  <div className="mt-1">Once an appointment qualifies for this automation, upcoming and recently sent follow-ups show here.</div>
+                  <div className="font-semibold text-zinc-900">This workflow has not queued any follow-ups yet</div>
+                  <div className="mt-1">As soon as an appointment qualifies for this automation, upcoming and recently sent follow-ups will start showing here.</div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
                       type="button"

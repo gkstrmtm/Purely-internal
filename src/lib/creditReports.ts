@@ -86,10 +86,6 @@ function readDescriptor(value: unknown): string {
   return normalizeText(value);
 }
 
-function digitsOnly(value: string) {
-  return value.replace(/\D+/g, "");
-}
-
 function joinText(parts: Array<unknown>, separator = " • ") {
   return parts.map((part) => readDescriptor(part)).filter(Boolean).join(separator);
 }

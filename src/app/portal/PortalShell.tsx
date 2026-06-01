@@ -889,6 +889,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [switchingOwnerId, setSwitchingOwnerId] = useState<string | null>(null);
   const [serviceStatuses, setServiceStatuses] = useState<Record<string, { state: string; label: string }> | null>(null);
   const [showGettingStartedHint, setShowGettingStartedHint] = useState(false);
+  const [hideFloatingHelpPrompt, setHideFloatingHelpPrompt] = useState(false);
   const [sidebarCampaign, setSidebarCampaign] = useState<null | {
     id: string;
     creative?: {
@@ -1042,6 +1043,20 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     tick();
     const id = window.setInterval(tick, 250);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const root = document.documentElement;
+    const readHidden = () => root.getAttribute("data-pa-hide-floating-tools") === "1";
+    setHideFloatingHelpPrompt(readHidden());
+
+    const observer = new MutationObserver(() => {
+      setHideFloatingHelpPrompt(readHidden());
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["data-pa-hide-floating-tools"] });
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -2175,6 +2190,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   function renderNeedHelpPrompt(opts?: { mobile?: boolean }) {
     if (!showGettingStartedHint || !needHelpContent) return null;
     const mobile = Boolean(opts?.mobile);
+    if (!mobile && hideFloatingHelpPrompt) return null;
 
     return (
       <div
@@ -2822,8 +2838,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             </div>
                           ) : (
                             <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
-                              <div className="font-semibold text-zinc-900">No quick shortcuts pinned yet</div>
-                              <div className="mt-1 leading-6">Pick services above to build a quick-access list, or open Services to choose what should live in the sidebar.</div>
+                              <div className="font-semibold text-zinc-900">Your quick-access rail is ready to be curated</div>
+                              <div className="mt-1 leading-6">Pick services above to build a faster daily workflow, or open Services to decide what deserves a permanent spot in the sidebar.</div>
                               <PortalNavLink
                                 href={`${basePath}/app/services`}
                                 className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
@@ -3332,8 +3348,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         </div>
                       ) : (
                         <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No quick shortcuts pinned yet</div>
-                          <div className="mt-1 leading-6">Pin services above to build a quick-access list, or open Services to choose what should stay one click away.</div>
+                          <div className="font-semibold text-zinc-900">Your quick-access rail is ready to be curated</div>
+                          <div className="mt-1 leading-6">Pin services above to keep the most-used tools one click away, or open Services to decide what should stay in the rail.</div>
                           <PortalNavLink
                             href={`${basePath}/app/services`}
                             className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"

@@ -72,7 +72,7 @@ export function LinkUrlModal({
       }
     >
       <label className="block">
-        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Link URL</div>
+        <div className="mb-1 text-xs font-medium text-zinc-500">Link URL</div>
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}

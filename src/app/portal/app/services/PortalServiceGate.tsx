@@ -1,25 +1,11 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 
-import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { getPortalServiceBenefitCopy, getPortalServiceCopy, PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { requirePortalUserForAnyService, requirePortalUserForService } from "@/lib/portalAuth";
 import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 import { normalizePortalVariant, portalBasePath, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
-
-async function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
-  let timeoutId: NodeJS.Timeout | null = null;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<T>((resolve) => {
-        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
 
 function serviceKeysForSlug(slug: string): readonly PortalServiceKey[] {
   switch (slug) {
@@ -45,66 +31,6 @@ function serviceKeysForSlug(slug: string): readonly PortalServiceKey[] {
   }
 }
 
-function benefitCopyForService(serviceSlug: string, entitlementKey?: string, variant: "credit" | "portal" = "portal") {
-  const key = (entitlementKey || "").trim();
-  if (serviceSlug === "blogs" || key === "blog") {
-    return {
-      title: "Turn your website into a lead engine",
-      bullets: [
-        "Publish consistent, SEO-ready content without the weekly grind",
-        "Generate on-brand drafts from your topics and goals",
-        "Keep momentum with an automation schedule you control",
-        "Build trust with prospects before they ever talk to you",
-      ],
-    };
-  }
-
-  if (serviceSlug === "booking" || key === "booking") {
-    return {
-      title: "Book more appointments with less back-and-forth",
-      bullets: [
-        "Share a clean booking link that works 24/7",
-        "Capture the details you need up-front",
-        "Reduce no-shows with reminders",
-        "Stay organized with a single source of truth",
-      ],
-    };
-  }
-
-  if (serviceSlug === "reviews" || key === "reviews") {
-    return {
-      title: "Get more reviews (without nagging)",
-      bullets: [
-        "Send requests at the right time",
-        "Follow up automatically",
-        "Track responses in one place",
-        "Build social proof that converts",
-      ],
-    };
-  }
-
-  if (serviceSlug === "ai-receptionist" || key === "aiReceptionist") {
-    return {
-      title: "Answer calls and route requests automatically",
-      bullets: [
-        "Front desk-style answering 24/7",
-        "Collect details before handoff",
-        "Forward calls to your team when needed",
-        "See activity and outcomes in the portal",
-      ],
-    };
-  }
-
-  return {
-    title: "Unlock this service",
-    bullets: [
-      "Add it in Billing and start configuring right away",
-      "Upgrade or remove add-ons any time",
-      variant === "credit" ? "Everything stays in one credit workspace" : "Everything stays under one portal login",
-    ],
-  };
-}
-
 function LockedShell(opts: {
   basePath: "/portal" | "/credit";
   slug: string;
@@ -115,7 +41,7 @@ function LockedShell(opts: {
   state: "locked" | "paused" | "canceled" | "coming_soon";
   label: string;
 }) {
-  const benefit = benefitCopyForService(opts.slug, opts.entitlementKey, opts.basePath === "/credit" ? "credit" : "portal");
+  const benefit = getPortalServiceBenefitCopy(opts.slug, opts.entitlementKey, opts.basePath === "/credit" ? "credit" : "portal");
 
   const statusClass =
     opts.state === "paused"
@@ -128,34 +54,32 @@ function LockedShell(opts: {
 
   const billingUnlockHref =
     opts.state === "paused" || opts.state === "canceled"
-      ? `${opts.basePath}/app/billing#pa-billing-services`
+      ? `${opts.basePath}/app/billing`
       : opts.entitlementKey
         ? `${opts.basePath}/app/billing?buy=${encodeURIComponent(opts.entitlementKey)}&autostart=1`
-        : `${opts.basePath}/app/billing#pa-billing-services`;
-  const helpHref = `${opts.basePath}/tutorials/${opts.slug}`;
-  const askPuraHref = `${opts.basePath}/app/ai-chat?onboarding=1`;
+        : `${opts.basePath}/app/billing`;
 
-  const primaryCta = opts.state === "paused" || opts.state === "canceled" ? `Resume ${opts.title}` : `Enable ${opts.title}`;
+  const primaryCta = opts.state === "paused" || opts.state === "canceled" ? "Open Billing" : `Unlock ${opts.title}`;
 
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <div className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass}`}>
-            {opts.label || (opts.state === "paused" ? "Paused" : opts.state === "canceled" ? "Canceled" : opts.state === "coming_soon" ? "Rolling out" : "Locked")}
+            {opts.label || (opts.state === "paused" ? "Paused" : opts.state === "canceled" ? "Canceled" : opts.state === "coming_soon" ? "Coming soon" : "Locked")}
           </div>
           <h1 className="mt-3 text-2xl font-bold text-brand-ink sm:text-3xl">
             {opts.state === "paused" || opts.state === "canceled"
               ? `${opts.title} is ${opts.state}`
               : opts.state === "coming_soon"
-                ? `${opts.title} is in rollout`
+                ? `${opts.title} is coming soon`
                 : `Unlock ${opts.title}`}
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
             {opts.state === "paused" || opts.state === "canceled"
-              ? "This service is currently off. Resume it from your service access section whenever you are ready to bring it back live."
+              ? "This service is turned off in Billing. Resume it any time to regain access."
               : opts.state === "coming_soon"
-                ? "This service is in active rollout. You can review the walkthrough now so the setup path is already clear before access opens for this workspace."
+                ? "This service isn’t available yet. It will appear here once it’s ready."
                 : "This service isn’t included in your current plan. You can add it any time."}
           </p>
         </div>
@@ -196,16 +120,16 @@ function LockedShell(opts: {
             </div>
           ) : null}
         </div>
-
+      </div>
         <div className="space-y-4">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="text-sm font-semibold text-zinc-900">Next step</div>
             <div className="mt-2 text-sm text-zinc-600">
               {opts.state === "paused" || opts.state === "canceled"
-                ? "Resume this service from service access, then come back here to continue setup."
+                ? "Open Billing to turn this service back on."
                 : opts.state === "coming_soon"
-                  ? "Review the rollout guide now so the setup path is already clear when access opens up."
-                  : "Enable this service now, then come back here to configure it."}
+                  ? "Keep using the rest of your services while this one is being prepared."
+                  : "Turn this service on in Billing, then come back here to configure it."}
             </div>
             <div className="mt-4 flex flex-col gap-3">
               {opts.state !== "coming_soon" ? (
@@ -224,46 +148,27 @@ function LockedShell(opts: {
               </Link>
             </div>
           </div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">Need help getting this live?</div>
-            <div className="mt-2 text-sm text-zinc-600">
-              Open the walkthrough for the exact setup path, or let Pura help you decide what to unlock, configure, and test first.
-            </div>
-            <div className="mt-4 flex flex-col gap-3">
-              <Link
-                href={helpHref}
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-              >
-                Open walkthrough
-              </Link>
-              <Link
-                href={askPuraHref}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                Ask Pura for help
-              </Link>
-            </div>
-          </div>
         </div>
       </div>
-    </div>
   );
 }
 
 export async function PortalServiceGate({
   slug,
   children,
+  variantOverride,
 }: {
   slug: string;
   children: React.ReactNode;
+  variantOverride?: "portal" | "credit";
 }) {
   const h = await headers();
-  const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
+  const variant = variantOverride ?? normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
   const basePath = portalBasePath(variant);
 
   const service = PORTAL_SERVICES.find((s) => s.slug === slug) ?? null;
   if (!service) return children;
+  const serviceCopy = getPortalServiceCopy(service, variant);
 
   // Permissions gating only. Ownership gating is represented by the service status below.
   const keys = serviceKeysForSlug(slug);
@@ -272,27 +177,12 @@ export async function PortalServiceGate({
       ? await requirePortalUserForService(keys[0], "view")
       : await requirePortalUserForAnyService(keys.slice(), "view");
 
-  const ownerId = user.id;
-  const result = await withTimeout(
-    getPortalServiceStatusesForOwner({
-      ownerId,
-      fallbackEmail: user.email,
-      portalVariant: variant,
-    }).catch((error) => {
-      console.error("[portal][service-gate] status lookup failed", {
-        ownerId,
-        slug,
-        variant,
-        error: error instanceof Error ? error.message : String(error ?? "unknown"),
-      });
-      return null;
-    }),
-    2000,
-    null,
-  );
-  if (!result) {
+  if (slug === "media-library" && service.included) {
     return children;
   }
+
+  const ownerId = user.id;
+  const result = await getPortalServiceStatusesForOwner({ ownerId, fallbackEmail: user.email, portalVariant: variant });
   const st = result.statuses?.[slug];
   const state = String(st?.state || "").toLowerCase();
 
@@ -302,8 +192,8 @@ export async function PortalServiceGate({
         basePath={basePath}
         slug={slug}
         title={service.title}
-        description={service.description}
-        highlights={service.highlights}
+        description={serviceCopy.description}
+        highlights={serviceCopy.highlights}
         entitlementKey={service.entitlementKey}
         state={state as any}
         label={String(st?.label || "")}

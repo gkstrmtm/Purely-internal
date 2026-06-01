@@ -2388,8 +2388,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <div className="mt-6 text-sm text-zinc-600">Loading funnels…</div>
           ) : funnels.length === 0 ? (
             <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No funnels built yet</div>
-              <div className="mt-1">Create the first funnel to start from a guided structure instead of a blank page.</div>
+              <div className="font-semibold text-zinc-900">Your funnel workspace is ready for the first build</div>
+              <div className="mt-1">Create the first funnel to start from a guided structure, shape the offer, and publish from something stronger than a blank page.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -2588,8 +2588,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <div className="mt-6 text-sm text-zinc-600">Loading forms…</div>
           ) : forms.length === 0 ? (
             <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No forms built yet</div>
-              <div className="mt-1">Create a form to capture leads, surveys, or intake details on a hosted route.</div>
+              <div className="font-semibold text-zinc-900">Your hosted forms are ready for the first capture flow</div>
+              <div className="mt-1">Create a form to collect leads, surveys, or intake details on a hosted route that is ready to share once the fields are in place.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -2662,7 +2662,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 </p>
               </div>
               <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">
-                {builderSettingsBusy ? "Loading…" : normalizedMetaPixelIdInput ? "Configured" : "No pixel ID yet"}
+                {builderSettingsBusy ? "Loading…" : normalizedMetaPixelIdInput ? "Configured" : "Pixel ID not added yet"}
               </div>
             </div>
 
@@ -2689,8 +2689,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                   <div className="text-xs text-zinc-500">Current default pixel: {normalizedMetaPixelIdInput}</div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No default Meta pixel ready yet</div>
-                    <div className="mt-1">Add a numeric pixel ID here, open integrations if the source account still needs to be connected, or ask Pura to walk you through the setup.</div>
+                    <div className="font-semibold text-zinc-900">Add the default Meta pixel</div>
+                    <div className="mt-1">Add the numeric pixel ID here when this workspace is ready to track hosted funnel traffic, open integrations if the source account still needs to be connected, or ask Pura to walk you through the setup.</div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <Link
                         href={`${basePath}/app/settings/integrations`}
@@ -2755,8 +2755,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 <div className="text-sm text-zinc-600">Loading domains…</div>
               ) : domains.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No domains saved yet</div>
-                    <div className="mt-1">Save a custom domain here when you want funnels and forms to publish on your own brand instead of the default hosted route.</div>
+                    <div className="font-semibold text-zinc-900">Save the first custom domain</div>
+                    <div className="mt-1">Save a domain here when you want funnels and forms to publish on your own brand instead of the default hosted route, then come back for DNS verification and launch prep.</div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <Link
                         href={`${basePath}/tutorials/funnel-builder`}
@@ -3226,7 +3226,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         <div className="mt-1 text-sm leading-6 text-zinc-600">
                           {createBusinessProfileSummary
                             ? "Saved company context is already loaded. Add only what is specific to this funnel, offer, or audience shift."
-                            : "If there is no formal brief yet, answer this like a strategist is interviewing the owner. The builder can work from plain-language answers, and you can pick this back up later."}
+                            : "If a formal brief is not ready yet, answer this like a strategist is interviewing the owner. The builder can work from plain-language answers, and you can come back to refine it later."}
                         </div>
                       </div>
                       <div className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700">

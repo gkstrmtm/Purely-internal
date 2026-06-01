@@ -37,14 +37,17 @@ export default function PortalTutorialPhotosAdmin() {
       );
       if (!mounted) return;
       if (!res?.ok) {
-        setLoadState({ status: "error", message: "Could not load tutorial photos." });
+        let message = "Could not load tutorial photos.";
+        const body = await res?.json().catch(() => null as any);
+        if (body && typeof body.error === "string" && body.error.trim()) message = body.error.trim();
+        setLoadState({ status: "error", message });
         return;
       }
       const json = (await res.json().catch(() => null)) as
-        | { ok?: boolean; tutorials?: TutorialMeta[]; photos?: Record<string, string[]> }
+        | { ok?: boolean; error?: string; tutorials?: TutorialMeta[]; photos?: Record<string, string[]> }
         | null;
       if (!json?.ok || !Array.isArray(json.tutorials)) {
-        setLoadState({ status: "error", message: "Unexpected response." });
+        setLoadState({ status: "error", message: typeof json?.error === "string" && json.error ? json.error : "Unexpected response." });
         return;
       }
       setTutorials(json.tutorials);
@@ -139,7 +142,7 @@ export default function PortalTutorialPhotosAdmin() {
 
       <div className="mt-4 max-h-[540px] overflow-y-auto rounded-2xl border border-zinc-200">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <thead className="bg-zinc-50 text-xs font-medium text-zinc-500">
             <tr>
               <th className="px-4 py-3">Tutorial</th>
               <th className="px-4 py-3">Key</th>
@@ -159,7 +162,7 @@ export default function PortalTutorialPhotosAdmin() {
                   <td className="px-4 py-3 align-top text-sm text-zinc-900">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">{t.label}</span>
-                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold uppercase text-zinc-600">
+                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
                         {t.kind === "core" ? "Portal" : "Service"}
                       </span>
                     </div>

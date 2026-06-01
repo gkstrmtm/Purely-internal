@@ -453,9 +453,9 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
 
       {!busy && !form ? (
         <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-6">
-          <div className="text-base font-semibold text-zinc-900">This form is not available right now</div>
+          <div className="text-base font-semibold text-zinc-900">This response workspace is not ready yet</div>
           <div className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
-            This response workspace did not open. Retry here to pull the form again, head back into the editor, or ask Pura to help you restore the hosted form.
+            We could not reopen this form just now. Reload the workspace, jump back into the editor, or ask Pura to help reconnect the hosted form before you review responses.
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
             <button
@@ -494,11 +494,11 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         {submissions.length === 0 ? (
           <div className="p-6">
             <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5">
-              <div className="text-sm font-semibold text-zinc-900">{busy ? "Loading submissions…" : "No form submissions yet"}</div>
+              <div className="text-sm font-semibold text-zinc-900">{busy ? "Loading submissions…" : "Responses will appear here after the first submission"}</div>
               <div className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
                 {busy
                   ? "We are pulling the latest responses now."
-                  : "This form is ready, but nobody has submitted it yet. Open the form to test the flow yourself or jump back into the editor to finish the questions and styling before you share it."}
+                  : "This form is ready to collect leads. Open the hosted form to run a test submission, or head back into the editor to tighten the questions and styling before you share it."}
               </div>
               {!busy ? (
                 <div className="mt-4 flex flex-wrap gap-3">
@@ -841,7 +841,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                           <div>
                             <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Device fingerprint</div>
                             <div className="mt-1 font-mono text-[12px]">
-                              {selectedSubmission.device.fingerprint || "(not available)"}
+                              {selectedSubmission.device.fingerprint || "Not captured for this submission"}
                             </div>
                           </div>
                           <div>
@@ -859,7 +859,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                             <div className="mt-1 text-sm">
                               {typeof selectedSubmission.device.otherSubmissionCount === "number"
                                 ? `${selectedSubmission.device.otherSubmissionCount} total`
-                                : "(not available)"}
+                                : "Not available for this submission"}
                             </div>
                             {Array.isArray(selectedSubmission.device.recentOtherSubmissions) && selectedSubmission.device.recentOtherSubmissions.length ? (
                               <div className="mt-2 space-y-1">

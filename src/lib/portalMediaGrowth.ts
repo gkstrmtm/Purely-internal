@@ -33,7 +33,7 @@ export const MEDIA_PROVIDER_CONNECTION_STATES = [
   "metrics_unavailable",
 ] as const;
 
-export const MEDIA_PROVIDER_PUBLISH_STATES = ["manual_only", "draft", "ready", "queued", "published", "failed", "blocked"] as const;
+export const MEDIA_PROVIDER_PUBLISH_STATES = ["manual_only", "unavailable", "draft", "ready", "queued", "pending", "published", "failed", "blocked"] as const;
 
 export type MediaGrowthState = (typeof MEDIA_GROWTH_STATES)[number];
 export type MediaDistributionProviderKey = (typeof MEDIA_DISTRIBUTION_PROVIDER_KEYS)[number];
@@ -65,11 +65,20 @@ export type PortalMediaGrowthProfile = {
   distributionProvider: MediaDistributionProviderKey | null;
   providerConnectionState: MediaProviderConnectionState | null;
   providerPublishState: MediaProviderPublishState | null;
+  providerDestinationType: string | null;
+  providerDestinationId: string | null;
+  providerDestinationLabel: string | null;
   providerAccountLabel: string | null;
+  providerScheduledForIso: string | null;
+  providerQueuedAtIso: string | null;
+  providerPendingAtIso: string | null;
   queueOrder: number | null;
   dailyPostCap: number | null;
+  providerStatus: string | null;
   providerPostId: string | null;
   providerLastError: string | null;
+  providerRetryEligible: boolean | null;
+  providerRetryAtIso: string | null;
   providerLastAttemptAtIso: string | null;
   providerPublishedAtIso: string | null;
   metricsImpressions: number | null;
@@ -119,11 +128,20 @@ export type PortalMediaGrowthProfileInput = Partial<{
   distributionProvider: string | null;
   providerConnectionState: string | null;
   providerPublishState: string | null;
+  providerDestinationType: string | null;
+  providerDestinationId: string | null;
+  providerDestinationLabel: string | null;
   providerAccountLabel: string | null;
+  providerScheduledForIso: string | null;
+  providerQueuedAtIso: string | null;
+  providerPendingAtIso: string | null;
   queueOrder: number | null;
   dailyPostCap: number | null;
+  providerStatus: string | null;
   providerPostId: string | null;
   providerLastError: string | null;
+  providerRetryEligible: boolean | null;
+  providerRetryAtIso: string | null;
   providerLastAttemptAtIso: string | null;
   providerPublishedAtIso: string | null;
   metricsImpressions: number | null;
@@ -132,6 +150,10 @@ export type PortalMediaGrowthProfileInput = Partial<{
   metricsClickCount: number | null;
   metricsSyncedAtIso: string | null;
 }>;
+
+const MEDIA_GROWTH_CONTEXT_TTL_MS = 10 * 1000;
+const mediaGrowthContextCache = new Map<string, { value: PortalMediaGrowthContext; expiresAt: number }>();
+const mediaGrowthContextInFlight = new Map<string, Promise<PortalMediaGrowthContext>>();
 
 type GrowthRow = {
   mediaItemId: string;
@@ -158,11 +180,20 @@ type GrowthRow = {
   distributionProvider: string | null;
   providerConnectionState: string | null;
   providerPublishState: string | null;
+  providerDestinationType: string | null;
+  providerDestinationId: string | null;
+  providerDestinationLabel: string | null;
   providerAccountLabel: string | null;
+  providerScheduledForAt: Date | string | null;
+  providerQueuedAt: Date | string | null;
+  providerPendingAt: Date | string | null;
   queueOrder: number | null;
   dailyPostCap: number | null;
+  providerStatus: string | null;
   providerPostId: string | null;
   providerLastError: string | null;
+  providerRetryEligible: boolean | null;
+  providerRetryAt: Date | string | null;
   providerLastAttemptAt: Date | string | null;
   providerPublishedAt: Date | string | null;
   metricsImpressions: number | null;
@@ -246,6 +277,15 @@ function normalizeNullableInteger(value: unknown, min = 0, max = 1_000_000_000):
   return rounded;
 }
 
+function normalizeNullableBoolean(value: unknown): boolean | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return value;
+  const raw = String(value).trim().toLowerCase();
+  if (raw === "true" || raw === "1" || raw === "yes") return true;
+  if (raw === "false" || raw === "0" || raw === "no") return false;
+  return null;
+}
+
 function inferDistributionProvider(targetPlatform: string | null | undefined): MediaDistributionProviderKey {
   switch (String(targetPlatform || "")) {
     case "facebook_post":
@@ -286,13 +326,14 @@ function defaultProviderPublishState(args: {
   providerLastError: string | null;
 }): MediaProviderPublishState {
   if (args.providerPostId || args.providerPublishedAtIso) return "published";
-  if (args.distributionProvider === "future_youtube") return "manual_only";
+  if (args.distributionProvider === "manual" || args.workflowState === "posted_manually") return "manual_only";
+  if (args.distributionProvider === "future_youtube") return "unavailable";
   if (args.workflowState === "queued") return "queued";
+  if (args.providerConnectionState === "coming_soon" || args.providerConnectionState === "disabled" || args.providerConnectionState === "direct_publish_unsupported") return "unavailable";
   if (args.workflowState === "provider_failed" || args.providerLastError) return "failed";
   if (args.workflowState === "provider_blocked") return "blocked";
-  if (args.distributionProvider !== "manual" && args.providerConnectionState !== "connected") return "blocked";
+  if (args.providerConnectionState !== "connected") return "blocked";
   if (args.workflowState === "approved") return "ready";
-  if (args.distributionProvider === "manual" || args.workflowState === "posted_manually") return "manual_only";
   return "draft";
 }
 
@@ -322,11 +363,20 @@ function emptyProfile(mediaItemId: string): PortalMediaGrowthProfile {
     distributionProvider: null,
     providerConnectionState: null,
     providerPublishState: null,
+    providerDestinationType: null,
+    providerDestinationId: null,
+    providerDestinationLabel: null,
     providerAccountLabel: null,
+    providerScheduledForIso: null,
+    providerQueuedAtIso: null,
+    providerPendingAtIso: null,
     queueOrder: null,
     dailyPostCap: null,
+    providerStatus: null,
     providerPostId: null,
     providerLastError: null,
+    providerRetryEligible: null,
+    providerRetryAtIso: null,
     providerLastAttemptAtIso: null,
     providerPublishedAtIso: null,
     metricsImpressions: null,
@@ -382,11 +432,20 @@ function rowToProfile(row: GrowthRow): PortalMediaGrowthProfile {
         providerLastError,
       }),
     ),
+    providerDestinationType: normalizeNullableString(row.providerDestinationType, 80),
+    providerDestinationId: normalizeNullableString(row.providerDestinationId, 200),
+    providerDestinationLabel: normalizeNullableString(row.providerDestinationLabel, 200),
     providerAccountLabel: normalizeNullableString(row.providerAccountLabel, 200),
+    providerScheduledForIso: toIso(row.providerScheduledForAt),
+    providerQueuedAtIso: toIso(row.providerQueuedAt),
+    providerPendingAtIso: toIso(row.providerPendingAt),
     queueOrder: normalizeNullableInteger(row.queueOrder, 1, 999),
     dailyPostCap: normalizeNullableInteger(row.dailyPostCap, 1, 20),
+    providerStatus: normalizeNullableString(row.providerStatus, 160),
     providerPostId,
     providerLastError,
+    providerRetryEligible: normalizeNullableBoolean(row.providerRetryEligible),
+    providerRetryAtIso: toIso(row.providerRetryAt),
     providerLastAttemptAtIso: toIso(row.providerLastAttemptAt),
     providerPublishedAtIso,
     metricsImpressions: normalizeNullableInteger(row.metricsImpressions, 0, 2_000_000_000),
@@ -455,11 +514,20 @@ function applyInput(base: PortalMediaGrowthProfile, input: PortalMediaGrowthProf
             providerLastError,
           }),
         ),
+    providerDestinationType: input.providerDestinationType === undefined ? base.providerDestinationType : normalizeNullableString(input.providerDestinationType, 80),
+    providerDestinationId: input.providerDestinationId === undefined ? base.providerDestinationId : normalizeNullableString(input.providerDestinationId, 200),
+    providerDestinationLabel: input.providerDestinationLabel === undefined ? base.providerDestinationLabel : normalizeNullableString(input.providerDestinationLabel, 200),
     providerAccountLabel: input.providerAccountLabel === undefined ? base.providerAccountLabel : normalizeNullableString(input.providerAccountLabel, 200),
+    providerScheduledForIso: input.providerScheduledForIso === undefined ? base.providerScheduledForIso : toIso(normalizeDate(input.providerScheduledForIso)),
+    providerQueuedAtIso: input.providerQueuedAtIso === undefined ? base.providerQueuedAtIso : toIso(normalizeDate(input.providerQueuedAtIso)),
+    providerPendingAtIso: input.providerPendingAtIso === undefined ? base.providerPendingAtIso : toIso(normalizeDate(input.providerPendingAtIso)),
     queueOrder: input.queueOrder === undefined ? base.queueOrder : normalizeNullableInteger(input.queueOrder, 1, 999),
     dailyPostCap: input.dailyPostCap === undefined ? base.dailyPostCap : normalizeNullableInteger(input.dailyPostCap, 1, 20),
+    providerStatus: input.providerStatus === undefined ? base.providerStatus : normalizeNullableString(input.providerStatus, 160),
     providerPostId,
     providerLastError,
+    providerRetryEligible: input.providerRetryEligible === undefined ? base.providerRetryEligible : normalizeNullableBoolean(input.providerRetryEligible),
+    providerRetryAtIso: input.providerRetryAtIso === undefined ? base.providerRetryAtIso : toIso(normalizeDate(input.providerRetryAtIso)),
     providerLastAttemptAtIso: input.providerLastAttemptAtIso === undefined ? base.providerLastAttemptAtIso : toIso(normalizeDate(input.providerLastAttemptAtIso)),
     providerPublishedAtIso,
     metricsImpressions: input.metricsImpressions === undefined ? base.metricsImpressions : normalizeNullableInteger(input.metricsImpressions, 0, 2_000_000_000),
@@ -503,11 +571,20 @@ SELECT
   "distributionProvider",
   "providerConnectionState",
   "providerPublishState",
+  "providerDestinationType",
+  "providerDestinationId",
+  "providerDestinationLabel",
   "providerAccountLabel",
+  "providerScheduledForAt",
+  "providerQueuedAt",
+  "providerPendingAt",
   "queueOrder",
   "dailyPostCap",
+  "providerStatus",
   "providerPostId",
   "providerLastError",
+  "providerRetryEligible",
+  "providerRetryAt",
   "providerLastAttemptAt",
   "providerPublishedAt",
   "metricsImpressions",
@@ -576,11 +653,20 @@ INSERT INTO "PortalMediaGrowthProfile" (
   "distributionProvider",
   "providerConnectionState",
   "providerPublishState",
+  "providerDestinationType",
+  "providerDestinationId",
+  "providerDestinationLabel",
   "providerAccountLabel",
+  "providerScheduledForAt",
+  "providerQueuedAt",
+  "providerPendingAt",
   "queueOrder",
   "dailyPostCap",
+  "providerStatus",
   "providerPostId",
   "providerLastError",
+  "providerRetryEligible",
+  "providerRetryAt",
   "providerLastAttemptAt",
   "providerPublishedAt",
   "metricsImpressions",
@@ -591,7 +677,7 @@ INSERT INTO "PortalMediaGrowthProfile" (
   "createdAt",
   "updatedAt"
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49
 )
 ON CONFLICT ("mediaItemId") DO UPDATE SET
   "workflowState" = EXCLUDED."workflowState",
@@ -617,11 +703,20 @@ ON CONFLICT ("mediaItemId") DO UPDATE SET
   "distributionProvider" = EXCLUDED."distributionProvider",
   "providerConnectionState" = EXCLUDED."providerConnectionState",
   "providerPublishState" = EXCLUDED."providerPublishState",
+  "providerDestinationType" = EXCLUDED."providerDestinationType",
+  "providerDestinationId" = EXCLUDED."providerDestinationId",
+  "providerDestinationLabel" = EXCLUDED."providerDestinationLabel",
   "providerAccountLabel" = EXCLUDED."providerAccountLabel",
+  "providerScheduledForAt" = EXCLUDED."providerScheduledForAt",
+  "providerQueuedAt" = EXCLUDED."providerQueuedAt",
+  "providerPendingAt" = EXCLUDED."providerPendingAt",
   "queueOrder" = EXCLUDED."queueOrder",
   "dailyPostCap" = EXCLUDED."dailyPostCap",
+  "providerStatus" = EXCLUDED."providerStatus",
   "providerPostId" = EXCLUDED."providerPostId",
   "providerLastError" = EXCLUDED."providerLastError",
+  "providerRetryEligible" = EXCLUDED."providerRetryEligible",
+  "providerRetryAt" = EXCLUDED."providerRetryAt",
   "providerLastAttemptAt" = EXCLUDED."providerLastAttemptAt",
   "providerPublishedAt" = EXCLUDED."providerPublishedAt",
   "metricsImpressions" = EXCLUDED."metricsImpressions",
@@ -657,11 +752,20 @@ ON CONFLICT ("mediaItemId") DO UPDATE SET
     next.distributionProvider,
     next.providerConnectionState,
     next.providerPublishState,
+    next.providerDestinationType,
+    next.providerDestinationId,
+    next.providerDestinationLabel,
     next.providerAccountLabel,
+    next.providerScheduledForIso ? new Date(next.providerScheduledForIso) : null,
+    next.providerQueuedAtIso ? new Date(next.providerQueuedAtIso) : null,
+    next.providerPendingAtIso ? new Date(next.providerPendingAtIso) : null,
     next.queueOrder,
     next.dailyPostCap,
+    next.providerStatus,
     next.providerPostId,
     next.providerLastError,
+    next.providerRetryEligible,
+    next.providerRetryAtIso ? new Date(next.providerRetryAtIso) : null,
     next.providerLastAttemptAtIso ? new Date(next.providerLastAttemptAtIso) : null,
     next.providerPublishedAtIso ? new Date(next.providerPublishedAtIso) : null,
     next.metricsImpressions,
@@ -677,6 +781,18 @@ ON CONFLICT ("mediaItemId") DO UPDATE SET
 }
 
 export async function getPortalMediaGrowthContext(ownerId: string): Promise<PortalMediaGrowthContext> {
+  const cacheKey = String(ownerId || "").trim();
+  const cached = mediaGrowthContextCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
+  const inFlight = mediaGrowthContextInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = (async (): Promise<PortalMediaGrowthContext> => {
   const [bookingConfig, funnels, funnelPages] = await Promise.all([
     getExternalBookingLinkConfig(ownerId).catch(() => null),
     prisma.creditFunnel.findMany({
@@ -693,7 +809,7 @@ export async function getPortalMediaGrowthContext(ownerId: string): Promise<Port
     }).catch(() => []),
   ]);
 
-  return {
+  const context = {
     bookingLink: bookingConfig
       ? {
           configured: Boolean((bookingConfig.normalizedUrl || bookingConfig.sourceUrl || "").trim()),
@@ -720,4 +836,19 @@ export async function getPortalMediaGrowthContext(ownerId: string): Promise<Port
       updatedAtIso: page.updatedAt.toISOString(),
     })),
   };
+  mediaGrowthContextCache.set(cacheKey, {
+    value: context,
+    expiresAt: Date.now() + MEDIA_GROWTH_CONTEXT_TTL_MS,
+  });
+  return context;
+  })();
+
+  mediaGrowthContextInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    if (mediaGrowthContextInFlight.get(cacheKey) === request) {
+      mediaGrowthContextInFlight.delete(cacheKey);
+    }
+  }
 }

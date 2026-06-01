@@ -16,6 +16,13 @@ type RecoveryRecord = {
   archivedAtIso: string;
   archivedByUserId: string | null;
   archivedByLabel: string;
+  metadata: {
+    name: string | null;
+    title: string | null;
+    email: string | null;
+    slug: string | null;
+    status: string | null;
+  };
 };
 
 type RecoveryResponse = {
@@ -87,6 +94,7 @@ export function RecoveryConsoleClient() {
         cache: "no-store",
       });
       const json = (await response.json().catch(() => null)) as RecoveryResponse | { ok?: false; error?: string } | null;
+
       if (!response.ok || !json || !("ok" in json) || json.ok !== true) {
         const message = json && "error" in json && typeof json.error === "string"
           ? json.error
@@ -157,6 +165,7 @@ export function RecoveryConsoleClient() {
 
   async function handlePurgeConfirm() {
     if (!purgeTarget) return;
+
     const reason = purgeReason.trim();
     if (!reason) {
       setPurgeError("Purge reason is required.");
@@ -299,7 +308,9 @@ export function RecoveryConsoleClient() {
       </form>
 
       {actionSuccess ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{actionSuccess}</div>
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {actionSuccess}
+        </div>
       ) : null}
 
       {error ? (
@@ -315,7 +326,7 @@ export function RecoveryConsoleClient() {
             <div className="text-base font-semibold text-brand-ink">Archived records</div>
             <div className="mt-1 text-sm text-zinc-600">Restore is reversible. Permanent purge removes the archived record from recovery and keeps audit history only.</div>
           </div>
-          <div className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-600">
+          <div className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-600">
             {loading ? "Loading" : `${records.length} result${records.length === 1 ? "" : "s"}`}
           </div>
         </div>
@@ -333,7 +344,7 @@ export function RecoveryConsoleClient() {
         ) : records.length ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-zinc-200 text-left text-sm">
-              <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
+              <thead className="bg-zinc-50 text-xs text-zinc-500">
                 <tr>
                   <th className="px-5 py-3 font-semibold">Record</th>
                   <th className="px-5 py-3 font-semibold">Type</th>
@@ -399,7 +410,9 @@ export function RecoveryConsoleClient() {
         ) : (
           <div className="px-5 py-12 text-center">
             <div className="text-lg font-semibold text-brand-ink">No archived records found</div>
-            <div className="mt-2 text-sm text-zinc-600">Adjust the filters above or archive a test record in the portal to verify recoverability.</div>
+            <div className="mt-2 text-sm text-zinc-600">
+              Adjust the filters above or archive a test record in the portal to verify recoverability.
+            </div>
           </div>
         )}
       </div>
@@ -412,7 +425,9 @@ export function RecoveryConsoleClient() {
               You are restoring {restoreTarget.entityTypeLabel.toLowerCase()} <span className="font-medium text-zinc-900">{restoreTarget.displayLabel}</span> for <span className="font-medium text-zinc-900">{restoreTarget.ownerLabel}</span>.
             </div>
 
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">Restore requires a reason and will write a new audit event.</div>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+              Restore requires a reason and will write a new audit event.
+            </div>
 
             <label className="mt-5 grid gap-1.5 text-sm text-zinc-700">
               <span className="font-medium text-zinc-900">Restore reason</span>
@@ -425,7 +440,11 @@ export function RecoveryConsoleClient() {
               />
             </label>
 
-            {restoreError ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{restoreError}</div> : null}
+            {restoreError ? (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {restoreError}
+              </div>
+            ) : null}
 
             <div className="mt-6 flex flex-wrap justify-end gap-3">
               <button
@@ -461,7 +480,9 @@ export function RecoveryConsoleClient() {
               You are permanently deleting archived {purgeTarget.entityTypeLabel.toLowerCase()} <span className="font-medium text-zinc-900">{purgeTarget.displayLabel}</span> for <span className="font-medium text-zinc-900">{purgeTarget.ownerLabel}</span>.
             </div>
 
-            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">This cannot be undone. Restore will no longer be available after purge. Audit history is preserved, but the archived record leaves the recovery queue.</div>
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              This cannot be undone. Restore will no longer be available after purge. Audit history is preserved, but the archived record leaves the recovery queue.
+            </div>
 
             <label className="mt-5 grid gap-1.5 text-sm text-zinc-700">
               <span className="font-medium text-zinc-900">Purge reason</span>
@@ -484,7 +505,11 @@ export function RecoveryConsoleClient() {
               />
             </label>
 
-            {purgeError ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{purgeError}</div> : null}
+            {purgeError ? (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {purgeError}
+              </div>
+            ) : null}
 
             <div className="mt-6 flex flex-wrap justify-end gap-3">
               <button

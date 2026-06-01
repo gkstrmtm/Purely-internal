@@ -1917,7 +1917,7 @@ function buildTransactionReadiness(opts: {
         ? `A funnel calendar is linked, but this page still needs a booking block or booking CTA.`
         : expectsBooking
           ? `This page still cannot take a booking. Add a booking block or booking CTA.`
-          : `No booking block or booking CTA is wired on this page yet.`,
+          : `A booking block or booking CTA is not wired on this page yet.`,
     pointers: bookingPointers.slice(0, 4),
   };
 
@@ -1931,7 +1931,7 @@ function buildTransactionReadiness(opts: {
         ? `Offers exist. Add one checkout path to this page.`
         : expectsPurchase
           ? `This page still cannot take payment. Add a checkout, cart, or priced offer block.`
-          : `No checkout or cart path is wired on this page yet.`,
+          : `A checkout or cart path is not wired on this page yet.`,
     pointers: purchasePointers.slice(0, 4),
   };
 
@@ -2406,11 +2406,9 @@ function DirectionWorkbenchPanel({
       : assistantContext?.state || "";
   const assistantSummaryParts = [
     selectedTargetLabel
-      ? `Editing ${selectedTargetLabel}`
+      ? selectedTargetLabel
       : assistantContext?.page
-        ? assistantContext?.mode === "Edit"
-          ? `Editing ${assistantContext.page}`
-          : assistantContext.page
+        ? assistantContext.page
         : "",
     assistantPriorityContext,
   ].filter(Boolean);
@@ -6345,24 +6343,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             ) : null}
                           <FunnelCustomHtmlRuntimeSurface
                             html={getFunnelPageCurrentHtml(selectedPage)}
-                            bookingTarget={bookingSiteSlug
+                            bookingTarget={typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
                               ? {
-                                  kind: "slug",
-                                  slug: bookingSiteSlug,
+                                  kind: "calendar",
+                                  ownerId: String((funnel as any).ownerId),
+                                  calendarId: funnel.bookingCalendarId,
                                   funnelId: funnel?.id || null,
                                   pageId: selectedPage.id,
                                   themeStage: "current",
                                 }
-                              : (typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
+                              : bookingSiteSlug
                                   ? {
-                                      kind: "calendar",
-                                      ownerId: String((funnel as any).ownerId),
-                                      calendarId: funnel.bookingCalendarId,
+                                      kind: "slug",
+                                      slug: bookingSiteSlug,
                                       funnelId: funnel?.id || null,
                                       pageId: selectedPage.id,
                                       themeStage: "current",
                                     }
-                                  : null)}
+                                  : null}
                             injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
                             bookingLabel={selectedPagePreviewBookingState?.title || null}
                             surfaceContext={previewBookingSurfaceContext}
@@ -6606,24 +6604,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         >
                           <FunnelCustomHtmlRuntimeSurface
                             html={getFunnelPageCurrentHtml(selectedPage)}
-                            bookingTarget={bookingSiteSlug
+                            bookingTarget={typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
                               ? {
-                                  kind: "slug",
-                                  slug: bookingSiteSlug,
+                                  kind: "calendar",
+                                  ownerId: String((funnel as any).ownerId),
+                                  calendarId: funnel.bookingCalendarId,
                                   funnelId: funnel?.id || null,
                                   pageId: selectedPage.id,
                                   themeStage: "current",
                                 }
-                              : (typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
+                              : bookingSiteSlug
                                   ? {
-                                      kind: "calendar",
-                                      ownerId: String((funnel as any).ownerId),
-                                      calendarId: funnel.bookingCalendarId,
+                                      kind: "slug",
+                                      slug: bookingSiteSlug,
                                       funnelId: funnel?.id || null,
                                       pageId: selectedPage.id,
                                       themeStage: "current",
                                     }
-                                  : null)}
+                                  : null}
                             injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
                             bookingLabel={selectedPagePreviewBookingState?.title || null}
                             surfaceContext={previewBookingSurfaceContext}
@@ -6783,7 +6781,7 @@ type FunnelThread = FunnelThreadRecord;
 
 function formatThreadLastActive(raw: string | null | undefined) {
   const value = String(raw || "").trim();
-  if (!value) return "No activity yet";
+  if (!value) return "Activity not logged yet";
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return "Recently updated";
 
@@ -6807,7 +6805,7 @@ function formatThreadLastActive(raw: string | null | undefined) {
 }
 
 function formatTrackingPercent(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Unavailable";
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}%`;
 }
 
@@ -6818,7 +6816,7 @@ function buildThreadPreview(messages: Array<{ role: string; content: string }>) 
     if (!content) continue;
     return message.role === "assistant" ? content : `You: ${content}`;
   }
-  return "No saved reasoning in this thread yet.";
+  return "Saved reasoning is not available in this thread yet.";
 }
 
 function buildThreadPreviewSummary(thread: FunnelThreadRecord) {
@@ -9490,7 +9488,7 @@ export function FunnelEditorClient({
         summary: logoUrl
           ? "Selected header logo for brand asset changes."
           : "Selected empty header logo slot for brand asset changes.",
-        contextLine: logoUrl ? "Current logo is set." : "No logo is set yet.",
+        contextLine: logoUrl ? "Current logo is set." : "Logo is not set yet.",
         blockType: "headerNav",
         blockId: selectedBlock.id,
         currentState: {
@@ -9732,7 +9730,7 @@ export function FunnelEditorClient({
 
     if (configured) {
       if (missing > 0) {
-        return `${configured} linked, ${missing} missing route${missing === 1 ? "" : "s"}.`;
+        return `${configured} linked, ${missing} route${missing === 1 ? " is" : "s are"} still missing.`;
       }
       if (pageCalendarBlockStats.duplicateConfiguredCount > 0) {
         return `${configured} linked, duplicate route detected.`;
@@ -9748,7 +9746,7 @@ export function FunnelEditorClient({
   const pageCalendarRouteSummaryLabel = useMemo(() => {
     if (!pageCalendarConfiguredCount) return null;
     if (pageCalendarBlockStats.missingConfiguredCount > 0) {
-      return `${pageCalendarConfiguredCount} step-linked, ${pageCalendarBlockStats.missingConfiguredCount} missing route${pageCalendarBlockStats.missingConfiguredCount === 1 ? "" : "s"}`;
+      return `${pageCalendarConfiguredCount} step-linked, ${pageCalendarBlockStats.missingConfiguredCount} route${pageCalendarBlockStats.missingConfiguredCount === 1 ? " is" : "s are"} still missing`;
     }
     return pageCalendarConfiguredCount === 1
       ? "1 step-linked calendar"
@@ -14490,7 +14488,7 @@ export function FunnelEditorClient({
         ? "If the operator gives exact prices, precise package contents, or direct anchoring instructions, keep those as hard constraints and improve the framing around them."
         : null,
       !overallGuidance && !refinementGuidance && !packageNoteSections
-        ? "Operator added no extra notes yet. Start from the current ladder and draft a stronger baseline package plan."
+        ? "Operator notes have not been added yet. Start from the current ladder and draft a stronger baseline package plan."
         : null,
     ]
       .filter(Boolean)
@@ -14885,7 +14883,7 @@ export function FunnelEditorClient({
   const trackingRuntimeStatusLabel = selectedPageExecutionSummary?.trackingReady
     ? selectedPageExecutionSummary?.metaPixelReady
       ? "Tracking live"
-      : "Pixel missing"
+      : "Pixel setup needed"
     : "Event store syncing";
   const trackingRuntimeHelperLabel = !selectedPageExecutionSummary?.trackingReady
     ? "Live verification is still syncing right now."
@@ -14901,7 +14899,7 @@ export function FunnelEditorClient({
   const bookingSummaryLabel = !funnel?.bookingCalendarId
     ? pageCalendarRouteSummaryLabel || (pageHasCalendarPlaceholder
       ? "Booking blocks are still placeholder-only."
-      : "No funnel calendar linked yet")
+      : "Funnel calendar not linked yet")
     : pageCalendarConfiguredCount
       ? `${linkedFunnelCalendarTitle} with ${pageCalendarConfiguredCount} step override${pageCalendarConfiguredCount === 1 ? "" : "s"}`
       : `Linked to funnel: ${linkedFunnelCalendarTitle}`;
@@ -14926,7 +14924,7 @@ export function FunnelEditorClient({
       : pageCanvasFontPresetKey === "default"
         ? "Inherited app font"
         : String(pageCanvasFontPresetKey || "Advanced defaults");
-  const trackingSummaryLabel = effectiveMetaPixelId ? `Using ${effectiveMetaPixelSourceLabel.toLowerCase()} Pixel ID` : "No Pixel ID yet";
+  const trackingSummaryLabel = effectiveMetaPixelId ? `Using ${effectiveMetaPixelSourceLabel.toLowerCase()} Pixel ID` : "Pixel ID not added yet";
   const purchaseReadinessItem = pageTransactionReadiness.items.find((item) => item.key === "purchase") || null;
   const commerceReadyOfferCount = availableFunnelOffers.length;
   const commerceSummaryLabel = purchaseReadinessItem?.status === "ready"
@@ -14936,8 +14934,8 @@ export function FunnelEditorClient({
         ? "Commerce is placed. Add one checkout path to finish it."
         : "Commerce is placed. Link one live offer to finish it."
       : commerceReadyOfferCount
-        ? `${commerceReadyOfferCount} offer${commerceReadyOfferCount === 1 ? "" : "s"} ready, no payment path yet`
-        : "No payment path on this page yet";
+        ? `${commerceReadyOfferCount} offer${commerceReadyOfferCount === 1 ? "" : "s"} ready, payment path not wired yet`
+        : "Payment path is not wired on this page yet";
   const commerceStatusLabel = purchaseReadinessItem?.status === "ready"
     ? "Ready"
     : pageHasStripeProductButtons
@@ -15038,7 +15036,7 @@ export function FunnelEditorClient({
   const commerceSupportLabel = purchaseReadinessItem?.summary
     || (pageHasStripeProductButtons
       ? "Checkout or cart UI is present, but at least one offer or path still needs setup."
-      : "No checkout or cart path is wired on this page yet.");
+      : "A checkout or cart path is not wired on this page yet.");
   const searchSupportLabel = selectedPage?.seo?.faviconUrl
     ? "Tab icon is already set. Title, description, and visibility controls live here."
     : "Tab icon, title, description, and search visibility live here.";
@@ -15138,10 +15136,10 @@ export function FunnelEditorClient({
         <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
           {commerceReadyOfferCount
             ? `${commerceReadyOfferCount} active offer${commerceReadyOfferCount === 1 ? " is" : "s are"} ready at the funnel level.`
-            : "No active funnel offers are ready yet."}
+            : "Active funnel offers are not ready yet."}
         </div>
         <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
-          {purchaseReadinessItem?.summary || "No checkout or cart path is wired on this page yet."}
+          {purchaseReadinessItem?.summary || "A checkout or cart path is not wired on this page yet."}
         </div>
       </div>
 
@@ -15207,7 +15205,7 @@ export function FunnelEditorClient({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold text-zinc-900">
-                  {pageFaviconUploadBusy ? "Uploading tab icon..." : selectedPage?.seo?.faviconUrl ? "Tab icon ready" : "No tab icon yet"}
+                  {pageFaviconUploadBusy ? "Uploading tab icon..." : selectedPage?.seo?.faviconUrl ? "Tab icon ready" : "Tab icon not added yet"}
                 </div>
                 <div className="mt-1 text-xs leading-5 text-zinc-500">
                   Drop an image here, upload one, or choose one from the media library.
@@ -15364,7 +15362,7 @@ export function FunnelEditorClient({
       <div className="grid gap-2 sm:grid-cols-2">
         <div className={sidebarSupportItemClassName}>
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Account pixel ID</div>
-          <div className="mt-1 text-sm font-semibold text-zinc-900">{workspaceDefaultMetaPixelId || "No pixel ID yet"}</div>
+          <div className="mt-1 text-sm font-semibold text-zinc-900">{workspaceDefaultMetaPixelId || "Pixel ID not added yet"}</div>
           <Link
             href={`${basePath}/app/services/funnel-builder`}
             className="mt-2 inline-flex text-xs font-semibold text-zinc-700 hover:text-zinc-900"
@@ -15374,7 +15372,7 @@ export function FunnelEditorClient({
         </div>
         <div className={sidebarSupportItemClassName}>
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Active pixel ID</div>
-          <div className="mt-1 text-sm font-semibold text-zinc-900">{effectiveMetaPixelId || "No pixel ID yet"}</div>
+          <div className="mt-1 text-sm font-semibold text-zinc-900">{effectiveMetaPixelId || "Pixel ID not added yet"}</div>
           <div className="mt-1 text-xs leading-5 text-zinc-500">{effectiveMetaPixelId ? `Source: ${effectiveMetaPixelSourceLabel.toLowerCase()}.` : "Internal tracking only."}</div>
         </div>
       </div>
@@ -16874,7 +16872,7 @@ export function FunnelEditorClient({
                       <div>
                         <div className="font-semibold text-zinc-900">Current risks</div>
                         <div className="mt-2 space-y-2 text-sm leading-6 text-zinc-700">
-                          {(foundationArtifact?.conversionRisks.length ? foundationArtifact.conversionRisks : ["No major conversion-risk note is persisted yet."]).map((item, index) => (
+                          {(foundationArtifact?.conversionRisks.length ? foundationArtifact.conversionRisks : ["A major conversion-risk note is not persisted yet."]).map((item, index) => (
                             <div key={`${item}-${index}`}>{item}</div>
                           ))}
                         </div>
@@ -17114,7 +17112,7 @@ export function FunnelEditorClient({
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Setup status</div>
                 <div className="mt-2 text-xl font-semibold tracking-tight text-zinc-950">
                   {!dialogHasRoute
-                    ? "No calendar linked yet"
+                    ? "Calendar not linked yet"
                     : dialogRouteKind === "block"
                       ? "Calendar linked to this step"
                       : "Calendar linked to this funnel"}
@@ -17219,7 +17217,7 @@ export function FunnelEditorClient({
                       </div>
                       <div className={classNames("rounded-2xl border px-4 py-3", dialogCalendarHasLocation ? "border-zinc-200 bg-zinc-50" : "border-amber-200 bg-amber-50")}>
                         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Location</div>
-                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasLocation ? "Configured" : "Missing"}</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasLocation ? "Configured" : "Setup needed"}</div>
                         <div className="mt-1 text-xs leading-5 text-zinc-600">
                           {dialogCalendarHasLocation
                             ? dialogLocationSummaryText
@@ -17228,7 +17226,7 @@ export function FunnelEditorClient({
                       </div>
                       <div className={classNames("rounded-2xl border px-4 py-3", dialogCalendarHasDetails ? "border-zinc-200 bg-zinc-50" : "border-amber-200 bg-amber-50")}>
                         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Booking copy</div>
-                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasDetails ? "Configured" : "Missing"}</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasDetails ? "Configured" : "Setup needed"}</div>
                         <div className="mt-1 text-xs leading-5 text-zinc-600">{dialogCalendarHasDetails ? "Expectations and details are in place." : "Add the booking details and expectations before this goes live."}</div>
                       </div>
                     </div>
@@ -17260,10 +17258,10 @@ export function FunnelEditorClient({
                       <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Setup checklist</div>
                       <div className="mt-3 space-y-2 text-sm leading-6 text-zinc-700">
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                          Meeting location: {dialogCalendarHasLocation ? dialogLocationSummaryText : "still missing"}
+                          Meeting location: {dialogCalendarHasLocation ? dialogLocationSummaryText : "setup still needed"}
                         </div>
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                          Booking details: {dialogCalendarHasDetails ? "configured" : "still missing"}
+                          Booking details: {dialogCalendarHasDetails ? "configured" : "setup still needed"}
                         </div>
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
                           Notifications: {dialogCalendarHasNotifications ? "configured" : "optional and currently empty"}
@@ -17551,7 +17549,7 @@ export function FunnelEditorClient({
                                 options={[
                                   {
                                     value: "",
-                                    label: "No shared funnel calendar yet",
+                                    label: "Shared funnel calendar not linked yet",
                                     hint: "The funnel will stay unassigned until you choose or create one.",
                                   },
                                   ...enabledBookingCalendars.map((calendar) => ({
@@ -17936,7 +17934,7 @@ export function FunnelEditorClient({
                         ? `The primary CTA will bind to ${selectedCreateOffer.label}${selectedCreateOffer.displayPrice ? ` · ${selectedCreateOffer.displayPrice}` : ""}.`
                         : availableFunnelOffers.length
                           ? "Choose an offer now to seed the sales CTA already connected."
-                          : "No funnel offers exist yet, so the page will start with an unbound CTA."}
+                          : "Funnel offers have not been created yet, so the page will start with an unbound CTA."}
                     </div>
                   </label>
                 ) : null}
@@ -18523,7 +18521,7 @@ export function FunnelEditorClient({
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500">
-              <div className="font-semibold text-zinc-900">No references attached to this prompt yet</div>
+              <div className="font-semibold text-zinc-900">References are not attached to this prompt yet</div>
               <div className="mt-1">Upload files or pick existing assets from your media library so Pura can use them while planning and editing.</div>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                 <button
@@ -18825,7 +18823,7 @@ export function FunnelEditorClient({
                             className="flex min-h-23 w-full flex-col items-start justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:border-zinc-300 hover:bg-white"
                           >
                             <div className="max-h-12 overflow-hidden text-sm leading-6 text-zinc-700">
-                              {summaryPreview || "No summary written yet. Open the writer when this tier needs longer package copy."}
+                              {summaryPreview || "Summary not written yet. Open the writer when this tier needs longer package copy."}
                             </div>
                             <div className="mt-2 text-[11px] font-semibold text-zinc-500">
                               {summaryPreview ? "Open writer" : "Write summary"}
@@ -18910,7 +18908,7 @@ export function FunnelEditorClient({
                             <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-3">
                               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Summary</div>
                               <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-800">
-                                {summaryPreview || "No summary written yet. Open the writer to draft the package story for this package."}
+                                {summaryPreview || "Summary not written yet. Open the writer to draft the package story for this package."}
                               </div>
                             </div>
 
@@ -19318,7 +19316,7 @@ export function FunnelEditorClient({
                                   placeholder={`Example: make ${descriptor.packageName} feel like the core option, sharpen what it includes, and compare it loosely against the others without rewriting everything.`}
                                 />
                                 <div className="mt-3 rounded-[18px] border border-zinc-200 bg-white px-3 py-2 text-sm leading-6 text-zinc-500">
-                                  Current summary: <span className="text-zinc-700">{descriptor.summaryText || "Not set yet."}</span>
+                                  Current summary: <span className="text-zinc-700">{descriptor.summaryText || "Not added yet."}</span>
                                 </div>
                               </div>
                             );
@@ -20023,7 +20021,7 @@ export function FunnelEditorClient({
                         ) : (
                           <div className="flex h-full min-h-[36vh] items-center justify-center px-6 text-center text-sm text-zinc-400">
                             <div className="max-w-lg">
-                              <div>{wholePageStatusMessage || "No page source available yet. Save the page to generate the source view."}</div>
+                              <div>{wholePageStatusMessage || "Page source appears after you save the page."}</div>
                               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                                 {wholePageSourceEditable ? (
                                   <button
@@ -20102,24 +20100,24 @@ export function FunnelEditorClient({
                               >
                                 <FunnelCustomHtmlRuntimeSurface
                                   html={previewHtmlWithImplicitBooking}
-                                  bookingTarget={bookingSiteSlug
+                                  bookingTarget={typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
                                     ? {
-                                        kind: "slug",
-                                        slug: bookingSiteSlug,
+                                        kind: "calendar",
+                                        ownerId: String((funnel as any).ownerId),
+                                        calendarId: funnel.bookingCalendarId,
                                         funnelId: funnel?.id || null,
                                         pageId: selectedPage.id,
                                         themeStage: "current",
                                       }
-                                    : (typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
+                                    : bookingSiteSlug
                                         ? {
-                                            kind: "calendar",
-                                            ownerId: String((funnel as any).ownerId),
-                                            calendarId: funnel.bookingCalendarId,
+                                            kind: "slug",
+                                            slug: bookingSiteSlug,
                                             funnelId: funnel?.id || null,
                                             pageId: selectedPage.id,
                                             themeStage: "current",
                                           }
-                                        : null)}
+                                        : null}
                                   injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
                                   bookingLabel={selectedPagePreviewBookingState?.title || null}
                                   surfaceContext={previewBookingSurfaceContext}
@@ -20170,7 +20168,7 @@ export function FunnelEditorClient({
                         ) : (
                           <div className="flex h-full min-h-[50vh] items-center justify-center rounded-[28px] border border-dashed border-zinc-300 bg-white px-6 text-center text-sm text-zinc-600">
                             <div className="max-w-lg">
-                              <div>{wholePageSyncNotice || "No page source available yet. Save the page to generate the source view."}</div>
+                              <div>{wholePageSyncNotice || "Page source appears after you save the page."}</div>
                               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                                 {wholePageSourceEditable ? (
                                   <button

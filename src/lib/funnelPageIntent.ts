@@ -199,14 +199,6 @@ function cleanTextList(value: unknown, maxItems = 4, maxLen = 120) {
   return out;
 }
 
-function formatListSummary(items: string[], maxItems = 2) {
-  const cleanItems = items.filter(Boolean).slice(0, maxItems + 1);
-  if (!cleanItems.length) return "";
-  if (cleanItems.length === 1) return cleanItems[0];
-  if (cleanItems.length === 2) return `${cleanItems[0]} and ${cleanItems[1]}`;
-  return `${cleanItems.slice(0, maxItems).join(", ")} +${cleanItems.length - maxItems} more`;
-}
-
 function lowerFirst(value: string) {
   if (!value) return value;
   return value.charAt(0).toLowerCase() + value.slice(1);
@@ -927,7 +919,8 @@ export function inferFunnelPageIntentProfile(input?: {
   const effectiveExisting: Record<string, unknown> =
     isRecord(mergedExisting.mediaPlan) && Object.keys(mergedExisting.mediaPlan).length === 0
       ? (() => {
-          const { mediaPlan: _mediaPlan, ...rest } = mergedExisting;
+          const rest = { ...mergedExisting };
+          delete rest.mediaPlan;
           return rest;
         })()
       : mergedExisting;

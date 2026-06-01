@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
-import { buildCustomDomainMetadata, buildCustomDomainNotFoundMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -66,43 +65,24 @@ export async function generateMetadata({
   if (!host) return {};
 
   const mapping = await resolveCustomDomain(host);
-  if (!mapping) return buildCustomDomainNotFoundMetadata(host);
-  if (mapping.status !== "VERIFIED") {
-    return buildCustomDomainMetadata({
-      host,
-      siteName: host,
-      title: "Domain pending verification",
-      description: "This domain is saved, but not verified yet.",
-      noIndex: true,
-    });
-  }
+  if (!mapping || mapping.status !== "VERIFIED") return { title: host };
 
   const site = await prisma.clientBlogSite
     .findUnique({ where: { ownerId: mapping.ownerId }, select: { id: true, ownerId: true, name: true } })
     .catch(() => null);
-  if (!site) return buildCustomDomainNotFoundMetadata(host);
+  if (!site) return { title: host };
 
   const newsletter = await prisma.clientNewsletter
     .findFirst({ where: { siteId: site.id, kind: "EXTERNAL", slug: newsletterSlug, status: "SENT" }, select: { title: true, excerpt: true } })
     .catch(() => null);
-  if (!newsletter) return buildCustomDomainNotFoundMetadata(host);
+  if (!newsletter) return { title: host };
 
-  const [profile, branding] = await Promise.all([
-    prisma.businessProfile.findUnique({ where: { ownerId: site.ownerId }, select: { businessName: true } }).catch(() => null),
-    resolveCustomDomainBranding(host),
-  ]);
+  const profile = await prisma.businessProfile
+    .findUnique({ where: { ownerId: site.ownerId }, select: { businessName: true } })
+    .catch(() => null);
 
   const name = profile?.businessName || site.name;
-  return buildCustomDomainMetadata({
-    host,
-    siteName: branding.siteName,
-    title: `${newsletter.title} | ${name}`,
-    description: newsletter.excerpt,
-    imageUrl: branding.logoUrl,
-    iconUrl: branding.logoUrl,
-    path: `/newsletters/${newsletterSlug}`,
-    keywords: [newsletter.title, `${name} newsletter`, name].filter(Boolean),
-  });
+  return { title: `${newsletter.title} | ${name}`, description: newsletter.excerpt };
 }
 
 export default async function CustomDomainNewsletterPage({
@@ -219,7 +199,7 @@ export default async function CustomDomainNewsletterPage({
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">
-          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
+          <div className="text-xs font-medium" style={{ color: "var(--client-muted)" }}>
             {formatDate(newsletter.sentAt ?? newsletter.updatedAt)}
           </div>
           <h1 className="mt-3 text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-link)" }}>

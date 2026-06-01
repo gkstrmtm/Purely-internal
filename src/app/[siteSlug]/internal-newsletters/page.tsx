@@ -188,7 +188,7 @@ export default async function ClientInternalNewslettersIndexPage(props: PageProp
                     style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
                   >
                     <div
-                      className="text-xs font-semibold uppercase tracking-wide"
+                      className="text-xs font-medium"
                       style={{ color: "var(--client-muted)" }}
                     >
                       {formatDate(n.sentAt ?? n.updatedAt)}

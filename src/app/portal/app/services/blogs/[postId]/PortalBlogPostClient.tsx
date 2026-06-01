@@ -1,20 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
-import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
-import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import {
   buildPreviewCoverImageUrl,
   buildPreviewGeneratedDraft,
@@ -156,7 +155,7 @@ function downloadTextFile(filename: string, content: string) {
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("That file did not read. Retry here."));
+    reader.onerror = () => reject(new Error("Unable to read file"));
     reader.onload = () => resolve(String(reader.result || ""));
     reader.readAsDataURL(file);
   });
@@ -215,15 +214,33 @@ function validateMarkdownForPublish(md: string): string | null {
   return null;
 }
 
+function normalizeDraftText(value: string) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function isPlaceholderHeadline(value: string) {
+  const normalized = normalizeDraftText(value);
+  return normalized === "untitled" || normalized === "untitled post";
+}
+
+function hasMeaningfulHeadline(value: string) {
+  const trimmed = String(value || "").trim();
+  return trimmed.length >= 8 && !isPlaceholderHeadline(trimmed);
+}
+
+function hasMeaningfulBrief(brief: string, headline: string) {
+  const trimmed = String(brief || "").trim();
+  if (trimmed.length < 12) return false;
+  if (isPlaceholderHeadline(trimmed)) return false;
+  return normalizeDraftText(trimmed) !== normalizeDraftText(headline);
+}
+
 export function PortalBlogPostClient({ postId }: { postId: string }) {
   const toast = useToast();
   const setSidebarOverride = useSetPortalSidebarOverride();
   const pathname = usePathname();
-  const router = useRouter();
   const uiPreview = usePortalUiPreview();
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
-  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
-  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const isPaMobileApp = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -234,7 +251,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   }, []);
 
   const [loading, setLoading] = useState(true);
-  const [, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const hasLoadedOnceRef = useRef(false);
   const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -293,7 +310,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     }
 
     try {
-      const res = await fetch("/api/portal/blogs/appearance", { cache: "no-store", headers: variantHeaders });
+      const res = await fetch("/api/portal/blogs/appearance", { cache: "no-store" });
       const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance };
       if (res.ok && json.ok && json.appearance) {
         setAppearance(json.appearance);
@@ -301,7 +318,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     } catch {
       // ignore
     }
-  }, [uiPreview, variantHeaders]);
+  }, [uiPreview]);
 
   const saveAppearance = useCallback(
     async (next: Partial<BlogAppearance>) => {
@@ -316,12 +333,12 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
         const res = await fetch("/api/portal/blogs/appearance", {
           method: "PUT",
-          headers: { "content-type": "application/json", ...variantHeaders },
+          headers: { "content-type": "application/json" },
           body: JSON.stringify(next),
         });
         const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance; error?: string };
         if (!res.ok || !json.ok || !json.appearance) {
-          toast.error(json.error ?? "Blog fonts did not save. Retry here in the post appearance panel.");
+          toast.error(json.error ?? "Unable to save blog fonts");
           return;
         }
         setAppearance(json.appearance);
@@ -329,7 +346,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         setAppearanceSaving(false);
       }
     },
-    [appearanceSaving, toast, uiPreview, variantHeaders],
+    [appearanceSaving, toast, uiPreview],
   );
 
   useEffect(() => {
@@ -382,7 +399,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         setCreditsRemaining(snapshot.credits);
 
         if (!loaded) {
-          setError("This post is still syncing. Retry here or open blogs.");
+          setError("Unable to load post");
           if (firstLoad) setPost(null);
           return;
         }
@@ -398,11 +415,11 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         return;
       }
 
-      const res = await fetch(`/api/portal/blogs/posts/${postId}`, { cache: "no-store", headers: variantHeaders });
+      const res = await fetch(`/api/portal/blogs/posts/${postId}`, { cache: "no-store" });
       const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: Post; error?: string };
 
       if (!res.ok || !json.ok || !json.post) {
-        setError(json.error ?? "This post is still syncing. Retry here or open blogs.");
+        setError(json.error ?? "Unable to load post");
         if (firstLoad) setPost(null);
         return;
       }
@@ -422,7 +439,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       if (firstLoad) setLoading(false);
       else setRefreshing(false);
     }
-  }, [postId, uiPreview, variantHeaders]);
+  }, [postId, uiPreview]);
 
   function coverImageUrlFor(titleText: string) {
     const t = (titleText || "").trim() || "Blog post";
@@ -460,18 +477,21 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       .trim();
     return text ? text.split(" ").filter(Boolean).length : 0;
   }, [content]);
+  const headlineReady = useMemo(() => hasMeaningfulHeadline(title), [title]);
+  const briefReady = useMemo(() => hasMeaningfulBrief(aiPrompt, title), [aiPrompt, title]);
+  const displayTitle = headlineReady ? title.trim() : "New draft";
   const completionItems = useMemo(() => {
     return [
-      { label: "Brief", done: aiPrompt.trim().length >= 12, hint: "State the angle, audience, and offer." },
-      { label: "Headline", done: title.trim().length >= 8, hint: "Use a clear title people would click." },
+      { label: "Brief", done: briefReady, hint: "State the angle, audience, and offer in more than the headline alone." },
+      { label: "Headline", done: headlineReady, hint: "Use a clear public headline, not a draft placeholder." },
       { label: "Summary", done: excerpt.trim().length >= 24, hint: "Give the preview card a complete summary." },
       { label: "Body", done: bodyWordCount >= 120, hint: "Aim for a developed article, not just notes." },
       { label: "Focus points", done: keywords.length >= 2, hint: "Add a few search terms or message anchors." },
       { label: "Header image", done: Boolean(coverImage), hint: "Use the first image as the dedicated hero." },
     ];
-  }, [aiPrompt, bodyWordCount, coverImage, excerpt, keywords.length, title]);
+  }, [bodyWordCount, briefReady, coverImage, excerpt, headlineReady, keywords.length]);
   const completionCount = completionItems.filter((item) => item.done).length;
-  const completionReady = completionCount >= 5 && title.trim() && excerpt.trim() && bodyWordCount >= 120;
+  const completionReady = completionCount >= 5 && headlineReady && excerpt.trim() && bodyWordCount >= 120;
   const completionMessage = completionReady
     ? "This reads as publish-ready. Save, preview, then publish when the final scan feels clean."
     : completionItems.find((item) => !item.done)?.hint ?? "Finish the remaining checks before you publish.";
@@ -522,7 +542,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       setWorking(null);
 
       if (!saved) {
-        setError("This post did not save. Try again here or keep editing it in the editor.");
+        setError("Unable to save changes");
         return null;
       }
 
@@ -538,7 +558,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     const res = await fetch(`/api/portal/blogs/posts/${postId}`, {
       method: "PUT",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         title,
         slug,
@@ -553,7 +573,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     setWorking(null);
 
     if (!res.ok || !json.ok || !json.post) {
-      setError(json.error ?? "This post did not save. Try again here or keep editing it in the editor.");
+      setError(json.error ?? "Unable to save changes");
       return null;
     }
 
@@ -593,7 +613,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       setWorking(null);
 
       if (!updated) {
-        setError("This post did not publish. Try again here or keep editing it in the editor.");
+        setError("Unable to publish");
         return;
       }
 
@@ -603,14 +623,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     const res = await fetch(`/api/portal/blogs/posts/${postId}/publish`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
     });
 
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: Partial<Post>; error?: string };
     setWorking(null);
 
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "This post did not publish. Try again here or keep editing it in the editor.");
+      setError(json.error ?? "Unable to publish");
       return;
     }
 
@@ -678,7 +698,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     try {
       res = await fetch(`/api/portal/blogs/posts/${postId}/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json", ...variantHeaders },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt: promptText || undefined, topic: promptText || undefined }),
         signal: abort.signal,
       });
@@ -688,7 +708,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       if ((e as any)?.name === "AbortError") {
         return;
       }
-      setError("This post did not generate. Try again here or keep editing it in the editor.");
+      setError("Unable to generate post");
       return;
     }
 
@@ -712,20 +732,16 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
         // If the user enabled auto top-up, send them straight to the top-up flow.
         try {
-          const c = await fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders }).then((r) => (r.ok ? r.json() : null));
+          const c = await fetch("/api/portal/credits", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
           const auto = Boolean(c && typeof c === "object" && (c as any).autoTopUp);
           if (auto) {
             const top = await fetch("/api/portal/credits/topup", {
               method: "POST",
-              headers: { "content-type": "application/json", ...variantHeaders },
+              headers: { "content-type": "application/json" },
               body: JSON.stringify({ credits: 25 }),
             }).then((r) => (r.ok ? r.json() : null));
             if (top && typeof top === "object" && typeof (top as any).url === "string") {
               window.location.href = String((top as any).url);
-              return;
-            }
-            if (path.startsWith("/")) {
-              router.push(path, { scroll: false });
               return;
             }
             window.location.href = path;
@@ -739,7 +755,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         return;
       }
 
-      setError(json.error ?? "This post did not generate. Try again here or keep editing it in the editor.");
+      setError(json.error ?? "Unable to generate post");
       return;
     }
 
@@ -792,7 +808,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       setWorking(null);
 
       if (!updated) {
-        setError("This post did not update. Try again here or keep editing it in the editor.");
+        setError("Unable to update archive state");
         return;
       }
 
@@ -802,7 +818,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     const res = await fetch(`/api/portal/blogs/posts/${postId}`, {
       method: "PUT",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         title: title.trim() || post.title,
         slug: slug.trim() || post.slug,
@@ -817,7 +833,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     setWorking(null);
 
     if (!res.ok || !json.ok || !json.post) {
-      setError(json.error ?? "This post did not update. Try again here or keep editing it in the editor.");
+      setError(json.error ?? "Unable to update archive state");
       return;
     }
 
@@ -859,7 +875,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-6xl">
-        <PortalPageLoadingShell sections={2} minHeightClassName="min-h-[28rem]" className="px-0 sm:px-0" />
+        <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading post…</div>
       </div>
     );
   }
@@ -868,29 +884,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     return (
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
-          <div className="text-sm font-semibold text-zinc-900">Post needs attention</div>
-          <div className="mt-2 text-sm text-zinc-600">{error ?? "This post may have been deleted or is no longer available."}</div>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                void refresh();
-              }}
-              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-            >
-              Retry
-            </button>
+          <div className="text-sm font-semibold text-zinc-900">Post not found</div>
+          <div className="mt-2 text-sm text-zinc-600">{error ?? "This post may have been deleted."}</div>
+          <div className="mt-6">
             <Link
               href={`${appBase}/services/blogs`}
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
             >
-              Open blogs
-            </Link>
-            <Link
-              href={`${appBase}/ai-chat?onboarding=1`}
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-            >
-              Ask Pura
+              Back to blogs
             </Link>
           </div>
         </div>
@@ -909,100 +910,11 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
   const exportUrl = `/api/portal/blogs/posts/${post.id}/export`;
   const exportFilename = `${uiSlugify(slug || title || post.slug || "blog-post") || "blog-post"}.md`;
-  const actionButtons = (
-    <>
-      <Link
-        href={`${appBase}/services/blogs`}
-        onClick={(event) => {
-          if (!isDirty) return;
-          event.preventDefault();
-          setConfirmKind("leave");
-        }}
-        className={
-          "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-zinc-700 hover:bg-zinc-50 " +
-          (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-        }
-      >
-        Back to posts
-      </Link>
-      <button
-        type="button"
-        onClick={() => {
-          void generateWithAi();
-        }}
-        disabled={working !== null}
-        className={
-          "inline-flex shrink-0 items-center justify-center gap-2 bg-linear-to-r from-[#3469dd] via-[#5d86dd] to-[#d68ba3] font-semibold text-white shadow-[0_10px_24px_rgba(78,106,183,0.16)] hover:brightness-[1.02] disabled:bg-zinc-100 disabled:text-zinc-400 disabled:opacity-60 " +
-          (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-        }
-      >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className={isPaMobileApp ? "h-3.5 w-3.5" : "h-4 w-4"}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
-          <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
-        </svg>
-        <span>
-          {working === "generate"
-            ? "Generating…"
-            : isPaMobileApp
-              ? "Generate"
-              : "Generate with AI"}
-        </span>
-      </button>
-      {working === "generate" ? (
-        <button
-          type="button"
-          onClick={() => {
-            generateAbortRef.current?.abort();
-            generateAbortRef.current = null;
-            setWorking(null);
-          }}
-          className={
-            "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-brand-ink hover:bg-zinc-50 " +
-            (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-          }
-        >
-          Stop
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={save}
-        disabled={saveDisabled}
-        className={
-          "inline-flex shrink-0 items-center justify-center bg-brand-ink font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
-          (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-        }
-      >
-        {working === "save" ? "Saving…" : isDirty ? "Save" : "Saved"}
-      </button>
-      <button
-        type="button"
-        onClick={publish}
-        disabled={publishDisabled}
-        className={
-          "inline-flex shrink-0 items-center justify-center bg-(--color-brand-blue) font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
-          (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-        }
-      >
-        {working === "publish" ? "Publishing…" : publishLabel}
-      </button>
-    </>
-  );
 
   return (
-    <div className="mx-auto w-full max-w-6xl pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:pt-[calc(var(--pa-portal-topbar-height,0px)+2rem)]">
-      <div className="flex flex-col gap-4 sm:gap-6">
-        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-start">
-          <div className="min-w-0 flex-1">
+    <div className="mx-auto w-full max-w-6xl">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
+        <div>
           <div className="text-xs font-semibold text-zinc-500">
             <Link href={`${appBase}/services/blogs`} className="hover:underline">
               Blogs
@@ -1013,7 +925,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               <span className="sr-only">Edit</span>
             </span>
           </div>
-          <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{post.title || "Untitled"}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{displayTitle}</h1>
+            {!headlineReady ? (
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-[11px] font-semibold text-amber-800">
+                Draft placeholder
+              </span>
+            ) : null}
+          </div>
           <div className="mt-1 text-sm text-zinc-600">
             Status: {post.status === "PUBLISHED" ? "Published" : "Draft"}
             {post.publishedAt ? ` • Published ${formatDate(post.publishedAt)}` : ""}
@@ -1021,6 +940,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             {post.updatedAt ? ` • Last saved ${formatLastSaved(post.updatedAt)}` : ""}
             {isDirty ? " • Unsaved changes" : ""}
           </div>
+          {!headlineReady ? <div className="mt-2 text-sm text-zinc-500">Add an AI brief, a real headline, and body copy before this draft is ready to review.</div> : null}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {uiPreview ? (
               <button
@@ -1040,26 +960,115 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                 <span>Export Markdown</span>
               </a>
             )}
-            {uiPreview ? <span className="rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Local preview</span> : null}
+            {uiPreview ? <span className="rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold text-zinc-500">Local preview</span> : null}
           </div>
-          </div>
-          {isPaMobileApp ? <div className="flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto">{actionButtons}</div> : null}
+          {refreshing ? (
+            <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+              <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
+              <span>Refreshing…</span>
+            </div>
+          ) : null}
         </div>
 
-        {!isPaMobileApp ? (
-          <div className="hidden sm:block sm:sticky sm:top-[calc(var(--pa-portal-topbar-height,0px)+0.75rem)] sm:z-20">
-            <div className="flex justify-end">
-              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:rounded-3xl sm:bg-brand-mist/95 sm:p-2 sm:backdrop-blur">
-                {actionButtons}
-              </div>
-            </div>
-          </div>
-        ) : null}
+        <div
+          className={
+            isPaMobileApp
+              ? "flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto"
+              : "flex w-full flex-col gap-3 sm:w-auto sm:flex-row"
+          }
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (isDirty) {
+                setConfirmKind("leave");
+                return;
+              }
+              window.location.href = `${appBase}/services/blogs`;
+            }}
+            className={
+              "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-zinc-700 hover:bg-zinc-50 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+            }
+          >
+            Back to posts
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void generateWithAi();
+            }}
+            disabled={working !== null}
+            className={
+              "inline-flex shrink-0 items-center justify-center gap-2 bg-linear-to-r from-[#3469dd] via-[#5d86dd] to-[#d68ba3] font-semibold text-white shadow-[0_10px_24px_rgba(78,106,183,0.16)] hover:brightness-[1.02] disabled:bg-zinc-100 disabled:text-zinc-400 disabled:opacity-60 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+            }
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              className={isPaMobileApp ? "h-3.5 w-3.5" : "h-4 w-4"}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+              <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+            </svg>
+            <span>
+              {working === "generate"
+                ? "Generating…"
+                : isPaMobileApp
+                  ? "Generate"
+                  : "Generate with AI"}
+            </span>
+          </button>
+          {working === "generate" ? (
+            <button
+              type="button"
+              onClick={() => {
+                generateAbortRef.current?.abort();
+                generateAbortRef.current = null;
+                setWorking(null);
+              }}
+              className={
+                "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-brand-ink hover:bg-zinc-50 " +
+                (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+              }
+            >
+              Stop
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={save}
+            disabled={saveDisabled}
+            className={
+              "inline-flex shrink-0 items-center justify-center bg-brand-ink font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+            }
+          >
+            {working === "save" ? "Saving…" : isDirty ? "Save" : "Saved"}
+          </button>
+          <button
+            type="button"
+            onClick={publish}
+            disabled={publishDisabled}
+            className={
+              "inline-flex shrink-0 items-center justify-center bg-(--color-brand-blue) font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+            }
+          >
+            {working === "publish" ? "Publishing…" : publishLabel}
+          </button>
+        </div>
       </div>
 
       {confirmKind ? (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pa-modal-safe-pad"
           role="dialog"
           aria-modal="true"
           onMouseDown={() => setConfirmKind(null)}
@@ -1126,20 +1135,20 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                     if (uiPreview) {
                       deletePreviewBlogPost(postId);
                       setWorking(null);
-                      router.push(`${appBase}/services/blogs`, { scroll: false });
+                      window.location.href = `${appBase}/services/blogs`;
                       return;
                     }
 
-                    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE", headers: variantHeaders });
+                    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE" });
                     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
                     setWorking(null);
 
                     if (!res.ok || !json.ok) {
-                      setError(json.error ?? "This post did not delete. Try again here or keep editing it in the editor.");
+                      setError(json.error ?? "Unable to delete post");
                       return;
                     }
 
-                    router.push(`${appBase}/services/blogs`, { scroll: false });
+                    window.location.href = `${appBase}/services/blogs`;
                   }}
                 >
                   Delete
@@ -1152,7 +1161,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
                   onClick={() => {
                     setConfirmKind(null);
-                    router.push(`${appBase}/services/blogs`, { scroll: false });
+                    window.location.href = `${appBase}/services/blogs`;
                   }}
                 >
                   Leave without saving
@@ -1173,7 +1182,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
       {billingCta ? (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Not enough credits. <Link className="font-semibold underline" href={billingCta}>Top off your credits here</Link>.
+          Not enough credits. <a className="font-semibold underline" href={billingCta}>Top off your credits here</a>.
         </div>
       ) : null}
 
@@ -1182,7 +1191,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           <div className="space-y-4">
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-sm font-semibold text-zinc-900">AI brief</div>
-              <div className="mt-1 text-sm text-zinc-600">Describe the audience, angle, and offer. This is the input that should make the rest of the draft feel inevitable.</div>
+              <div className="mt-1 text-sm text-zinc-600">Describe the audience, angle, and offer. This is separate from the public headline below and should give AI enough context to write the draft.</div>
               <textarea
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
@@ -1211,13 +1220,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-zinc-600">Title</label>
+              <label className="text-xs font-semibold text-zinc-600">Title / headline</label>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                 placeholder="The headline people will click"
               />
+              <div className="mt-1 text-xs text-zinc-500">This is the public headline. Draft placeholders like "Untitled post" do not count as complete.</div>
             </div>
 
             <div>
@@ -1389,7 +1399,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
             {coverImage ? (
               <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Header image</div>
+                <div className="text-xs font-medium text-zinc-500">Header image</div>
                 <div className="mt-3 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
                   <div className="aspect-video w-full bg-zinc-100">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1421,7 +1431,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               ) : null}
 
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Choose a source</div>
+                <div className="text-xs font-medium text-zinc-500">Choose a source</div>
                 <div className="mt-1 text-xs text-zinc-500">Pick a file, grab one from the library, or generate a fresh header image.</div>
 
                 <div className="mt-3 flex flex-col gap-3">
@@ -1449,7 +1459,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                           const up = await fetch("/api/uploads", { method: "POST", body: fd });
                           const upBody = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
                           if (!up.ok || !upBody.url) {
-                            setError(upBody.error ?? "That image did not upload. Try again here or choose another image.");
+                            setError(upBody.error ?? "Upload failed");
                             return;
                           }
                           setImageUrl(upBody.url);
@@ -1492,7 +1502,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
               <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Place current image</div>
+                  <div className="text-xs font-medium text-zinc-500">Place current image</div>
                   <div className="mt-1 text-xs text-zinc-500">
                     {imageUrl
                       ? "Header image shows above the article. Insert into content places it inside the body copy."

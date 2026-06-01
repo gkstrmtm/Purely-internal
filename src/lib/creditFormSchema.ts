@@ -577,7 +577,7 @@ export function buildCreditFormSubmissionNotificationHtml(opts: {
   <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:#f4f4f5; padding:24px;">
     <div style="max-width:720px; margin:0 auto; background:#ffffff; border:1px solid #e4e4e7; border-radius:16px; overflow:hidden;">
       <div style="padding:18px 20px; background:#0b63f6; color:#ffffff;">
-        <div style="font-size:12px; letter-spacing:0.08em; text-transform:uppercase; opacity:0.9;">New form submission</div>
+        <div style="font-size:12px; font-weight:600; opacity:0.9;">New form submission</div>
         <div style="margin-top:6px; font-size:18px; font-weight:800;">${formName}</div>
       </div>
 
@@ -596,8 +596,8 @@ export function buildCreditFormSubmissionNotificationHtml(opts: {
         <table style="width:100%; border-collapse:collapse; border:1px solid #e4e4e7; border-radius:12px; overflow:hidden;">
           <thead>
             <tr>
-              <th align="left" style="padding:10px 14px; background:#fafafa; border-bottom:1px solid #e4e4e7; font-size:12px; color:#52525b; text-transform:uppercase; letter-spacing:0.06em;">Question</th>
-              <th align="left" style="padding:10px 14px; background:#fafafa; border-bottom:1px solid #e4e4e7; font-size:12px; color:#52525b; text-transform:uppercase; letter-spacing:0.06em;">Response</th>
+              <th align="left" style="padding:10px 14px; background:#fafafa; border-bottom:1px solid #e4e4e7; font-size:12px; font-weight:600; color:#52525b;">Question</th>
+              <th align="left" style="padding:10px 14px; background:#fafafa; border-bottom:1px solid #e4e4e7; font-size:12px; font-weight:600; color:#52525b;">Response</th>
             </tr>
           </thead>
           <tbody>

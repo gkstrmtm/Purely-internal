@@ -66,7 +66,6 @@ function accentClasses(accent: "blue" | "coral" | "ink") {
 }
 
 export default function LaunchKitPackagePage() {
-  const getStartedHref = "/portal/get-started?package=launch-kit";
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Service",
@@ -86,7 +85,7 @@ export default function LaunchKitPackagePage() {
     <main className="min-h-screen bg-white">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
-      <section className="w-full bg-[color:var(--color-brand-blue)] text-white">
+      <section className="w-full bg-(--color-brand-blue) text-white">
         <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
           <div className="mb-7 flex flex-wrap items-center gap-2 text-sm text-white/85">
             <Link
@@ -115,7 +114,7 @@ export default function LaunchKitPackagePage() {
 
           <div className="grid grid-cols-1 gap-10 md:grid-cols-2 md:items-center">
             <div className="max-w-2xl">
-              <div className="text-xs font-semibold tracking-wide text-white/70">PACKAGE</div>
+              <div className="text-xs font-medium text-white/70">Package</div>
               <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">The Launch Kit</h1>
               <p className="mt-4 text-base text-white/85 sm:text-lg">
                 Launch fast. Capture leads cleanly. Follow up consistently.
@@ -127,8 +126,8 @@ export default function LaunchKitPackagePage() {
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href={getStartedHref}
-                  className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-white shadow-sm hover:opacity-90"
+                  href="/portal/get-started"
+                  className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-base font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Start free
                 </Link>
@@ -150,12 +149,12 @@ export default function LaunchKitPackagePage() {
             </div>
 
             <div className="hidden md:block">
-              <div className="relative overflow-hidden rounded-3xl border border-white/15 bg-[color:rgba(255,255,255,0.06)] p-6 shadow-[0_18px_45px_rgba(0,0,0,0.22)]">
-                <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-[color:rgba(251,113,133,0.18)] blur-2xl" />
-                <div className="absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-[color:rgba(255,255,255,0.12)] blur-2xl" />
+              <div className="relative overflow-hidden rounded-3xl border border-white/15 bg-[rgba(255,255,255,0.06)] p-6 shadow-[0_18px_45px_rgba(0,0,0,0.22)]">
+                <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-[rgba(251,113,133,0.18)] blur-2xl" />
+                <div className="absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-[rgba(255,255,255,0.12)] blur-2xl" />
 
                 <div className="relative">
-                  <div className="text-xs font-semibold tracking-wide text-white/75">WHAT YOU SHIP</div>
+                  <div className="text-xs font-medium text-white/75">What you ship</div>
                   <div className="mt-2 text-lg font-semibold text-white/95">Intake, automations, consistency</div>
                   <div className="mt-1 text-sm text-white/70">A simple system that makes it obvious what happens next.</div>
 
@@ -168,7 +167,7 @@ export default function LaunchKitPackagePage() {
                     ].map((n) => (
                       <div
                         key={n.title}
-                        className="rounded-2xl border border-white/15 bg-[color:rgba(0,0,0,0.12)] p-4"
+                        className="rounded-2xl border border-white/15 bg-[rgba(0,0,0,0.12)] p-4"
                       >
                         <div className="text-sm font-semibold text-white/95">{n.title}</div>
                         <div className="mt-1 text-xs text-white/65">{n.hint}</div>
@@ -195,7 +194,7 @@ export default function LaunchKitPackagePage() {
                     <circle cx="480" cy="60" r="8" fill="rgba(255,255,255,0.55)" />
                   </svg>
 
-                  <div className="mt-2 rounded-2xl border border-white/15 bg-[color:rgba(0,0,0,0.12)] p-4">
+                  <div className="mt-2 rounded-2xl border border-white/15 bg-[rgba(0,0,0,0.12)] p-4">
                     <div className="text-sm font-semibold text-white/95">Goal</div>
                     <div className="mt-1 text-xs text-white/65">
                       Respond fast, reduce leakage, and keep the process easy for your team.
@@ -237,7 +236,7 @@ export default function LaunchKitPackagePage() {
                     "Anyone tired of scattered tools and unclear next steps",
                   ].map((t) => (
                     <li key={t} className="flex items-start gap-3">
-                      <span className="mt-2 inline-block h-1.5 w-1.5 rounded-full bg-[color:rgba(251,113,133,0.95)]" aria-hidden="true" />
+                      <span className="mt-2 inline-block h-1.5 w-1.5 rounded-full bg-[rgba(251,113,133,0.95)]" aria-hidden="true" />
                       <span>{t}</span>
                     </li>
                   ))}
@@ -250,7 +249,7 @@ export default function LaunchKitPackagePage() {
                 <h3 className="text-lg font-semibold text-brand-ink">Included services</h3>
                 <Link
                   href="/services"
-                  className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                  className="text-sm font-semibold text-(--color-brand-blue) hover:underline hover:decoration-[rgba(29,78,216,0.35)] hover:underline-offset-4"
                 >
                   Browse all services →
                 </Link>
@@ -271,7 +270,7 @@ export default function LaunchKitPackagePage() {
                     </div>
                     <Link
                       href={`/services/${encodeURIComponent(s.slug)}`}
-                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                      className="text-sm font-semibold text-(--color-brand-blue) hover:underline hover:decoration-[rgba(29,78,216,0.35)] hover:underline-offset-4"
                     >
                       View service →
                     </Link>
@@ -280,7 +279,7 @@ export default function LaunchKitPackagePage() {
               </div>
 
               <div className="mt-12 rounded-3xl bg-brand-mist p-8 sm:p-10">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Launch path</div>
+                <div className="text-xs font-medium text-zinc-500">Launch path</div>
                 <div className="mt-2 text-xl font-bold tracking-tight text-brand-ink">Intake to consistency</div>
                 <div className="mt-3 text-sm text-zinc-600 sm:text-base">
                   A clean first version that your team can actually run, then you stack into Sales Loop or Brand Builder.
@@ -311,10 +310,10 @@ export default function LaunchKitPackagePage() {
                   ].map((s, idx, all) => (
                     <div key={s.title} className="relative pl-8">
                       {idx !== all.length - 1 ? (
-                        <div className="absolute left-[10px] top-[22px] h-[calc(100%-10px)] w-px bg-[color:rgba(51,65,85,0.20)]" aria-hidden="true" />
+                        <div className="absolute left-2.5 top-5.5 h-[calc(100%-10px)] w-px bg-[rgba(51,65,85,0.20)]" aria-hidden="true" />
                       ) : null}
-                      <div className="absolute left-0 top-1.5 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-[color:rgba(51,65,85,0.15)]" aria-hidden="true">
-                        <div className={`mx-auto mt-[7px] h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
+                      <div className="absolute left-0 top-1.5 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-[rgba(51,65,85,0.15)]" aria-hidden="true">
+                        <div className={`mx-auto mt-1.75 h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
                       </div>
                       <div className="text-sm font-semibold text-brand-ink">{s.title}</div>
                       <div className="mt-1 text-sm text-zinc-600">{s.desc}</div>
@@ -325,14 +324,14 @@ export default function LaunchKitPackagePage() {
                 <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Link
                     href="/services/the-sales-loop"
-                    className="inline-flex items-center justify-between rounded-2xl border border-[color:rgba(51,65,85,0.20)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
+                    className="inline-flex items-center justify-between rounded-2xl border border-[rgba(51,65,85,0.20)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
                   >
                     The Sales Loop
                     <span aria-hidden="true">→</span>
                   </Link>
                   <Link
                     href="/services/the-brand-builder"
-                    className="inline-flex items-center justify-between rounded-2xl border border-[color:rgba(51,65,85,0.20)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
+                    className="inline-flex items-center justify-between rounded-2xl border border-[rgba(51,65,85,0.20)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
                   >
                     The Brand Builder
                     <span aria-hidden="true">→</span>
@@ -376,7 +375,7 @@ export default function LaunchKitPackagePage() {
             </div>
           </div>
 
-          <section className="mt-14 w-full rounded-3xl bg-linear-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] text-white">
+          <section className="mt-14 w-full rounded-3xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
             <div className="px-7 py-10">
               <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                 <div>
@@ -385,8 +384,8 @@ export default function LaunchKitPackagePage() {
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                   <Link
-                    href={getStartedHref}
-                    className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50 sm:w-auto"
+                    href="/portal/get-started"
+                    className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-(--color-brand-blue) hover:bg-zinc-50 sm:w-auto"
                   >
                     Get started
                   </Link>

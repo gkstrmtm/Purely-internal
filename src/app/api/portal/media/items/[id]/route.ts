@@ -44,11 +44,20 @@ const patchSchema = z.object({
     distributionProvider: z.enum(MEDIA_DISTRIBUTION_PROVIDER_KEYS).optional().nullable(),
     providerConnectionState: z.enum(MEDIA_PROVIDER_CONNECTION_STATES).optional().nullable(),
     providerPublishState: z.enum(MEDIA_PROVIDER_PUBLISH_STATES).optional().nullable(),
+    providerDestinationType: z.string().max(80).optional().nullable(),
+    providerDestinationId: z.string().max(200).optional().nullable(),
+    providerDestinationLabel: z.string().max(200).optional().nullable(),
     providerAccountLabel: z.string().max(200).optional().nullable(),
+    providerScheduledForIso: z.string().max(80).optional().nullable(),
+    providerQueuedAtIso: z.string().max(80).optional().nullable(),
+    providerPendingAtIso: z.string().max(80).optional().nullable(),
     queueOrder: z.number().int().min(1).max(999).optional().nullable(),
     dailyPostCap: z.number().int().min(1).max(20).optional().nullable(),
+    providerStatus: z.string().max(160).optional().nullable(),
     providerPostId: z.string().max(200).optional().nullable(),
     providerLastError: z.string().max(4000).optional().nullable(),
+    providerRetryEligible: z.boolean().optional().nullable(),
+    providerRetryAtIso: z.string().max(80).optional().nullable(),
     providerLastAttemptAtIso: z.string().max(80).optional().nullable(),
     providerPublishedAtIso: z.string().max(80).optional().nullable(),
     metricsImpressions: z.number().int().min(0).max(2000000000).optional().nullable(),
@@ -76,7 +85,7 @@ function sanitizeName(raw: string) {
 }
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const auth = await requireClientSessionForService("media");
@@ -84,6 +93,8 @@ export async function GET(
 
   const ownerId = auth.session.user.id;
   const { id } = await params;
+  const { searchParams } = new URL(req.url);
+  const includeContext = searchParams.get("includeContext") !== "0";
 
   const existing = await (prisma as any).portalMediaItem.findFirst({
     where: { id, ownerId },
@@ -100,10 +111,9 @@ export async function GET(
   });
   if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  const [growthProfile, context] = await Promise.all([
-    getPortalMediaGrowthProfile(ownerId, String(existing.id)),
-    getPortalMediaGrowthContext(ownerId),
-  ]);
+  const growthProfilePromise = getPortalMediaGrowthProfile(ownerId, String(existing.id));
+  const contextPromise = includeContext ? getPortalMediaGrowthContext(ownerId) : Promise.resolve(null);
+  const [growthProfile, context] = await Promise.all([growthProfilePromise, contextPromise]);
 
   return NextResponse.json({
     ok: true,

@@ -694,7 +694,7 @@ function GeneralTab({
             </div>
           ) : (
             <div className="mt-3 flex-1 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No active services selected yet</div>
+              <div className="font-semibold text-zinc-900">Active services have not been selected yet</div>
               <div className="mt-1">Open Services to choose what this workspace should launch first, or ask Pura to map the fastest setup path.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button

@@ -1354,7 +1354,7 @@ export default function PortalAdCampaignsClient() {
                 className={
                   "inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold " +
                   (usersIncludeAll
-                    ? "border-[color:var(--color-brand-blue)]/30 bg-[color:var(--color-brand-blue)]/10 text-zinc-900"
+                    ? "border-brand-blue/30 bg-(--color-brand-blue)/10 text-zinc-900"
                     : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                 }
                 title={usersIncludeAll ? "Showing all users" : "Showing only users with events"}
@@ -1397,7 +1397,7 @@ export default function PortalAdCampaignsClient() {
           <div className="mt-4 overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-zinc-200 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
                   <th className="py-2 pr-4">User</th>
                   <th className="py-2 pr-4">Top service</th>
                   <th className="py-2 pr-4">Device</th>
@@ -1451,7 +1451,7 @@ export default function PortalAdCampaignsClient() {
                         <td className="py-3 pr-4">
                           <div className="text-xs text-zinc-600">Desktop {desktopPct}% • Mobile {mobilePct}%</div>
                           <div className="mt-1 h-2 w-40 overflow-hidden rounded-full bg-zinc-100">
-                            <div className="h-full bg-[color:var(--color-brand-blue)]" style={{ width: `${desktopPct}%` }} />
+                            <div className="h-full bg-(--color-brand-blue)" style={{ width: `${desktopPct}%` }} />
                           </div>
                         </td>
                         <td className="py-3 pr-4 font-semibold text-zinc-900">{impressions.toLocaleString()}</td>
@@ -1485,7 +1485,7 @@ export default function PortalAdCampaignsClient() {
       {tab === "campaigns" ? (
       <div className="mt-4 overflow-x-auto rounded-3xl border border-zinc-200 bg-white">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <thead className="bg-zinc-50 text-xs font-semibold text-zinc-500">
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Placement</th>
@@ -1875,14 +1875,14 @@ export default function PortalAdCampaignsClient() {
                     </div>
 
                     <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Target specific owners</div>
+                      <div className="text-xs font-medium text-zinc-500">Target specific owners</div>
                       <div className="mt-2 text-sm text-zinc-600">
                         Add owners here to target them even if their profile doesn’t match.
                       </div>
 
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <input
-                          className="min-w-[220px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          className="min-w-55 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           placeholder="Search owners by email, business name, industry…"
                           value={targetOwnerQuery}
                           onChange={(e) => {
@@ -1903,7 +1903,7 @@ export default function PortalAdCampaignsClient() {
 
                       {editor.includeOwnerIds.length ? (
                         <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Included owners</div>
+                          <div className="text-xs font-medium text-zinc-500">Included owners</div>
                           <div className="mt-2 grid gap-2">
                             {editor.includeOwnerIds.slice(0, 50).map((id) => {
                               const o = includedOwnerById[id];
@@ -1930,9 +1930,9 @@ export default function PortalAdCampaignsClient() {
                       ) : null}
 
                       {targetOwnerResults.length ? (
-                        <div className="mt-3 max-h-[220px] overflow-y-auto rounded-2xl border border-zinc-200">
+                        <div className="mt-3 max-h-55 overflow-y-auto rounded-2xl border border-zinc-200">
                           <table className="min-w-full text-left text-sm">
-                            <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            <thead className="bg-zinc-50 text-xs font-semibold text-zinc-500">
                               <tr>
                                 <th className="px-3 py-2">Owner</th>
                                 <th className="px-3 py-2">Business</th>
@@ -2085,7 +2085,7 @@ export default function PortalAdCampaignsClient() {
                       return <div className="text-xs text-zinc-700">{placementLabel(placements[0] || "SIDEBAR_BANNER")}</div>;
                     }
                     return (
-                      <div className="w-[240px]">
+                      <div className="w-60">
                         <PortalListboxDropdown
                           value={activeCreativePlacement}
                           onChange={(v) => setCreativePreviewPlacement(v as any)}
@@ -2127,7 +2127,7 @@ export default function PortalAdCampaignsClient() {
 
                           <label className="text-xs font-semibold text-zinc-600">Body</label>
                           <textarea
-                            className="min-h-[110px] rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
+                            className="min-h-27.5 rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
                             value={v.body}
                             onChange={(e) => {
                               const next = [...editor.creatives];
@@ -2576,7 +2576,7 @@ export default function PortalAdCampaignsClient() {
                                 return (
                                   <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                                     <div className="text-xs font-semibold text-zinc-600">Sidebar banner preview</div>
-                                    <div className="mt-2 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3">
+                                    <div className="mt-2 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-(--color-brand-blue)/10 to-white p-3">
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
                                       <img
                                         src={v.mediaUrl}
@@ -2602,7 +2602,7 @@ export default function PortalAdCampaignsClient() {
                                 return (
                                   <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                                     <div className="text-xs font-semibold text-zinc-600">Top banner preview</div>
-                                    <div className="mt-2 rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/15 via-white to-white p-4">
+                                    <div className="mt-2 rounded-3xl border border-brand-ink/10 bg-linear-to-r from-(--color-brand-blue)/15 via-white to-white p-4">
                                       <div className="flex items-center justify-between gap-3">
                                         <div className="flex min-w-0 items-center gap-3">
                                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2618,7 +2618,7 @@ export default function PortalAdCampaignsClient() {
                                             }}
                                           />
                                           <div className="min-w-0">
-                                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
+                                            <div className="text-[11px] font-medium text-zinc-500">Sponsored</div>
                                             <div className="truncate text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
                                             {v.body ? <div className="mt-1 line-clamp-2 text-xs text-zinc-700">{v.body}</div> : null}
                                           </div>
@@ -2637,7 +2637,7 @@ export default function PortalAdCampaignsClient() {
                                   <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                                     <div className="text-xs font-semibold text-zinc-600">Popup card preview</div>
                                     <div className="mt-2 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-                                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
+                                      <div className="text-[11px] font-medium text-zinc-500">Sponsored</div>
                                       <div className="mt-1 text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
                                       {v.body ? <div className="mt-2 text-xs text-zinc-700">{v.body}</div> : null}
                                       {v.mediaKind === "video" ? (
@@ -2683,7 +2683,7 @@ export default function PortalAdCampaignsClient() {
                                     <div className="text-xs font-semibold text-zinc-600">Fullscreen reward preview</div>
                                     <div className="mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-black">
                                       <div className="p-2 text-xs font-semibold text-white/80">Ad</div>
-                                      <div className="h-[240px] w-full">
+                                      <div className="h-60 w-full">
                                         <div className="mx-auto h-full w-full" style={{ maxWidth: `min(${pct}vw, 480px)` }}>
                                           {v.mediaKind === "video" ? (
                                             <video
@@ -2722,8 +2722,8 @@ export default function PortalAdCampaignsClient() {
                                   <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                                     <div className="text-xs font-semibold text-zinc-600">Hosted page overlay preview</div>
                                     <div className="mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-950">
-                                      <div className="relative h-[240px]">
-                                        <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 via-zinc-800 to-zinc-950" />
+                                      <div className="relative h-60">
+                                        <div className="absolute inset-0 bg-linear-to-b from-zinc-900 via-zinc-800 to-zinc-950" />
                                         <div className="absolute left-0 right-0 top-0 h-14 bg-white/85 backdrop-blur" />
                                         <div className="absolute left-6 top-4 h-6 w-32 rounded bg-zinc-200/70" />
                                         <div className="absolute left-6 top-20 h-8 w-64 rounded bg-white/20" />
@@ -3093,7 +3093,7 @@ export default function PortalAdCampaignsClient() {
       ) : null}
 
       {bucketManagerOpen ? (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4" onMouseDown={() => setBucketManagerOpen(false)}>
+        <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/40 p-4" onMouseDown={() => setBucketManagerOpen(false)}>
           <div className="w-full max-w-5xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl" onMouseDown={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -3181,7 +3181,7 @@ export default function PortalAdCampaignsClient() {
                     <div className="mt-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <input
-                          className="min-w-[220px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          className="min-w-55 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           placeholder="Search owners to add…"
                           value={ownerQuery}
                           onChange={(e) => {
@@ -3201,9 +3201,9 @@ export default function PortalAdCampaignsClient() {
                       </div>
 
                       {ownerResults.length ? (
-                        <div className="mt-3 max-h-[220px] overflow-y-auto rounded-2xl border border-zinc-200">
+                        <div className="mt-3 max-h-55 overflow-y-auto rounded-2xl border border-zinc-200">
                           <table className="min-w-full text-left text-sm">
-                            <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            <thead className="bg-zinc-50 text-xs font-semibold text-zinc-500">
                               <tr>
                                 <th className="px-3 py-2">Owner</th>
                                 <th className="px-3 py-2">Business</th>
@@ -3242,8 +3242,8 @@ export default function PortalAdCampaignsClient() {
                       ) : null}
 
                       <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Current members</div>
-                        <div className="mt-2 max-h-[240px] overflow-y-auto">
+                        <div className="text-xs font-medium text-zinc-500">Current members</div>
+                        <div className="mt-2 max-h-60 overflow-y-auto">
                           {bucketMembers.length ? (
                             <div className="grid gap-2">
                               {bucketMembers.map((m) => (
@@ -3278,7 +3278,7 @@ export default function PortalAdCampaignsClient() {
       ) : null}
 
       {assignOpen && assignCampaignId ? (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4" onMouseDown={() => setAssignOpen(false)}>
+        <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/40 p-4" onMouseDown={() => setAssignOpen(false)}>
           <div
             className="w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
@@ -3300,8 +3300,8 @@ export default function PortalAdCampaignsClient() {
 
             <div className="mt-4 grid gap-3">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Assigned</div>
-                <div className="mt-2 max-h-[180px] overflow-y-auto">
+                <div className="text-xs font-medium text-zinc-500">Assigned</div>
+                <div className="mt-2 max-h-45 overflow-y-auto">
                   {assignments.length ? (
                     <div className="grid gap-2">
                       {assignments.map((a) => (
@@ -3329,7 +3329,7 @@ export default function PortalAdCampaignsClient() {
               <div className="rounded-2xl border border-zinc-200 bg-white p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <input
-                    className="min-w-[220px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    className="min-w-55 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                     placeholder="Search owners by email, business name, industry…"
                     value={ownerQuery}
                     onChange={(e) => {
@@ -3348,10 +3348,10 @@ export default function PortalAdCampaignsClient() {
                   </button>
                 </div>
 
-                <div className="mt-3 max-h-[260px] overflow-y-auto rounded-2xl border border-zinc-200">
+                <div className="mt-3 max-h-65 overflow-y-auto rounded-2xl border border-zinc-200">
                   {ownerResults.length ? (
                     <table className="min-w-full text-left text-sm">
-                      <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      <thead className="bg-zinc-50 text-xs font-semibold text-zinc-500">
                         <tr>
                           <th className="px-3 py-2">Owner</th>
                           <th className="px-3 py-2">Business</th>

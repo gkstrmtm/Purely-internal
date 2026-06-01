@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -43,10 +42,6 @@ function dispatchPortalThemePreview(mode: "device" | "light" | "dark") {
   window.dispatchEvent(new CustomEvent("pa.portal.theme-preview", { detail: { mode } }));
 }
 
-function normalizeThemeMode(): "light" {
-  return "light";
-}
-
 export function PortalAppearanceSettingsClient() {
   const pathname = usePathname() || "";
   const toast = useToast();
@@ -64,7 +59,6 @@ export function PortalAppearanceSettingsClient() {
   const allowedDefaultLoginPaths = useMemo(() => new Set(pageOptions.map((option) => option.value)), [pageOptions]);
 
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [voiceLibraryLoading, setVoiceLibraryLoading] = useState(false);
   const [voicePreviewBusy, setVoicePreviewBusy] = useState(false);
@@ -76,22 +70,22 @@ export function PortalAppearanceSettingsClient() {
   const [savedVoiceId, setSavedVoiceId] = useState("");
   const [defaultLoginPath, setDefaultLoginPath] = useState(defaultLandingPath);
   const [savedDefaultLoginPath, setSavedDefaultLoginPath] = useState(defaultLandingPath);
-  const [themeMode, setThemeMode] = useState<"light" | null>(null);
-  const [savedThemeMode, setSavedThemeMode] = useState<"light" | null>(null);
+  const [themeMode, setThemeMode] = useState<"device" | "light" | "dark" | null>(null);
+  const [savedThemeMode, setSavedThemeMode] = useState<"device" | "light" | "dark" | null>(null);
+  const [themeSaving, setThemeSaving] = useState(false);
+  const [devicePreference, setDevicePreference] = useState<"light" | "dark">("light");
   const [hideFloatingTools, setHideFloatingTools] = useState(false);
   const [savedHideFloatingTools, setSavedHideFloatingTools] = useState(false);
 
   const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const voicePreviewUrlRef = useRef<string | null>(null);
-  const toastRef = useRef(toast);
-
-  useEffect(() => {
-    toastRef.current = toast;
-  }, [toast]);
+  const themeRequestIdRef = useRef(0);
 
   const themeOptions = useMemo(
     () => [
+      { value: "device", label: "Use device setting" },
       { value: "light", label: "Light" },
+      { value: "dark", label: "Dark" },
     ],
     [],
   );
@@ -125,13 +119,10 @@ export function PortalAppearanceSettingsClient() {
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
-    setLoadError(null);
     const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
     if (!res?.ok || !json?.user) {
-      const message = json?.error || "Appearance settings are still syncing. Retry here, open profile, or ask Pura to help.";
-      setLoadError(message);
-      toastRef.current.error(message);
+      toast.error(json?.error || "Unable to load appearance settings");
       setLoading(false);
       return;
     }
@@ -143,7 +134,7 @@ export function PortalAppearanceSettingsClient() {
     setSavedVoiceId(nextVoiceId);
     setDefaultLoginPath(nextDefaultLoginPath);
     setSavedDefaultLoginPath(nextDefaultLoginPath);
-    const nextThemeMode = normalizeThemeMode();
+    const nextThemeMode = json.user.themeMode === "light" || json.user.themeMode === "dark" ? json.user.themeMode : "device";
     const nextHideFloatingTools = Boolean(json.user.hideFloatingTools);
     setThemeMode(nextThemeMode);
     setSavedThemeMode(nextThemeMode);
@@ -151,7 +142,7 @@ export function PortalAppearanceSettingsClient() {
     setSavedHideFloatingTools(nextHideFloatingTools);
     syncFloatingToolsPreference(nextHideFloatingTools);
     setLoading(false);
-  }, [normalizeDefaultLoginPathValue, syncFloatingToolsPreference]);
+  }, [normalizeDefaultLoginPathValue, syncFloatingToolsPreference, toast]);
 
   const loadVoiceLibrary = useCallback(async () => {
     if (!voiceAgentApiKeyConfigured) return;
@@ -178,6 +169,18 @@ export function PortalAppearanceSettingsClient() {
       setVoiceLibraryLoading(false);
     }
   }, [voiceAgentApiKeyConfigured]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => setDevicePreference(media.matches ? "dark" : "light");
+    apply();
+
+    const onChange = () => apply();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     void loadProfile();
@@ -213,6 +216,39 @@ export function PortalAppearanceSettingsClient() {
     defaultLoginPath !== savedDefaultLoginPath ||
     hideFloatingTools !== savedHideFloatingTools;
 
+  const saveThemePreference = useCallback(
+    async (nextThemeMode: "device" | "light" | "dark") => {
+      setThemeMode(nextThemeMode);
+      const requestId = themeRequestIdRef.current + 1;
+      themeRequestIdRef.current = requestId;
+      const previousSavedThemeMode = savedThemeMode ?? "device";
+      setThemeSaving(true);
+
+      const res = await fetch("/api/portal/profile", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeMode: nextThemeMode }),
+      }).catch(() => null as any);
+
+      const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
+
+      if (requestId !== themeRequestIdRef.current) return;
+
+      setThemeSaving(false);
+      if (!res?.ok || json?.ok !== true || !json.user) {
+        setThemeMode(previousSavedThemeMode);
+        toast.error(json?.error || "Unable to update theme");
+        return;
+      }
+
+      const persistedThemeMode =
+        json.user.themeMode === "light" || json.user.themeMode === "dark" ? json.user.themeMode : "device";
+      setThemeMode(persistedThemeMode);
+      setSavedThemeMode(persistedThemeMode);
+    },
+    [savedThemeMode, toast],
+  );
+
   async function savePreferences() {
     if (saving || !dirty) return;
     setSaving(true);
@@ -229,7 +265,7 @@ export function PortalAppearanceSettingsClient() {
     const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
     setSaving(false);
     if (!res?.ok || json?.ok !== true || !json.user) {
-      toast.error(json?.error || "Appearance settings did not save. Retry here or ask Pura to help.");
+      toast.error(json?.error || "Unable to save appearance settings");
       return;
     }
 
@@ -299,50 +335,20 @@ export function PortalAppearanceSettingsClient() {
 
   return (
     <div className="space-y-6">
-      {loadError ? (
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <div className="font-semibold text-red-900">Appearance settings need attention</div>
-          <div className="mt-1">{loadError}</div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void loadProfile();
-              }}
-              className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-            >
-              Retry
-            </button>
-            <Link
-              href={`${portalBase}/profile`}
-              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
-            >
-              Open profile
-            </Link>
-            <Link
-              href={`${portalBase}/app/ai-chat?onboarding=1`}
-              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
-            >
-              Ask Pura
-            </Link>
-          </div>
-        </div>
-      ) : null}
-
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-brand-ink">Theme</h2>
         <p className="mt-1 text-sm text-zinc-600">
-          Light mode is locked on for users so the portal always stays readable and consistent.
+          Choose how the portal should look on this account. Device mode currently resolves to {devicePreference} mode.
         </p>
         <div className="mt-4 w-full max-w-xs">
           <PortalListboxDropdown
-            value={themeMode ?? savedThemeMode ?? "light"}
+            value={themeMode ?? savedThemeMode ?? "device"}
             options={themeOptions}
-            onChange={() => undefined}
-            disabled={true}
+            onChange={(value) => void saveThemePreference(value as "device" | "light" | "dark")}
+            disabled={loading || themeMode === null || themeSaving}
           />
         </div>
-        <div className="mt-3 text-xs text-zinc-500">Dark mode has been turned off for users.</div>
+        <div className="mt-3 text-xs text-zinc-500">Theme changes apply and save immediately.</div>
       </div>
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -374,11 +380,11 @@ export function PortalAppearanceSettingsClient() {
 
         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Voice</label>
+            <label className="text-xs font-medium text-zinc-500">Voice</label>
             <PortalListboxDropdown<string>
               value={selectedVoiceId}
               onChange={(voiceId) => setSelectedVoiceId(String(voiceId || "").trim())}
-              disabled={loading}
+              disabled={loading || voiceLibraryLoading}
               placeholder={voiceLibraryLoading ? "Loading voices…" : "Use service default"}
               options={[
                 { value: "", label: "Use service default", hint: "" },
@@ -432,6 +438,7 @@ export function PortalAppearanceSettingsClient() {
                 );
               }}
               className="mt-2 z-50"
+              buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
             />
             <div className="mt-2 text-xs text-zinc-500">
               {selectedVoiceMeta

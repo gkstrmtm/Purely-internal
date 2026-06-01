@@ -8,7 +8,6 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { getBlogAppearance } from "@/lib/blogAppearance";
-import { buildCustomDomainMetadata, buildCustomDomainNotFoundMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 import { getHostedTheme } from "@/lib/hostedTheme";
@@ -64,43 +63,24 @@ export async function generateMetadata({
   if (!host) return {};
 
   const mapping = await resolveCustomDomain(host);
-  if (!mapping) return buildCustomDomainNotFoundMetadata(host);
-  if (mapping.status !== "VERIFIED") {
-    return buildCustomDomainMetadata({
-      host,
-      siteName: host,
-      title: "Domain pending verification",
-      description: "This domain is saved, but not verified yet.",
-      noIndex: true,
-    });
-  }
+  if (!mapping || mapping.status !== "VERIFIED") return { title: host };
 
   const site = await prisma.clientBlogSite
     .findUnique({ where: { ownerId: mapping.ownerId }, select: { id: true, ownerId: true, name: true } })
     .catch(() => null);
-  if (!site) return buildCustomDomainNotFoundMetadata(host);
+  if (!site) return { title: host };
 
   const post = await prisma.clientBlogPost
-    .findFirst({ where: { siteId: site.id, slug: postSlug, status: "PUBLISHED", archivedAt: null }, select: { title: true, excerpt: true, content: true, seoKeywords: true } })
+    .findFirst({ where: { siteId: site.id, slug: postSlug, status: "PUBLISHED", archivedAt: null }, select: { title: true, excerpt: true } })
     .catch(() => null);
-  if (!post) return buildCustomDomainNotFoundMetadata(host);
+  if (!post) return { title: host };
 
-  const branding = await resolveCustomDomainBranding(host);
-  const cover = splitLeadingCoverImage(parseBlogContent(post.content || "")).cover;
-  const keywords = Array.isArray((post as any).seoKeywords)
-    ? ((post as any).seoKeywords as unknown[]).map((item) => String(item || "").trim()).filter(Boolean).slice(0, 30)
-    : [];
-  return buildCustomDomainMetadata({
-    host,
-    siteName: branding.siteName,
-    title: `${post.title} | ${branding.siteName}`,
-    description: post.excerpt,
-    imageUrl: cover?.src || branding.logoUrl,
-    iconUrl: branding.logoUrl,
-    path: `/blogs/${postSlug}`,
-    keywords: [...keywords, branding.siteName, `${branding.siteName} blog`].filter(Boolean),
-    type: "article",
-  });
+  const profile = await prisma.businessProfile
+    .findUnique({ where: { ownerId: site.ownerId }, select: { businessName: true } })
+    .catch(() => null);
+
+  const name = profile?.businessName || site.name;
+  return { title: `${post.title} | ${name}`, description: post.excerpt };
 }
 
 export default async function CustomDomainBlogPostPage({
@@ -232,7 +212,7 @@ export default async function CustomDomainBlogPostPage({
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">
-          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
+          <div className="text-xs font-medium" style={{ color: "var(--client-muted)" }}>
             {formatBlogDate(post.publishedAt ?? post.updatedAt)}
           </div>
           <h1 className="mt-3 font-brand text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-link)" }}>

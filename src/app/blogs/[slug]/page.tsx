@@ -1,13 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
-import DomainRouterBlogPostPage, { generateMetadata as generateDomainRouterBlogPostMetadata } from "@/app/domain-router/[domain]/blogs/[postSlug]/page";
-import { hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
-import { buildBlogCtaText, formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
+import { buildBlogCtaText, formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent, splitLeadingCoverImage } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,14 +13,6 @@ type PageProps = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata(props: PageProps) {
   const { slug } = await props.params;
-  const h = await headers();
-  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
-
-  if (!isPlatformHostname(host) && host) {
-    return generateDomainRouterBlogPostMetadata({
-      params: Promise.resolve({ domain: encodeURIComponent(host), postSlug: slug }),
-    });
-  }
 
   try {
     const hasArchivedAt = await hasPublicColumn("BlogPost", "archivedAt");
@@ -44,14 +33,6 @@ export async function generateMetadata(props: PageProps) {
 
 export default async function BlogPostPage(props: PageProps) {
   const { slug } = await props.params;
-  const h = await headers();
-  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
-  if (!isPlatformHostname(host) && host) {
-    return DomainRouterBlogPostPage({
-      params: Promise.resolve({ domain: encodeURIComponent(host), postSlug: slug }),
-    });
-  }
-
   const cta = buildBlogCtaText();
 
   let post:
@@ -81,7 +62,8 @@ export default async function BlogPostPage(props: PageProps) {
 
   if (!post) notFound();
 
-  const blocks = parseBlogContent(post.content);
+  const parsed = parseBlogContent(post.content);
+  const { cover, blocks } = splitLeadingCoverImage(parsed);
 
   return (
     <div className="min-h-screen bg-white text-zinc-900">
@@ -117,13 +99,22 @@ export default async function BlogPostPage(props: PageProps) {
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <div className="text-xs font-medium text-zinc-500">
             {formatBlogDate(post.publishedAt)}
           </div>
           <h1 className="mt-3 font-brand text-4xl leading-tight text-(--color-brand-blue) sm:text-5xl">
             {post.title}
           </h1>
           <p className="mt-5 text-base leading-relaxed text-zinc-700">{post.excerpt}</p>
+
+          {cover ? (
+            <div className="mt-8 overflow-hidden rounded-4xl border border-zinc-200 bg-zinc-50 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+              <div className="aspect-video w-full bg-zinc-100">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={cover.src} alt={cover.alt || post.title} className="h-full w-full object-cover object-center" />
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-10 space-y-6">
             {blocks.map((b, idx) => {
@@ -180,7 +171,7 @@ export default async function BlogPostPage(props: PageProps) {
                 href="/"
                 className="inline-flex items-center justify-center rounded-2xl border border-[rgba(29,78,216,0.15)] bg-white px-6 py-3 text-base font-bold text-(--color-brand-blue) hover:bg-zinc-50"
               >
-                back to home
+                Back to home
               </Link>
             </div>
           </div>
@@ -197,10 +188,10 @@ export default async function BlogPostPage(props: PageProps) {
           <div className="text-sm text-zinc-600">© {new Date().getFullYear()} Purely Automation</div>
           <div className="flex items-center gap-4">
             <Link href="/blogs" className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
-              blogs
+              Blogs
             </Link>
             <Link href={cta.href} className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
-              book a call
+              Book a call
             </Link>
           </div>
         </div>

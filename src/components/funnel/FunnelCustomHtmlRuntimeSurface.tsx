@@ -219,7 +219,7 @@ function withBookingRuntimePlaceholder(input: {
   if (!input.injectImplicitBooking || !input.bookingTarget) return html;
 
   const badgeHtml = input.bookingLabel
-    ? `<div style="display:inline-flex;align-self:flex-start;max-width:100%;border:1px solid #bbf7d0;border-radius:999px;background:#f0fdf4;padding:6px 10px;font:600 11px/1.2 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:0.08em;text-transform:uppercase;color:#15803d;">Linked funnel calendar · ${escapeHtml(input.bookingLabel)}</div>`
+    ? `<div style="display:inline-flex;align-self:flex-start;max-width:100%;border:1px solid #bbf7d0;border-radius:999px;background:#f0fdf4;padding:6px 10px;font:600 11px/1.2 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#15803d;">Linked funnel calendar · ${escapeHtml(input.bookingLabel)}</div>`
     : "";
   const runtimeHtml = `${badgeHtml}${placeholderHtml}`;
 

@@ -1,57 +1,38 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import Link from "next/link";
 
-import DomainRouterNotFound from "@/app/domain-router/[domain]/not-found";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
-import { buildCustomDomainNotFoundMetadata, hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 
-export async function generateMetadata(): Promise<Metadata> {
-  const h = await headers();
-  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
-
-  if (!isPlatformHostname(host) && host) {
-    return buildCustomDomainNotFoundMetadata(host);
-  }
-
-  return {
-    title: "Services | Purely Automation",
-    description:
-      "Explore automation services: appointment booking automation, AI receptionist, review requests, SMS and email follow-up, newsletters, lead scraping, reporting dashboards, and more.",
-    keywords: [
-      "automation services",
-      "business automation",
-      "appointment booking automation",
-      "AI receptionist",
-      "review requests",
-      "reputation management",
-      "lead generation",
-      "lead scraping",
-      "SMS automation",
-      "email automation",
-      "marketing automation",
-      "reporting dashboard",
-    ],
-    alternates: { canonical: "/services" },
-  };
-}
+export const metadata: Metadata = {
+  title: "Services | Purely Automation",
+  description:
+    "Explore automation services: appointment booking automation, AI receptionist, review requests, SMS and email follow-up, newsletters, lead scraping, reporting dashboards, and more.",
+  keywords: [
+    "automation services",
+    "business automation",
+    "appointment booking automation",
+    "AI receptionist",
+    "review requests",
+    "reputation management",
+    "lead generation",
+    "lead scraping",
+    "SMS automation",
+    "email automation",
+    "marketing automation",
+    "reporting dashboard",
+  ],
+  alternates: { canonical: "/services" },
+};
 
 function accentTextColor(accent: "blue" | "coral" | "ink") {
-  if (accent === "blue") return "text-(--color-brand-blue)";
-  if (accent === "coral") return "text-(--color-brand-pink)";
+  if (accent === "blue") return "text-[color:var(--color-brand-blue)]";
+  if (accent === "coral") return "text-[color:var(--color-brand-pink)]";
   return "text-zinc-700";
 }
 
-export default async function ServicesIndexPage() {
-  const h = await headers();
-  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
-
-  if (!isPlatformHostname(host)) {
-    return <DomainRouterNotFound />;
-  }
-
+export default function ServicesIndexPage() {
   // Marketing /services page: hide credit-only services, but keep Funnel Builder.
   const visiblePortalServices = PORTAL_SERVICES.filter((s) => !s.hidden).filter(
     (s) => s.slug !== "dispute-letters" && s.slug !== "credit-reports",
@@ -94,7 +75,7 @@ export default async function ServicesIndexPage() {
 
   return (
     <main className="min-h-screen bg-white">
-      <section className="w-full bg-(--color-brand-blue) text-white">
+      <section className="w-full bg-[color:var(--color-brand-blue)] text-white">
         <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
           <div className="max-w-3xl">
             <div className="mb-7 flex flex-wrap items-center gap-2 text-sm text-white/85">
@@ -137,7 +118,7 @@ export default async function ServicesIndexPage() {
               </details>
             </div>
 
-            <div className="text-xs font-semibold tracking-wide text-white/70">SERVICES</div>
+            <div className="text-xs font-medium text-white/70">Services</div>
             <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">One portal. Many automations.</h1>
             <p className="mt-4 text-base text-white/85 sm:text-lg">
               Pick one service to start, or stack a few. Everything stays in one place; billing, reporting,
@@ -182,15 +163,15 @@ export default async function ServicesIndexPage() {
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/portal/get-started"
-                className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-base font-semibold text-(--color-brand-blue) hover:bg-zinc-50"
+                className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-base font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
               >
-                Get Started
+                Get started
               </Link>
               <Link
                 href="/book-a-call"
                 className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-base font-semibold text-white hover:opacity-95"
               >
-                Book a Call
+                Book a call
               </Link>
             </div>
 
@@ -217,7 +198,7 @@ export default async function ServicesIndexPage() {
               </div>
               <Link
                 href="/portal/get-started"
-                className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90"
               >
                 Start free
               </Link>
@@ -225,7 +206,7 @@ export default async function ServicesIndexPage() {
 
             <div className="mt-7 grid grid-cols-1 gap-6 lg:grid-cols-3">
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Fast launch</div>
+                <div className="text-xs font-medium text-zinc-500">Fast launch</div>
                 <div className="mt-2 text-lg font-semibold text-zinc-900">The Launch Kit</div>
                 <div className="mt-2 text-sm text-zinc-600">
                   For teams that want to get set up quickly and start converting leads without overthinking it.
@@ -238,18 +219,18 @@ export default async function ServicesIndexPage() {
                 <div className="mt-5">
                   <Link
                     href="/services/the-launch-kit"
-                    className="text-sm font-semibold text-(--color-brand-blue) hover:underline"
+                    className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                   >
                     View package →
                   </Link>
                 </div>
               </div>
 
-              <div className="relative rounded-3xl border-2 border-[rgba(29,78,216,0.45)] bg-[rgba(29,78,216,0.05)] p-6">
-                <div className="absolute right-5 top-5 inline-flex items-center rounded-full bg-[rgba(29,78,216,0.12)] px-3 py-1 text-xs font-semibold text-(--color-brand-blue)">
+              <div className="relative rounded-3xl border-2 border-[color:rgba(29,78,216,0.45)] bg-[color:rgba(29,78,216,0.05)] p-6">
+                <div className="absolute right-5 top-5 inline-flex items-center rounded-full bg-[color:rgba(29,78,216,0.12)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-blue)]">
                   Recommended
                 </div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-[rgba(29,78,216,0.78)]">Close faster</div>
+                <div className="text-xs font-medium text-[color:rgba(29,78,216,0.78)]">Close faster</div>
                 <div className="mt-2 text-lg font-semibold text-zinc-900">The Sales Loop</div>
                 <div className="mt-2 text-sm text-zinc-600">
                   For lead-driven teams that need faster response, consistent follow-up, and more booked calls.
@@ -262,7 +243,7 @@ export default async function ServicesIndexPage() {
                 <div className="mt-5">
                   <Link
                     href="/services/the-sales-loop"
-                    className="text-sm font-semibold text-(--color-brand-blue) hover:underline"
+                    className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                   >
                     View package →
                   </Link>
@@ -270,7 +251,7 @@ export default async function ServicesIndexPage() {
               </div>
 
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Build trust</div>
+                <div className="text-xs font-medium text-zinc-500">Build trust</div>
                 <div className="mt-2 text-lg font-semibold text-zinc-900">The Brand Builder</div>
                 <div className="mt-2 text-sm text-zinc-600">
                   For businesses that want consistent visibility and proof without posting every day.
@@ -283,7 +264,7 @@ export default async function ServicesIndexPage() {
                 <div className="mt-5">
                   <Link
                     href="/services/the-brand-builder"
-                    className="text-sm font-semibold text-(--color-brand-blue) hover:underline"
+                    className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                   >
                     View package →
                   </Link>
@@ -303,13 +284,13 @@ export default async function ServicesIndexPage() {
                   href="/book-a-call"
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
                 >
-                  Book a Call
+                  Book a call
                 </Link>
                 <Link
                   href="/portal"
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                 >
-                  Visit the Portal
+                  Visit the portal
                 </Link>
               </div>
             </div>
@@ -362,7 +343,7 @@ export default async function ServicesIndexPage() {
                           ))}
                         </div>
                       ) : null}
-                      <div className="mt-5 text-sm font-semibold text-(--color-brand-blue)">
+                      <div className="mt-5 text-sm font-semibold text-[color:var(--color-brand-blue)]">
                         View details →
                       </div>
                     </Link>

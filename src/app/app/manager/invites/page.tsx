@@ -19,7 +19,10 @@ export default async function ManagerInvitesPage() {
           Create one-time invite codes for new employees. Share the signup link or the code directly.
         </p>
         <div className="mt-6">
-          <ManagerInvitesClient />
+          <ManagerInvitesClient
+            currentRole={role}
+            canCreateElevatedInviteRoles={role === "ADMIN"}
+          />
         </div>
       </div>
     </div>

@@ -1,11 +1,9 @@
-import { headers } from "next/headers";
 import Link from "next/link";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { requirePortalUser } from "@/lib/portalAuth";
-import { normalizePortalVariant, PORTAL_VARIANT_HEADER, portalBasePath, type PortalVariant } from "@/lib/portalVariant";
 
 function getCoreWhatYoullLearn(slug: string): string {
   switch (slug) {
@@ -61,13 +59,10 @@ function getServiceWhatYoullLearn(slug: string): string {
   }
 }
 
-async function PortalTutorialsPageContent({ variantOverride }: { variantOverride?: PortalVariant } = {}) {
-  const h = await headers();
-  const variant = variantOverride || normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
-  await requirePortalUser({ variant });
-  const base = portalBasePath(variant);
+export default async function PortalTutorialsPage() {
+  await requirePortalUser();
 
-  const services = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes(variant)));
+  const services = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
   const serviceGroups = groupPortalServices(services);
   const corePages = [
     {
@@ -128,9 +123,9 @@ async function PortalTutorialsPageContent({ variantOverride }: { variantOverride
                   <span
                     className={
                       s.accent === "blue"
-                        ? "text-(--color-brand-blue)"
+                        ? "text-[color:var(--color-brand-blue)]"
                         : s.accent === "coral"
-                          ? "text-(--color-brand-pink)"
+                          ? "text-[color:var(--color-brand-pink)]"
                           : "text-zinc-700"
                     }
                   >
@@ -139,7 +134,7 @@ async function PortalTutorialsPageContent({ variantOverride }: { variantOverride
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base font-semibold text-brand-ink">{s.title}</div>
-                  <div className="mt-1 text-xs uppercase tracking-wide text-zinc-500">App tutorial</div>
+                  <div className="mt-1 text-xs text-zinc-500">Portal page</div>
                 </div>
               </div>
 
@@ -152,7 +147,7 @@ async function PortalTutorialsPageContent({ variantOverride }: { variantOverride
 
               <div className="mt-5 flex justify-end">
                 <Link
-                  href={`${base}/tutorials/${s.slug}`}
+                  href={`/portal/tutorials/${s.slug}`}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Go
@@ -163,11 +158,11 @@ async function PortalTutorialsPageContent({ variantOverride }: { variantOverride
         </div>
 
         <div className="mt-10 border-t border-zinc-200 pt-8">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Service tutorials</h2>
+          <h2 className="text-sm font-medium text-zinc-500">Service tutorials</h2>
           <div className="mt-4 space-y-10">
             {serviceGroups.map((group) => (
               <section key={group.key}>
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
+                <div className="text-xs font-medium text-zinc-500">{group.title}</div>
                 <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {group.services.map((s) => (
                     <div key={s.slug} className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6">
@@ -176,9 +171,9 @@ async function PortalTutorialsPageContent({ variantOverride }: { variantOverride
                           <span
                             className={
                               s.accent === "blue"
-                                ? "text-(--color-brand-blue)"
+                                ? "text-[color:var(--color-brand-blue)]"
                                 : s.accent === "coral"
-                                  ? "text-(--color-brand-pink)"
+                                  ? "text-[color:var(--color-brand-pink)]"
                                   : "text-zinc-700"
                             }
                           >
@@ -187,7 +182,7 @@ async function PortalTutorialsPageContent({ variantOverride }: { variantOverride
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-base font-semibold text-brand-ink">{s.title}</div>
-                          <div className="mt-1 text-xs uppercase tracking-wide text-zinc-500">Service tutorial</div>
+                          <div className="mt-1 text-xs text-zinc-500">Service tutorial</div>
                         </div>
                       </div>
 
@@ -200,7 +195,7 @@ async function PortalTutorialsPageContent({ variantOverride }: { variantOverride
 
                       <div className="mt-5 flex justify-end">
                         <Link
-                          href={`${base}/tutorials/${s.slug}`}
+                          href={`/portal/tutorials/${s.slug}`}
                           className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                         >
                           Go
@@ -216,8 +211,4 @@ async function PortalTutorialsPageContent({ variantOverride }: { variantOverride
       </div>
     </div>
   );
-}
-
-export default async function PortalTutorialsPage() {
-  return <PortalTutorialsPageContent />;
 }

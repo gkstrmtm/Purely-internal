@@ -160,7 +160,7 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
   return (
     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
       <div className="text-xs font-semibold text-zinc-600">{label}</div>
-      <div className="mt-2 break-all font-mono text-xs text-zinc-800">{v ?? "Not set yet"}</div>
+      <div className="mt-2 break-all font-mono text-xs text-zinc-800">{v ?? "Not added yet"}</div>
       <div className="mt-3 flex items-center justify-end">
         <button
           type="button"
@@ -1693,7 +1693,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                         </div>
                       ) : (
                         <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No custom domains added yet</div>
+                          <div className="font-semibold text-zinc-900">Custom domains have not been added yet</div>
                           <div className="mt-1">Add a domain here when you want booking pages, funnels, or hosted experiences to use your own brand.</div>
                           <div className="mt-3 flex flex-wrap items-center gap-2">
                             <button
@@ -1743,7 +1743,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                               <div className="text-sm font-semibold text-zinc-900">Twilio connection</div>
                               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                                 <span>
-                                  Status: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Connected" : "Not connected"}</span>
+                                  Status: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Connected" : "Setup needed"}</span>
                                 </span>
                                 <span>•</span>
                                 <span>
@@ -1788,10 +1788,10 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                     Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span>
                                   </div>
                                   <div className="mt-1">
-                                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "No account linked yet"}</span>
+                                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "Account not linked yet"}</span>
                                   </div>
                                   <div className="mt-1">
-                                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "No sender number yet"}</span>
+                                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "Sender number not added yet"}</span>
                                   </div>
                                 </div>
 
@@ -1973,7 +1973,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                 </span>
                                 <span>•</span>
                                 <span>
-                                  Status: <span className="font-semibold text-zinc-900">{selectedSalesConfigured ? "Connected" : "Not connected"}</span>
+                                  Status: <span className="font-semibold text-zinc-900">{selectedSalesConfigured ? "Connected" : "Setup needed"}</span>
                                 </span>
                               </div>
                             </div>
@@ -2019,15 +2019,15 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                               {salesProvider === "stripe" ? (
                                 <>
                                   <div className="mt-1">
-                                    Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "No key type yet" : "No key type yet"}</span>
+                                    Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "Key type not available yet" : "Key type not available yet"}</span>
                                   </div>
                                   <div className="mt-1">
-                                    Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "No account linked yet" : "No account linked yet"}</span>
+                                    Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "Account not linked yet" : "Account not linked yet"}</span>
                                   </div>
                                 </>
                               ) : (
                                 <div className="mt-1">
-                                  Details: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "No provider details yet" : "No provider details yet"}</span>
+                                  Details: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "Provider details not available yet" : "Provider details not available yet"}</span>
                                 </div>
                               )}
                             </div>
@@ -2490,7 +2490,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                         </div>
                             ) : apiKeysLoaded ? (
                               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                                <div className="font-semibold text-zinc-900">No scoped API keys created yet</div>
+                                <div className="font-semibold text-zinc-900">Scoped API keys have not been created yet</div>
                                 <div className="mt-1">Create a scoped key when another app, workflow, or teammate only needs limited portal access.</div>
                                 <div className="mt-3 flex flex-wrap items-center gap-2">
                                   <button

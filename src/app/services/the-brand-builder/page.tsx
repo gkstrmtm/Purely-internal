@@ -57,7 +57,6 @@ function accentClasses(accent: "blue" | "coral" | "ink") {
 }
 
 export default function BrandBuilderPackagePage() {
-  const getStartedHref = "/portal/get-started?package=brand-builder";
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Service",
@@ -106,7 +105,7 @@ export default function BrandBuilderPackagePage() {
 
           <div className="grid grid-cols-1 gap-10 md:grid-cols-2 md:items-center">
             <div className="max-w-2xl">
-              <div className="text-xs font-semibold tracking-wide text-white/70">PACKAGE</div>
+              <div className="text-xs font-medium text-white/70">Package</div>
               <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">The Brand Builder</h1>
               <p className="mt-4 text-base text-white/85 sm:text-lg">Build trust and inbound demand without posting every day.</p>
               <p className="mt-4 text-sm text-white/80">
@@ -116,7 +115,7 @@ export default function BrandBuilderPackagePage() {
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href={getStartedHref}
+                  href="/portal/get-started"
                   className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Start free
@@ -144,7 +143,7 @@ export default function BrandBuilderPackagePage() {
                 <div className="absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-[color:rgba(255,255,255,0.12)] blur-2xl" />
 
                 <div className="relative">
-                  <div className="text-xs font-semibold tracking-wide text-white/75">CONSISTENCY</div>
+                  <div className="text-xs font-medium text-white/75">Consistency</div>
                   <div className="mt-2 text-lg font-semibold text-white/95">Content plus proof</div>
                   <div className="mt-1 text-sm text-white/70">Look active and credible without daily effort.</div>
 
@@ -250,7 +249,7 @@ export default function BrandBuilderPackagePage() {
               </div>
 
               <div className="mt-12 rounded-3xl bg-brand-mist p-8 sm:p-10">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Compounding cycle</div>
+                <div className="text-xs font-medium text-zinc-500">Compounding cycle</div>
                 <div className="mt-2 text-xl font-bold tracking-tight text-brand-ink">Visibility → trust → conversions</div>
                 <div className="mt-3 text-sm text-zinc-600 sm:text-base">
                   You do not need daily output. You need consistent signals that make prospects feel like you are established and active.
@@ -344,7 +343,7 @@ export default function BrandBuilderPackagePage() {
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                   <Link
-                    href={getStartedHref}
+                    href="/portal/get-started"
                     className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50 sm:w-auto"
                   >
                     Get started

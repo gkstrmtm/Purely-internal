@@ -5,6 +5,7 @@ import { listAvailabilityBlocksForRange } from "@/lib/bookingAvailability";
 import { prisma } from "@/lib/db";
 import { computeAvailableSlots } from "@/lib/bookingSlots";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,6 +24,7 @@ export async function GET(
   const { ownerId, calendarId } = await params;
 
   const url = new URL(req.url);
+  const requestedFunnelId = url.searchParams.get("funnelId")?.trim() || "";
   const parsed = querySchema.safeParse({
     startAt: url.searchParams.get("startAt") ?? undefined,
     days: url.searchParams.get("days") ?? undefined,
@@ -34,20 +36,28 @@ export async function GET(
     return NextResponse.json({ error: "Invalid query" }, { status: 400 });
   }
 
-  const [site, calendars] = await Promise.all([
+  const [site, calendars, settingsRow] = await Promise.all([
     (prisma as any).portalBookingSite.findUnique({
       where: { ownerId },
       select: { id: true, ownerId: true, enabled: true },
     }),
     getBookingCalendarsConfig(ownerId),
+    requestedFunnelId
+      ? prisma.creditFunnelBuilderSettings.findUnique({ where: { ownerId }, select: { dataJson: true } }).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const cal = calendars.calendars.find((c) => c.id === calendarId);
-  if (!site || !site.enabled || !cal || !cal.enabled) {
+  const funnelCalendarId = requestedFunnelId
+    ? readFunnelBookingRouting(settingsRow?.dataJson ?? null, requestedFunnelId)?.calendarId ?? ""
+    : "";
+  const bookingEnabled = Boolean(cal?.enabled) && (Boolean(site?.enabled) || funnelCalendarId === calendarId);
+  if (!site || !bookingEnabled || !cal || !cal.enabled) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const durationMinutes = cal.durationMinutes ?? parsed.data.durationMinutes;
+  const minimumNoticeMinutes = cal.minimumNoticeMinutes ?? 0;
 
   const now = new Date();
   const base = parsed.data.startAt ? new Date(parsed.data.startAt) : now;
@@ -66,6 +76,7 @@ export async function GET(
     startAt: parsed.data.startAt ?? null,
     days: parsed.data.days,
     durationMinutes,
+    minimumNoticeMinutes,
     limit: parsed.data.limit,
     coverageBlocks: blocks,
     existing: bookings,

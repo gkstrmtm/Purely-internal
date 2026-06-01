@@ -1004,14 +1004,6 @@ function hasBookingClusterFailure(issues: string[]) {
   );
 }
 
-function hasBookingGenericOutputFailure(issues: string[]) {
-  return issues.some((issue) =>
-    /generic starter template|generic consultation shell|generic enterprise filler|invented or generic proof|placeholder faq scaffolding|ornamental fact clutter|CTA dominance is diluted|familiar AI booking mockup|overused Inter\/Space Grotesk pairing/i.test(
-      issue,
-    ),
-  );
-}
-
 function countTextSlabSections(html: string) {
   const matches = Array.from(String(html || "").matchAll(/<section\b[^>]*>([\s\S]*?)<\/section>/gi)).slice(0, 14);
   let count = 0;
@@ -1215,11 +1207,6 @@ function buildBookingFallbackHtmlFromPlan(input: {
     readPlanString(openingCluster, "qualifier", `Built for ${audience}`),
     `Built for ${audience}`,
   );
-  const adjacentProof = pickNonGenericFallbackCopy(
-    readPlanString(openingCluster, "adjacentProof", ""),
-    `A structured ${cleanOffer} with a clear recommendation, visible tradeoffs, and enough decision support to act without a second vague discovery call.`,
-  );
-  const supportRole = readPlanString(openingCluster, "supportRole", "proof rail");
   const summary = pickNonGenericFallbackCopy(
     readPlanString(input.generationPlan, "summary", ""),
     `${capitalizeSentence(cleanOffer)} for ${audience} that turns live operational pressure into a clear next move.`,
@@ -1227,10 +1214,6 @@ function buildBookingFallbackHtmlFromPlan(input: {
   const heroApproach = pickNonGenericFallbackCopy(
     readPlanString(input.generationPlan, "heroApproach", ""),
     `${capitalizeSentence(cleanOffer)} for ${audience} with a clear next step and proof attached to the first booking action.`,
-  );
-  const proofStrategy = pickNonGenericFallbackCopy(
-    readPlanString(input.generationPlan, "proofStrategy", ""),
-    "Keep proof beside the first CTA, then restage reassurance again inside the booking handoff so the page never asks in a vacuum.",
   );
   const handoffType = readPlanString(bookingHandoff, "sectionType", "direct booking handoff");
   const handoffReassurance = pickNonGenericFallbackCopy(
@@ -1248,7 +1231,6 @@ function buildBookingFallbackHtmlFromPlan(input: {
   const bookingHref = input.bookingHref || `#${input.bookingSectionId}`;
   const canEmbedBooking = !/^#/.test(bookingHref);
   const primaryBookingHref = canEmbedBooking ? `#${input.bookingSectionId}` : bookingHref;
-  const supportLabel = /proof\s+(rail|strip)/i.test(supportRole) ? "Decision support" : supportRole || "Decision support";
   const handoffLead = /embedded booking section/i.test(handoffType)
     ? "The booking section stays embedded and low-friction."
     : /direct booking handoff/i.test(handoffType)

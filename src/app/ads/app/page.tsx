@@ -170,7 +170,7 @@ export default function AdsAppHomePage() {
         </div>
 
         <div className="w-full rounded-3xl border border-zinc-200 bg-white p-3 sm:w-auto">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Quick actions</div>
+          <div className="text-xs font-medium text-zinc-500">Quick actions</div>
           <div className="mt-2 flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <Link
               href="/ads/app/campaigns/new"
@@ -190,7 +190,7 @@ export default function AdsAppHomePage() {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Balance</div>
+          <div className="text-xs font-medium text-zinc-500">Balance</div>
           <div className="mt-2 text-2xl font-bold text-zinc-900">{usd(balanceCents)}</div>
           <div className="mt-3 text-sm text-zinc-600">
             {stats ? (
@@ -212,7 +212,7 @@ export default function AdsAppHomePage() {
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Spend</div>
+          <div className="text-xs font-medium text-zinc-500">Spend</div>
           <div className="mt-2 text-2xl font-bold text-zinc-900">{stats ? usd(stats.spend.last7dCents) : "…"}</div>
           <div className="mt-2 text-sm text-zinc-600">{stats ? `${usd(stats.spend.todayCents)} today` : "Loading…"}</div>
           <div className="mt-3 text-xs text-zinc-500">
@@ -221,28 +221,28 @@ export default function AdsAppHomePage() {
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Clicks</div>
+          <div className="text-xs font-medium text-zinc-500">Clicks</div>
           <div className="mt-2 text-2xl font-bold text-zinc-900">{stats ? stats.clicks.chargedLast7d.toLocaleString() : "…"}</div>
           <div className="mt-2 text-sm text-zinc-600">{stats ? `${stats.clicks.chargedToday.toLocaleString()} today` : "Loading…"}</div>
           <div className="mt-3 text-xs text-zinc-500">Charged clicks are billable clicks.</div>
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Avg CPC (7d)</div>
+          <div className="text-xs font-medium text-zinc-500">Avg CPC (7d)</div>
           <div className="mt-2 text-2xl font-bold text-zinc-900">{stats ? avgCpc7dLabel : "…"}</div>
           <div className="mt-2 text-sm text-zinc-600">{stats ? `Based on ${stats.clicks.chargedLast7d.toLocaleString()} clicks` : "Loading…"}</div>
           <div className="mt-3 text-xs text-zinc-500">Spend ÷ charged clicks.</div>
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Top-ups</div>
+          <div className="text-xs font-medium text-zinc-500">Top-ups</div>
           <div className="mt-2 text-2xl font-bold text-zinc-900">{stats ? usd(stats.topups.last30dCents) : "…"}</div>
           <div className="mt-2 text-sm text-zinc-600">{stats ? "Added to your Ads balance (30d)" : "Loading…"}</div>
           <div className="mt-3 text-xs text-zinc-500">Auto top-up is configurable in Settings.</div>
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Campaigns</div>
+          <div className="text-xs font-medium text-zinc-500">Campaigns</div>
           <div className="mt-2 text-2xl font-bold text-zinc-900">{stats ? stats.campaigns.total : campaigns ? campaigns.length : "…"}</div>
           <div className="mt-2 text-sm text-zinc-600">
             {stats ? `${stats.campaigns.enabled} enabled` : campaigns ? `${activeCount} enabled` : "Loading…"}

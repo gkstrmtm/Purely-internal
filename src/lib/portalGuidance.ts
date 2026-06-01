@@ -1,5 +1,5 @@
 /**
- * P-029 — Soft Business Guidance Engine
+ * P-029 - Soft Business Guidance Engine
  *
  * Deterministic, read-only. Takes real platform state and returns ranked
  * guidance items that explain what the operator has done, what is missing,
@@ -183,7 +183,7 @@ export function buildGuidanceItems(input: GuidanceInput): GuidanceItem[] {
       priority: 3,
       category: "credit",
       status: "follow-up",
-      title: "Reports are in — dispute letters haven't been generated yet",
+      title: "Reports are in - dispute letters haven't been generated yet",
       reason:
         "Dispute letters are the next step after importing a report. Drafting and mailing them starts the removal process with bureaus.",
       nextActionLabel: "Generate first letter",
@@ -214,7 +214,7 @@ export function buildGuidanceItems(input: GuidanceInput): GuidanceItem[] {
           ? serviceHref(statuses, "lead-scraping", portalBase)
           : `${portalBase}/app/services`,
     });
-    // Don't also suggest booking when there are no leads — lead gen is the clearer first step.
+    // Don't also suggest booking when there are no leads - lead gen is the clearer first step.
   }
 
   // ── 4. Booking not set up ─────────────────────────────────────────────────
@@ -377,7 +377,7 @@ export function buildGuidanceItems(input: GuidanceInput): GuidanceItem[] {
       status: "opportunity",
       title: "AI Outbound has no campaigns set up",
       reason:
-        "Once contacts and Twilio are ready, AI outbound campaigns can work through a lead list automatically — but only after a campaign is created and activated.",
+        "Once contacts and Twilio are ready, AI outbound campaigns can work through a lead list automatically - but only after a campaign is created and activated.",
       nextActionLabel: "Set up first campaign",
       href: serviceHref(statuses, "ai-outbound-calls", portalBase),
     });

@@ -1657,8 +1657,8 @@ export default function PortalReviewsClient() {
                         </div>
                         {contactTags.length === 0 ? (
                           <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
-                            <div className="font-medium text-zinc-800">No contact tags ready yet.</div>
-                            <div className="mt-1">Create a tag here or open People to organize contacts before turning on review requests.</div>
+                            <div className="font-medium text-zinc-800">Create your first contact tag</div>
+                            <div className="mt-1">Create a tag here or open People to organize contacts before you turn on review requests.</div>
                             <div className="mt-3 flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
@@ -2055,7 +2055,7 @@ export default function PortalReviewsClient() {
                         ] as any
                       }
                       onChange={(v) => setSiteDomainDraft(String(v || ""))}
-                      placeholder={funnelDomainsBusy ? "Loading domains…" : funnelDomains.length ? "Choose a domain" : "No custom domains yet"}
+                      placeholder={funnelDomainsBusy ? "Loading domains…" : funnelDomains.length ? "Choose a domain" : "Save a custom domain first"}
                     />
                   </div>
 
@@ -2542,7 +2542,7 @@ export default function PortalReviewsClient() {
                       </div>
                     ) : (
                       <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600">
-                        <div className="font-semibold text-zinc-900">No review questions yet</div>
+                        <div className="font-semibold text-zinc-900">Add your first review question</div>
                         <div className="mt-1">Add the first question if you want customers to answer anything beyond the default review flow.</div>
                         <button
                           type="button"
@@ -2667,7 +2667,7 @@ export default function PortalReviewsClient() {
                   description={
                     hasAnyReviewPath
                       ? "Once you send review requests, this area shows sends, skips, failures, and delivery details."
-                      : "No review path is ready yet, so nothing can be sent from this page until setup is finished."
+                      : "Finish the review path setup first so requests can start sending from this page."
                   }
                   actions={!showingReviewsOverviewCard ? (
                     <div className="flex flex-wrap items-center gap-2">
@@ -2752,7 +2752,7 @@ export default function PortalReviewsClient() {
                   description={
                     !hasHostedReviewsPath
                       ? "This inbox only fills up after customers submit on your hosted reviews page. Enable the page and confirm the URL first, then this section will start collecting real reviews."
-                      : "Your page is ready, but no one has submitted yet. Share the page or send the first request so you can see the review flow start working here."
+                      : "Your page is ready, and first reviews will appear here once someone submits. Share the page or send the first request to start the flow."
                   }
                   actions={
                     !showingReviewsOverviewCard
@@ -2915,7 +2915,7 @@ export default function PortalReviewsClient() {
                       {!r.businessReply && !isEditingReply ? (
                         <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                           <div>
-                            <div className="text-xs font-semibold text-zinc-900">No public response yet</div>
+                            <div className="text-xs font-semibold text-zinc-900">Public reply not posted yet</div>
                             <div className="mt-1 text-xs text-zinc-600">Write a reply here, or open the live reviews page to see how this review appears publicly.</div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">

@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import DomainRouterNotFound from "@/app/domain-router/[domain]/not-found";
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
-import { buildCustomDomainNotFoundMetadata, hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 
 type MarketingService = {
   slug: string;
@@ -324,11 +321,6 @@ function relatedServiceSlugs(slug: string): string[] {
   return Array.from(new Set(list.filter((s) => s !== slug)));
 }
 
-async function requestHost() {
-  const h = await headers();
-  return hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
-}
-
 export async function generateStaticParams() {
   const slugs = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal"))).map(
     (s) => s.slug,
@@ -337,11 +329,6 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
-  const host = await requestHost();
-  if (!isPlatformHostname(host) && host) {
-    return buildCustomDomainNotFoundMetadata(host);
-  }
-
   const { slug } = await params;
   const s = getMarketingService(slug);
   if (!s) return {};
@@ -366,11 +353,6 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 }
 
 export default async function ServiceFunnelPage({ params }: { params: Promise<{ slug: string }> }) {
-  const host = await requestHost();
-  if (!isPlatformHostname(host)) {
-    return <DomainRouterNotFound />;
-  }
-
   const { slug } = await params;
   const service = getMarketingService(slug);
   if (!service) notFound();
@@ -472,7 +454,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
               </details>
             </div>
 
-            <div className="text-xs font-semibold tracking-wide text-white/70">SERVICE</div>
+            <div className="text-xs font-medium text-white/70">Service</div>
             <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">{service.title}</h1>
             <p className="mt-4 text-base text-white/85 sm:text-lg">{content.headline}</p>
             <p className="mt-4 text-sm text-white/80">{service.description}</p>
@@ -482,13 +464,13 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
                 href="/portal/get-started"
                 className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-base font-semibold text-(--color-brand-blue) hover:bg-zinc-50"
               >
-                Get Started
+                Get started
               </Link>
               <Link
                 href="/book-a-call"
                 className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-6 py-3 text-base font-semibold text-white hover:opacity-95"
               >
-                Book a Call
+                Book a call
               </Link>
               <Link
                 href="/services"
@@ -615,13 +597,13 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
                   href="/portal/get-started"
                   className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
                 >
-                  Get Started
+                  Get started
                 </Link>
                 <Link
                   href="/book-a-call"
                   className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                 >
-                  Book a Call
+                  Book a call
                 </Link>
               </div>
 
@@ -678,13 +660,13 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
                 href="/portal/get-started"
                 className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
               >
-                Get Started
+                Get started
               </Link>
               <Link
                 href="/book-a-call"
                 className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
               >
-                Book a Call
+                Book a call
               </Link>
             </div>
           </div>

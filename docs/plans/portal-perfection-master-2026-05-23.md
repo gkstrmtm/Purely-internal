@@ -258,6 +258,15 @@ For each fix burst:
 - 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the contacts client after the list-card cleanup; it stayed clean.
 - 2026-05-23: Polished the contacts import-preview table so sample rows no longer fall back to lowercase `n/a` placeholders during mapping review.
 - 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the contacts client after the import-preview cleanup; it stayed clean.
+- 2026-05-25: Repaired stale portal runtime QA selectors in `tmp/portal-qa/run_media_library_pass.mjs` so the pass matches the current Media Library and Inbox UI (`Cancel` for create-folder modal close, direct hidden-file-input upload, current search placeholder, and current landing copy expectations).
+- 2026-05-25: Re-ran `node tmp/portal-qa/run_media_library_pass.mjs`; upload, preview, inbox reuse, and cleanup all validated against the live local portal flow.
+- 2026-05-25: Ran `node tmp/portal-qa/run_inbox_send_attachment_roundtrip_pass.mjs` and reproduced a real Inbox usability bug: the shared PortalShell `Need help?` prompt could still sit over the SMS schedule button during active compose.
+- 2026-05-25: Updated `src/app/portal/PortalShell.tsx` so the desktop help prompt now honors `data-pa-hide-floating-tools`, matching the existing floating-tools hide behavior used by active portal workspaces.
+- 2026-05-25: Re-ran `node tmp/portal-qa/run_inbox_send_attachment_roundtrip_pass.mjs`; email and SMS attachment, schedule, scheduled-entry, and reschedule checks all passed clean.
+- 2026-05-25: Traced a dashboard floating-tools regression in `src/app/portal/PortalFloatingTools.tsx`: the widget-level suggested-setup card could disappear when an existing chat thread hydrated, even though the dashboard suggestion badge and reply-state were already present.
+- 2026-05-25: Updated `src/app/portal/PortalFloatingTools.tsx` so existing thread hydration preserves the current dashboard suggested-setup card instead of overwriting it before thread sync completes.
+- 2026-05-25: Updated `tmp/portal-qa/run_topbar_utility_pass.mjs` to key its suggested-setup warning off the actual widget-open chat state instead of a later Pura handoff snapshot.
+- 2026-05-25: Re-ran `node tmp/portal-qa/run_topbar_utility_pass.mjs`; the floating-tools suggestion card, no-seed-on-open behavior, chat seeding on intent, Pura handoff, and contextual help checks all passed with no remaining warnings.
 - 2026-05-23: Polished service-page, sales-reporting, account-switcher, and support-chat availability copy so setup and retry states read as syncing or retry-needed states instead of blunt `unavailable` failures.
 - 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the touched service-page, sales-reporting, shell, and floating-tools files; all stayed clean.
 - 2026-05-23: Polished review-history, calendar-label, booking-event, and inbox sender fallbacks so visible labels no longer expose `(unknown)`-style internal placeholders.
@@ -340,6 +349,87 @@ For each fix burst:
 - 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the touched form responses, reviews setup, and Pura preview files after that cleanup; all stayed clean.
 - 2026-05-23: Polished a residual AI chat activity slice so chat-search, thread-memory, and run-ledger empty-state headings read more specific and premium.
 - 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the AI chat client after that cleanup; it stayed clean.
+- 2026-05-23: Polished a second high-traffic AI chat and inbox slice so first-thread, search, thread-memory, activity, conversation, email, SMS, and transcript empty states read more guided and premium.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the AI chat and inbox clients after that cleanup; both stayed clean.
+- 2026-05-23: Polished a Funnel Builder first-run slice so funnel, form, default-pixel, and custom-domain setup states read more guided and premium.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the Funnel Builder client after that cleanup; it stayed clean.
+- 2026-05-23: Polished a reporting and provider-setup slice so content-workflow, Twilio readiness, provider-readiness loading/error, and live-use notes read more intentional and truthful.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on reporting and provider setup after that cleanup; both stayed clean.
+- 2026-05-23: Polished a Booking slice so day, availability, reminder, calendar, intake-question, and missing-contact states read more guided and premium.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the Booking client after that cleanup; it stayed clean.
+- 2026-05-23: Polished a shell and dashboard slice so quick-access rail, reporting pulse, and recent-usage pulse states read more intentional and premium.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on shell and dashboard after that cleanup; both stayed clean.
+- 2026-05-23: Polished a follow-up and nurture slice so template, step, calendar, queue, and campaign first-run states read more guided and premium.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on follow-up and nurture after that cleanup; both stayed clean.
+- 2026-05-23: Polished an AI outbound and receptionist slice so campaign, knowledge-base, agent, tool, recording, call-activity, and receptionist-activity states read more guided and premium.
+- 2026-05-23: Re-ran targeted diagnostics on AI outbound and AI receptionist after that cleanup; both returned clean, and targeted ESLint surfaced the same pre-existing `react-hooks/exhaustive-deps` warning around `createCampaign` in AI outbound unrelated to this copy-only pass.
+- 2026-05-23: Polished a blogs and newsletter slice so generation, audience, attachment, post, and scheduler first-run states read more intentional and premium.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on blogs and newsletter after that cleanup; both stayed clean.
+- 2026-05-23: Polished an automations slice so workflow, test-form, and booking-calendar readiness states read more guided and premium.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the automations client after that cleanup; it stayed clean.
+- 2026-05-23: Polished a hosted-forms slice so form-response recovery, no-response, advanced submission metadata, and first-question editor states read more guided and premium.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on the hosted form responses and form editor files after that cleanup; both stayed clean.
+- 2026-05-23: Polished a compact credit, nurture, lead-map, and missed-call slice so report/campaign recovery plus map and text-back empty states read more intentional and premium.
+- 2026-05-23: Re-ran targeted diagnostics and `npx eslint` on credit reports, nurture campaigns, lead map, and missed-call text back after that cleanup; all stayed clean.
+- 2026-05-24: Polished a Reviews and Lead Scraping setup slice so contact-tag, review-question, lead-tag, location, exclusion, and lead-address first-run states read more guided and premium.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on the Reviews setup and Lead Scraping clients after that cleanup; both stayed clean.
+- 2026-05-24: Polished a compact Reviews, Credit Reports, Stripe sales, and Lead Scraping slice so public-reply, dispute-status, Stripe-sync, nurture-campaign, and location-detail fallbacks read more intentional and premium.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Reviews setup, Credit Reports, Stripe sales, and Lead Scraping after that cleanup; all stayed clean.
+- 2026-05-24: Polished a high-traffic Inbox, Booking, and Funnel Builder slice so conversation, email, booking-day, intake-question, pixel, and custom-domain first-run headings read more guided and premium.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Inbox, Booking, and Funnel Builder after that cleanup; all stayed clean.
+- 2026-05-24: Polished a Blogs, Newsletter, and Media Library content-detail slice so generation-window, scheduler, CTA-link, and provider-post fallbacks read more intentional and premium.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Blogs, Newsletter, and Media Library after that cleanup; all stayed clean.
+- 2026-05-24: Polished a Reviews, Newsletter, and AI Outbound slice so custom-domain, review-path, first-review, outcome-rule, booking-calendar, and thread-message fallbacks read more guided and premium.
+- 2026-05-24: Re-ran targeted diagnostics on Reviews setup, Newsletter, and AI Outbound after that cleanup; all returned clean, and targeted ESLint surfaced the same pre-existing `react-hooks/exhaustive-deps` warning around `createCampaign` in AI Outbound unrelated to this copy-only pass.
+- 2026-05-24: Polished an AI Outbound, AI Receptionist, and Inbox contact-detail slice so contact labels, contact-channel, transcript, caller-name, and SMS activity fallbacks read more intentional and premium.
+- 2026-05-24: Re-ran targeted diagnostics on AI Outbound, AI Receptionist, and Inbox after that cleanup; all returned clean, and targeted ESLint surfaced the same pre-existing `react-hooks/exhaustive-deps` warning around `createCampaign` in AI Outbound unrelated to this copy-only pass.
+- 2026-05-24: Polished a small hosted-tools slice so form-response, lead-map, missed-call, and newsletter-generation-window fallbacks read more guided and premium.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on form responses, lead map, missed-call text back, and newsletter after that cleanup; all stayed clean.
+- 2026-05-24: Polished a compact Credit, Reporting, Booking, and Funnel Builder setup slice so score, rating, reschedule, and pixel-status fallback copy reads more intentional and premium.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Credit Reports, Reporting, Booking, and Funnel Builder after that cleanup; all stayed clean.
+- 2026-05-24: Polished another non-funnel-editor Inbox, Booking, Reviews, and AI Outbound slice so activity, booking-day, public-reply, transcript, and thread-message fallbacks read more guided and premium.
+- 2026-05-24: Re-ran targeted diagnostics on Inbox, Booking, Reviews, and AI Outbound after that cleanup; all returned clean, and targeted ESLint surfaced the same pre-existing `react-hooks/exhaustive-deps` warning around `createCampaign` in AI Outbound unrelated to this copy-only pass.
+- 2026-05-24: Polished a tiny Media Library and Newsletter attachment slice so manual-post history and attachment placeholders read more intentional and premium.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Media Library and Newsletter after that cleanup; both stayed clean.
+- 2026-05-24: Polished a focused Funnel Editor copy-only slice so booking, payment, summary, page-source, reference, calendar, and pixel fallbacks read more intentional without changing behavior.
+- 2026-05-24: Re-ran targeted diagnostics and direct `npx eslint` on Funnel Editor after that cleanup; direct ESLint again returned only the expected Babel size note while the same stale noisy diagnostics bucket remained unchanged.
+- 2026-05-24: Polished the remaining non-editor Funnel Builder business-intake helper copy so the first-brief guidance reads more premium and deliberate.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Funnel Builder after that cleanup; it stayed clean.
+- 2026-05-24: Polished a broader portal-shell slice across AI Chat, People, Contacts, Billing, Profile, Settings, Dashboard, Pura Preview, and Tasks so search, run-log, contact-detail, invite, profile, and subscription first-run labels read more guided and premium.
+- 2026-05-24: Re-ran targeted diagnostics on that broader portal-shell batch; all touched files returned clean, and targeted `npx eslint` surfaced only the same pre-existing `react-hooks/exhaustive-deps` warning in Tasks unrelated to this copy-only pass.
+- 2026-05-24: Polished a tiny residual Contacts and Dashboard slice so lead-row and manual-post-history fallback copy stays consistent with the broader premium wording pass.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Contacts and Dashboard after that cleanup; both stayed clean.
+- 2026-05-24: Polished a tiny tutorials and debug slice so transcript troubleshooting and simulation first-run copy stay consistent with the broader guided-state wording pass.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on the touched tutorials and debug files after that cleanup; all stayed clean.
+- 2026-05-24: Polished another focused Funnel Editor copy-only slice so payment-path, tab-icon, pixel, calendar, and pricing-summary fallback labels read more intentional without changing behavior.
+- 2026-05-24: Re-ran targeted diagnostics and direct `npx eslint` on Funnel Editor after that cleanup; the same stale noisy diagnostics bucket remained unchanged while direct ESLint again returned only the expected Babel size note.
+- 2026-05-24: Polished a small Funnel Editor thread-and-guidance slice so activity, reasoning, header-logo, conversion-risk, operator-note, and unbound-CTA fallback copy reads more intentional without changing behavior.
+- 2026-05-24: Re-ran targeted diagnostics and direct `npx eslint` on Funnel Editor after that cleanup; the same stale noisy diagnostics bucket remained unchanged while direct ESLint again returned only the expected Babel size note.
+- 2026-05-24: Polished a compact Funnel Editor booking-and-tracking slice so pixel-runtime, route-summary, location, and booking-details setup labels read more guided and premium.
+- 2026-05-24: Re-ran targeted diagnostics and direct `npx eslint` on Funnel Editor after that cleanup; the same stale noisy diagnostics bucket remained unchanged while direct ESLint again returned only the expected Babel size note.
+- 2026-05-24: Polished a compact Media Library, Booking, Discount, and Follow-up slice so permissions, contact-name, discount-detail, and queued-recipient fallback labels read more intentional and premium.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Media Library, Booking, Discount, and Follow-up after that cleanup; all four stayed clean.
+- 2026-05-24: Polished a small Profile and Media Library connection-status slice so Twilio, sales-reporting, and provider-state labels use guided setup wording instead of blunt disconnected labels.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Profile and Media Library after that cleanup; both stayed clean.
+- 2026-05-24: Polished a tiny Media Library continuity-status slice so permission, reconnect, paused-state, and connection-needed labels read more guided and premium.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Media Library after that cleanup; it stayed clean.
+- 2026-05-24: Fixed a real `react-hooks/exhaustive-deps` warning in Tasks by adding `appBase` to the memo dependency list for the sidebar content.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on Tasks after that technical cleanup; the file stayed clean and the prior hook warning was cleared.
+- 2026-05-24: Fixed the long-standing AI Outbound `createCampaign` memo-churn warning by wrapping `createCampaign` in `useCallback`, so the sidebar memo no longer re-evaluates on every render for that function identity alone.
+- 2026-05-24: Re-ran targeted diagnostics and `npx eslint` on AI Outbound after that technical cleanup; the file stayed clean and the prior `createCampaign` hook warning was cleared.
+- 2026-05-24: Confirmed the live Funnel Editor file currently contains no `eslint-disable` directives, which means the lingering unused-directive report in editor diagnostics is stale noise rather than a current-file issue.
+- 2026-05-24: Reduced real shared-library warning debt by removing unused helpers and locals from `src/lib/creditReports.ts`, `src/lib/funnelPageIntent.ts`, and `src/lib/creditFunnelBlocks.ts`.
+- 2026-05-24: Re-ran direct `npx eslint` on those three shared-lib files after the cleanup; the previous unused-var warnings were fully cleared.
+- 2026-05-24: Reduced another real cross-src warning batch by removing unused helpers/imports/locals from credit dispute and funnel-generation API routes, converting the hosted funnel image renderer to `next/image`, and removing an unused local in `LocalDateTimePicker`.
+- 2026-05-24: Re-ran direct `npx eslint` on `src/app/api/portal/credit/disputes/route.ts`, `src/app/api/portal/funnel-builder/custom-code-block/generate/route.ts`, `src/app/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/generate-html/route.ts`, `src/app/f/[slug]/[key]/hostedFunnelRoute.tsx`, and `src/components/LocalDateTimePicker.tsx`; the original warning batch was fully cleared.
+- 2026-05-24: Re-ran the full repo lint gate and cleared the remaining copy-rule blocker by replacing forbidden em dashes in `src/app/portal/PortalDashboardClient.tsx` and `src/lib/portalGuidance.ts`.
+- 2026-05-24: Re-ran the production webpack build, fixed the Next.js route-config warning on `src/app/api/portal/credit/reports/import/route.ts` by declaring `runtime`, `dynamic`, and `revalidate` directly in the leaf route file, and confirmed the warning disappeared while the build still completed successfully.
+- 2026-05-24: Removed a persistent Tailwind v4 editor false positive by setting `css.lint.unknownAtRules` to `ignore` in `.vscode/settings.json`, which cleared the bogus `@theme` diagnostic in `src/app/globals.css` without changing runtime CSS behavior.
+- 2026-05-24: Removed the remaining production build warning by disabling the global `NODE_TLS_REJECT_UNAUTHORIZED="0"` override in `.env.local` and normalizing the legacy insecure dev task labels in `.vscode/tasks.json`; the follow-up warning-only webpack build sweep returned clean.
+- 2026-05-24: Expanded ESLint coverage to `mobile-app` by removing the blanket ignore in `eslint.config.mjs`, scoping only generated mobile output out of lint, and disabling the web-only `jsx-a11y/alt-text` rule for React Native files.
+- 2026-05-24: Fixed the surfaced mobile lint batch by removing render-time ref mutation in `mobile-app/src/features/portal/PortalWebSurface.tsx`, clearing low-risk unused locals and stale hook-disable comments in the mobile portal screens, and confirming `npm --prefix mobile-app run lint`, `npm --prefix mobile-app run typecheck`, and the root `npm run lint` gate all returned clean.
+- 2026-05-24: Removed the deprecated `package.json#prisma` config block now that `prisma.config.ts` owns schema and seed configuration, and confirmed the follow-up webpack build no longer emits the Prisma package-config deprecation warning.
+- 2026-05-24: Restored the missing `pura:production-smoke` npm script in `package.json`, then confirmed the smoke path end to end with `npm run pura:production-smoke` passing `29/29` and the existing VS Code `Pura: production smoke` task succeeding on its next run.
 
 ## Next action
-- Continue from clean validation into the next customer-visible portal-quality slice, prioritizing reporting and empty-state polish before any deeper architecture work.
+- Continue from clean lint, typecheck, and build validation into additional real warning reduction on portal surfaces, prioritizing small behavior-safe hook/dependency fixes and treating Funnel Editor editor diagnostics as stale unless they reproduce in direct ESLint or map to current live code.

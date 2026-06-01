@@ -153,13 +153,13 @@ export function ProviderSetupWizardPanel() {
 
       {loading ? (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-5 text-sm text-zinc-600">
-          <div className="font-semibold text-zinc-900">Checking provider setup…</div>
-          <div className="mt-1">Purely is verifying which providers are connected, which ones are only test-ready, and which workflows still stay manual.</div>
+          <div className="font-semibold text-zinc-900">Checking provider readiness…</div>
+          <div className="mt-1">Purely is verifying which providers are connected, which ones are only safe for testing, and which workflows still stay manual for now.</div>
         </div>
       ) : error || !payload ? (
         <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-900">
-          <div className="font-semibold">Setup status could not be checked right now.</div>
-          <div className="mt-1">The detailed readiness API failed, so this page is falling back to the existing settings and service controls. No provider state is being faked here.</div>
+          <div className="font-semibold">Provider readiness could not be checked right now.</div>
+          <div className="mt-1">The detailed readiness check failed, so this page is falling back to the existing settings and service controls. Nothing is being guessed or faked here.</div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link href={`${fallbackBase}/app/services`} className="inline-flex items-center justify-center rounded-2xl border border-amber-200 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100">
               Open services
@@ -201,7 +201,7 @@ export function ProviderSetupWizardPanel() {
                   <div className="mt-3 text-xs font-semibold text-zinc-500">Connected detail: {item.connectedLabel}</div>
                 ) : null}
                 {item.liveActionWarning ? (
-                  <div className="mt-3 text-xs text-zinc-500">{item.liveActionWarning}</div>
+                  <div className="mt-3 text-xs text-zinc-500">Live-use note: {item.liveActionWarning}</div>
                 ) : null}
 
                 <div className="mt-4 flex flex-wrap gap-2">

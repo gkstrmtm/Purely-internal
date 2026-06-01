@@ -70,7 +70,7 @@ export default async function PortalDashboardPage() {
                   href={getStartedHref}
                   className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-base font-semibold text-[color:var(--color-brand-blue)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                 >
-                  Get Started
+                  Get started
                 </Link>
                 <Link
                   href={signInHref}
@@ -118,7 +118,7 @@ export default async function PortalDashboardPage() {
                 <div className="absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-[color:rgba(255,255,255,0.12)] blur-2xl" />
 
                 <div className="relative">
-                  <div className="text-xs font-semibold tracking-wide text-white/75">AUTOMATION FLOW</div>
+                  <div className="text-xs font-medium text-white/75">Automation flow</div>
                   <div className="mt-2 text-lg font-semibold text-white/95">Capture → route → follow up</div>
                   <div className="mt-1 text-sm text-white/70">A quick snapshot of what your portal keeps running.</div>
 
@@ -274,7 +274,7 @@ export default async function PortalDashboardPage() {
 
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition-colors duration-100 hover:border-zinc-300 hover:shadow-lg">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Build a real brand</div>
+              <div className="text-xs font-medium text-zinc-500">Build a real brand</div>
               <div className="mt-2 text-lg font-semibold text-brand-ink">The Brand Builder</div>
               <div className="mt-2 text-sm text-zinc-600">Look established, stay visible, and build trust without posting every day.</div>
               <div className="mt-3 text-xs text-zinc-500">Recommended for: service businesses that want consistent inbound and stronger credibility.</div>
@@ -294,7 +294,7 @@ export default async function PortalDashboardPage() {
                   href={getStartedPackageHref("brand-builder")}
                   className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white transition-all duration-100 hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.45)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
-                  Get Started
+                  Get started
                 </Link>
               </div>
             </div>
@@ -303,7 +303,7 @@ export default async function PortalDashboardPage() {
               <div className="absolute right-5 top-5 inline-flex items-center rounded-full bg-[color:rgba(29,78,216,0.12)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-blue)]">
                 Most popular
               </div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:rgba(29,78,216,0.78)]">Most popular</div>
+              <div className="text-xs font-medium text-[color:rgba(29,78,216,0.78)]">Most popular</div>
               <div className="mt-2 text-lg font-semibold text-brand-ink">The Sales Loop</div>
               <div className="mt-2 text-sm text-zinc-600">Make more money faster with less work. Respond faster, follow up automatically, and book more calls.</div>
               <div className="mt-3 text-xs text-zinc-500">Recommended for: teams that want faster response, higher conversion, and less manual chasing.</div>
@@ -324,13 +324,13 @@ export default async function PortalDashboardPage() {
                   href={getStartedPackageHref("sales-loop")}
                   className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(51,65,85,0.55)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-100 hover:border-[rgba(51,65,85,0.85)] hover:bg-[rgba(51,65,85,0.04)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
-                  Get Started
+                  Get started
                 </Link>
               </div>
             </div>
 
             <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition-colors duration-100 hover:border-zinc-300 hover:shadow-lg">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Get established fast</div>
+              <div className="text-xs font-medium text-zinc-500">Get established fast</div>
               <div className="mt-2 text-lg font-semibold text-brand-ink">The Launch Kit</div>
               <div className="mt-2 text-sm text-zinc-600">Get out there fast with a clean funnel, a strong foundation, and a simple path to bookings.</div>
               <div className="mt-3 text-xs text-zinc-500">Recommended for: new offers, new markets, or businesses that want to look legit and start converting quickly.</div>
@@ -351,7 +351,7 @@ export default async function PortalDashboardPage() {
                   href={getStartedPackageHref("launch-kit")}
                   className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-4 py-3 text-sm font-semibold text-white transition-all duration-100 hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(251,113,133,0.40)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
-                  Get Started
+                  Get started
                 </Link>
               </div>
             </div>

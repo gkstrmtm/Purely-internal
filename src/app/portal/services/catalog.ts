@@ -1,8 +1,26 @@
+import type { PortalVariant } from "@/lib/portalVariant";
+
+export type HiddenPortalServiceClassification =
+  | "internal-only"
+  | "beta-excluded"
+  | "parented-under-another-service"
+  | "intentionally-direct-linkable";
+
+export type HiddenPortalServiceIntent = {
+  classification: HiddenPortalServiceClassification;
+  parentSlug?: string;
+  portalHref?: string;
+  creditHref?: string;
+  note: string;
+};
+
 export type PortalService = {
   slug: string;
   title: string;
   description: string;
   highlights?: string[];
+  creditDescription?: string;
+  creditHighlights?: string[];
   variants?: ("portal" | "credit")[];
   entitlementKey?:
     | "blog"
@@ -18,6 +36,7 @@ export type PortalService = {
   included?: boolean;
   accent: "blue" | "coral" | "ink";
   hidden?: boolean;
+  hiddenIntent?: HiddenPortalServiceIntent;
 };
 
 export const PORTAL_SERVICES: PortalService[] = [
@@ -243,3 +262,28 @@ export const PORTAL_SERVICES: PortalService[] = [
     accent: "blue",
   },
 ];
+
+export function getPortalServiceCopy(service: PortalService, variant: PortalVariant) {
+  return {
+    description: variant === "credit" ? service.creditDescription ?? service.description : service.description,
+    highlights: variant === "credit" ? service.creditHighlights ?? service.highlights ?? [] : service.highlights ?? [],
+  };
+}
+
+export function getPortalHiddenServiceHref(service: PortalService, variant: PortalVariant) {
+  if (!service.hiddenIntent) return null;
+  return variant === "credit" ? service.hiddenIntent.creditHref ?? null : service.hiddenIntent.portalHref ?? null;
+}
+
+export function getPortalServiceBenefitCopy(
+  serviceSlug: string,
+  entitlementKey?: string,
+  variant: PortalVariant = "portal",
+) {
+  const service = PORTAL_SERVICES.find((entry) => entry.slug === serviceSlug || entry.entitlementKey === entitlementKey);
+  const copy = service ? getPortalServiceCopy(service, variant) : { description: "", highlights: [] as string[] };
+  return {
+    title: copy.description || "Included in your workspace",
+    bullets: copy.highlights.slice(0, 4),
+  };
+}

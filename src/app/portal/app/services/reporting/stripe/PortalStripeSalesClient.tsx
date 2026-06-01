@@ -72,6 +72,8 @@ export function PortalStripeSalesClient() {
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
   const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
   const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
+  const isCreditWorkspace = appBase.startsWith("/credit");
+  const integrationsHref = `${appBase}/settings/integrations?from=stripe-sales&setup=stripe#sales-reporting-controls`;
 
   const [status, setStatus] = useState<StripeIntegrationStatus | null>(null);
   const [range, setRange] = useState<RangeKey>("30d");
@@ -158,24 +160,33 @@ export function PortalStripeSalesClient() {
             Back to Reporting
           </Link>
           <Link
-            href={`${appBase}/profile`}
+            href={integrationsHref}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
-            Stripe settings
+            Open Integrations
           </Link>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+        <div className="font-semibold text-zinc-900">Coverage boundary</div>
+        <div className="mt-1">
+          {isCreditWorkspace
+            ? "This route only covers Stripe charges and refunds. It does not include imported reports, dispute workflow counts, PDFs, mailed-letter status, or other credit workspace milestones."
+            : "This route only covers Stripe charges and refunds. It does not include the broader service activity counts shown on the shared reporting dashboard."}
         </div>
       </div>
 
       {!status?.configured ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Stripe not connected</div>
-          <div className="mt-2 text-sm text-zinc-600">Connect your Stripe secret key in Profile to enable this dashboard.</div>
+          <div className="mt-2 text-sm text-zinc-600">Open Integrations, connect your Stripe secret key, then come back here to confirm live charges and refunds are loading.</div>
           <div className="mt-4">
             <Link
-              href={`${appBase}/profile`}
+              href={integrationsHref}
               className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
-              Connect Stripe
+              Connect Stripe in Integrations
             </Link>
           </div>
         </div>
@@ -218,10 +229,10 @@ export function PortalStripeSalesClient() {
               Retry
             </button>
             <Link
-              href={`${appBase}/profile`}
+              href={integrationsHref}
               className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
             >
-              Review Stripe setup
+              Open Integrations
             </Link>
             <Link
               href={`${appBase}/ai-chat?onboarding=1`}
@@ -276,10 +287,10 @@ export function PortalStripeSalesClient() {
                     <div className="mt-1">Widen the date range or review the Stripe connection if you expected live payment activity here.</div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Link
-                        href={`${appBase}/profile`}
+                        href={integrationsHref}
                         className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                       >
-                        Review Stripe setup
+                        Open Integrations
                       </Link>
                       <Link
                         href={`${appBase}/services/reporting`}
@@ -309,10 +320,10 @@ export function PortalStripeSalesClient() {
                     <div className="mt-1">New Stripe payments will appear here after they sync through the connected account.</div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Link
-                        href={`${appBase}/profile`}
+                        href={integrationsHref}
                         className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                       >
-                        Review Stripe setup
+                        Open Integrations
                       </Link>
                       <Link
                         href={`${appBase}/ai-chat?onboarding=1`}
@@ -364,7 +375,7 @@ export function PortalStripeSalesClient() {
 
       {!canShowData && status?.configured ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-          <div className="font-semibold text-zinc-900">Stripe is connected, but no data is available yet</div>
+          <div className="font-semibold text-zinc-900">Stripe is connected, and sales data is still syncing</div>
           <div className="mt-1">This usually fills in after live charges sync through the connected account. You can still review the connection or open broader reporting now.</div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Link

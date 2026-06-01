@@ -4,16 +4,30 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { decryptStringV1, encryptStringV1, isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
-import type { MetaProviderStatus, PortalMetaProviderReadiness } from "@/lib/portalMetaProviderReadiness";
+import type { MetaProviderStatus, PortalMetaProviderReadiness, PortalMetaTargetAccount } from "@/lib/portalMetaProviderReadiness";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 const META_SERVICE_SLUG = "media-library";
 const META_CONNECT_PATH = "/api/portal/integrations/meta/connect";
 const META_DISCONNECT_PATH = "/api/portal/integrations/meta/disconnect";
 const META_CALLBACK_PATH = "/api/portal/integrations/meta/callback";
-const META_INITIAL_SCOPES = ["public_profile", "email"] as const;
+const META_BASE_SCOPES = ["public_profile", "email"] as const;
+const META_DISCOVERY_REQUIRED_SCOPES = ["pages_show_list", "instagram_basic"] as const;
+const META_PUBLISH_REQUIRED_SCOPES = ["instagram_basic", "instagram_content_publish"] as const;
+const META_REQUESTED_SCOPES = Array.from(new Set([
+  ...META_BASE_SCOPES,
+  ...META_DISCOVERY_REQUIRED_SCOPES,
+  ...META_PUBLISH_REQUIRED_SCOPES,
+]));
+const META_REQUIRED_SCOPES = Array.from(new Set([
+  ...META_DISCOVERY_REQUIRED_SCOPES,
+  ...META_PUBLISH_REQUIRED_SCOPES,
+]));
 const META_OAUTH_STATE_MAX_AGE_MS = 10 * 60 * 1000;
 const META_GRAPH_VERSION = "v23.0";
+const META_PROVIDER_READINESS_TTL_MS = 5 * 1000;
+const metaProviderReadinessCache = new Map<string, { value: PortalMetaProviderReadiness; expiresAt: number }>();
+const metaProviderReadinessInFlight = new Map<string, Promise<PortalMetaProviderReadiness>>();
 
 type MetaServiceData = Record<string, unknown>;
 
@@ -22,6 +36,18 @@ type StoredMetaConnectionSecret = {
   tokenType: string | null;
   accessTokenExpiresAtIso: string | null;
   grantedScopes: string[];
+};
+
+type StoredMetaTargetAccount = {
+  key: string;
+  kind: "facebook_page" | "instagram_professional";
+  destinationType: "facebook_page" | "instagram_business";
+  destinationId: string;
+  label: string;
+  pageId: string | null;
+  pageLabel: string | null;
+  username: string | null;
+  reason: string | null;
 };
 
 type StoredMetaConnectionEnvelope = {
@@ -39,11 +65,16 @@ type StoredMetaConnectionBundle = {
   connectedMetaUserEmail: string | null;
   connectedAccountLabel: string | null;
   permissionGaps: string[];
+  targetAccounts: StoredMetaTargetAccount[];
+  targetAccountBlockers: string[];
   connectedAtIso: string;
   lastCheckedAtIso: string;
   accessTokenExpiresAtIso: string | null;
   encrypted: StoredMetaConnectionEnvelope;
 };
+
+export type PortalStoredMetaConnectionSecret = StoredMetaConnectionSecret;
+export type PortalStoredMetaConnectionBundle = StoredMetaConnectionBundle;
 
 type MetaOAuthStatePayload = {
   ownerId: string;
@@ -58,6 +89,18 @@ type MetaUserProfile = {
   id: string | null;
   name: string | null;
   email: string | null;
+};
+
+type MetaPermissionSnapshot = {
+  grantedScopes: string[];
+  missingRequiredScopes: string[];
+  tokenInvalid: boolean;
+  errorMessage: string | null;
+};
+
+type MetaTargetAccountSnapshot = {
+  accounts: StoredMetaTargetAccount[];
+  blockers: string[];
 };
 
 export class PortalMetaIntegrationError extends Error {
@@ -86,6 +129,10 @@ function normalizeStringArray(value: unknown): string[] {
     : [];
 }
 
+function dedupeStringArray(values: string[]) {
+  return Array.from(new Set(values.map((value) => normalizeString(value)).filter((value): value is string => Boolean(value))));
+}
+
 function parseMetaServiceData(raw: unknown): MetaServiceData {
   return raw && typeof raw === "object" && !Array.isArray(raw)
     ? ({ ...(raw as Record<string, unknown>) } as MetaServiceData)
@@ -109,6 +156,37 @@ function parseEncryptedEnvelope(raw: unknown): StoredMetaConnectionEnvelope | nu
     ciphertextB64: value.ciphertextB64,
     ivB64: value.ivB64,
     authTagB64: value.authTagB64,
+  };
+}
+
+function parseStoredTargetAccount(raw: unknown): StoredMetaTargetAccount | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  const key = normalizeString(value.key);
+  const kind = normalizeString(value.kind);
+  const destinationType = normalizeString(value.destinationType);
+  const destinationId = normalizeString(value.destinationId);
+  const label = normalizeString(value.label);
+  if (
+    !key
+    || (kind !== "facebook_page" && kind !== "instagram_professional")
+    || (destinationType !== "facebook_page" && destinationType !== "instagram_business")
+    || !destinationId
+    || !label
+  ) {
+    return null;
+  }
+
+  return {
+    key,
+    kind,
+    destinationType,
+    destinationId,
+    label,
+    pageId: normalizeString(value.pageId),
+    pageLabel: normalizeString(value.pageLabel),
+    username: normalizeString(value.username),
+    reason: normalizeString(value.reason),
   };
 }
 
@@ -136,6 +214,10 @@ function parseStoredBundle(raw: unknown): StoredMetaConnectionBundle | null {
     connectedMetaUserEmail: normalizeString(value.connectedMetaUserEmail),
     connectedAccountLabel: normalizeString(value.connectedAccountLabel),
     permissionGaps: normalizeStringArray(value.permissionGaps),
+    targetAccounts: Array.isArray(value.targetAccounts)
+      ? value.targetAccounts.map((entry) => parseStoredTargetAccount(entry)).filter((entry): entry is StoredMetaTargetAccount => Boolean(entry))
+      : [],
+    targetAccountBlockers: normalizeStringArray(value.targetAccountBlockers),
     connectedAtIso,
     lastCheckedAtIso,
     accessTokenExpiresAtIso: normalizeString(value.accessTokenExpiresAtIso),
@@ -231,9 +313,75 @@ function buildConnectedAccountLabel(profile: MetaUserProfile) {
 }
 
 function buildTargetAccountStatus(status: MetaProviderStatus): MetaProviderStatus {
+  if (status === "connected" || status === "needs_permissions") return "connected";
   if (status === "disabled") return "disabled";
   if (status === "not_connected") return "not_connected";
   return "coming_soon";
+}
+
+function buildTargetAccountReason(account: StoredMetaTargetAccount) {
+  if (account.kind === "facebook_page") {
+    return account.reason || "Available Facebook Page destination for the connected Meta account.";
+  }
+  if (account.pageLabel) {
+    return account.reason || `Available Instagram professional account connected through Facebook Page ${account.pageLabel}.`;
+  }
+  return account.reason || "Available Instagram professional account for the connected Meta account.";
+}
+
+function mapStoredTargetAccount(account: StoredMetaTargetAccount): PortalMetaTargetAccount {
+  return {
+    key: account.key,
+    kind: account.kind,
+    label: account.label,
+    status: "connected",
+    connected: true,
+    placeholder: false,
+    destinationType: account.destinationType,
+    destinationId: account.destinationId,
+    pageId: account.pageId,
+    pageLabel: account.pageLabel,
+    username: account.username,
+    reason: buildTargetAccountReason(account),
+  };
+}
+
+function buildPlaceholderTargetAccounts(status: MetaProviderStatus): PortalMetaTargetAccount[] {
+  const targetStatus = buildTargetAccountStatus(status);
+  return [
+    {
+      key: "facebook_page",
+      kind: "facebook_page",
+      label: "Facebook Page",
+      status: targetStatus,
+      connected: false,
+      placeholder: true,
+      destinationType: "facebook_page",
+      destinationId: null,
+      pageId: null,
+      pageLabel: null,
+      username: null,
+      reason: status === "not_connected"
+        ? "Connect Meta first so Purely can read available Facebook Pages."
+        : "Facebook Page discovery depends on the saved Meta connection and approved permissions.",
+    },
+    {
+      key: "instagram_professional",
+      kind: "instagram_professional",
+      label: "Instagram professional account",
+      status: targetStatus,
+      connected: false,
+      placeholder: true,
+      destinationType: "instagram_business",
+      destinationId: null,
+      pageId: null,
+      pageLabel: null,
+      username: null,
+      reason: status === "not_connected"
+        ? "Connect Meta first so Purely can read available Instagram professional accounts."
+        : "Instagram destination discovery depends on the saved Meta connection and approved permissions.",
+    },
+  ];
 }
 
 export function getDefaultMetaSettingsPath(portalVariant?: string | null) {
@@ -329,7 +477,7 @@ export function getMetaProviderConnectUrl(input: { state: string }) {
   url.searchParams.set("redirect_uri", config.redirectUri);
   url.searchParams.set("state", input.state);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", META_INITIAL_SCOPES.join(","));
+  url.searchParams.set("scope", META_REQUESTED_SCOPES.join(","));
   return url.toString();
 }
 
@@ -393,13 +541,18 @@ async function fetchMetaUserProfile(accessToken: string): Promise<MetaUserProfil
   };
 }
 
-async function fetchPermissionGaps(accessToken: string) {
+async function fetchPermissionSnapshot(accessToken: string): Promise<MetaPermissionSnapshot> {
   const url = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/me/permissions`);
   url.searchParams.set("access_token", accessToken);
 
   const res = await fetch(url.toString(), { cache: "no-store" }).catch(() => null);
   const body = res ? ((await res.json().catch(() => null)) as Record<string, unknown> | null) : null;
   const granted = new Set<string>();
+  const nestedError = body?.error && typeof body.error === "object" ? body.error as Record<string, unknown> : null;
+  const errorCode = typeof nestedError?.code === "number" || typeof nestedError?.code === "string"
+    ? Number(nestedError.code)
+    : NaN;
+  const errorMessage = buildMetaGraphError(body, "Purely could not read the Meta permission state for this token.");
 
   if (res?.ok && Array.isArray(body?.data)) {
     for (const entry of body.data as Array<Record<string, unknown>>) {
@@ -409,7 +562,126 @@ async function fetchPermissionGaps(accessToken: string) {
     }
   }
 
-  return META_INITIAL_SCOPES.filter((scope) => !granted.has(scope));
+  const grantedScopes = Array.from(granted).sort();
+  return {
+    grantedScopes,
+    missingRequiredScopes: META_REQUIRED_SCOPES.filter((scope) => !granted.has(scope)),
+    tokenInvalid: !res?.ok && (errorCode === 190 || /access token/i.test(errorMessage)),
+    errorMessage: res?.ok ? null : errorMessage,
+  };
+}
+
+function normalizePageTaskList(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((entry) => normalizeString(entry)).filter((entry): entry is string => Boolean(entry))
+    : [];
+}
+
+function buildMetaGraphError(body: Record<string, unknown> | null, fallback: string) {
+  const nested = body?.error && typeof body.error === "object" ? body.error as Record<string, unknown> : null;
+  return normalizeString(nested?.message) || normalizeString(body?.error_description) || fallback;
+}
+
+async function fetchMetaTargetAccounts(accessToken: string): Promise<MetaTargetAccountSnapshot> {
+  const url = new URL(`https://graph.facebook.com/${META_GRAPH_VERSION}/me/accounts`);
+  url.searchParams.set("fields", "id,name,tasks,instagram_business_account{id,username,name}");
+  url.searchParams.set("limit", "100");
+  url.searchParams.set("access_token", accessToken);
+
+  const res = await fetch(url.toString(), { cache: "no-store" }).catch(() => null);
+  const body = res ? ((await res.json().catch(() => null)) as Record<string, unknown> | null) : null;
+  if (!res?.ok) {
+    return {
+      accounts: [],
+      blockers: [buildMetaGraphError(body, "Purely could not read Facebook Pages for this Meta account.")],
+    };
+  }
+
+  const pages = Array.isArray(body?.data) ? body.data as Array<Record<string, unknown>> : [];
+  const accounts: StoredMetaTargetAccount[] = [];
+  let sawInstagramAccount = false;
+
+  for (const page of pages) {
+    const pageId = normalizeString(page.id);
+    const pageLabel = normalizeString(page.name);
+    if (!pageId || !pageLabel) continue;
+
+    const tasks = normalizePageTaskList(page.tasks);
+    accounts.push({
+      key: `facebook_page:${pageId}`,
+      kind: "facebook_page",
+      destinationType: "facebook_page",
+      destinationId: pageId,
+      label: pageLabel,
+      pageId,
+      pageLabel,
+      username: null,
+      reason: tasks.length
+        ? `Meta returned this Page with tasks: ${tasks.join(", ")}.`
+        : "Meta returned this Page for the connected account.",
+    });
+
+    const instagram = page.instagram_business_account;
+    if (!instagram || typeof instagram !== "object" || Array.isArray(instagram)) continue;
+    const instagramId = normalizeString((instagram as Record<string, unknown>).id);
+    if (!instagramId) continue;
+    sawInstagramAccount = true;
+
+    const instagramUsername = normalizeString((instagram as Record<string, unknown>).username);
+    const instagramName = normalizeString((instagram as Record<string, unknown>).name);
+    accounts.push({
+      key: `instagram_professional:${instagramId}`,
+      kind: "instagram_professional",
+      destinationType: "instagram_business",
+      destinationId: instagramId,
+      label: instagramName || (instagramUsername ? `@${instagramUsername}` : `Instagram ${instagramId}`),
+      pageId,
+      pageLabel,
+      username: instagramUsername,
+      reason: pageLabel
+        ? `Connected through Facebook Page ${pageLabel}.`
+        : "Connected Instagram professional account returned by Meta.",
+    });
+  }
+
+  const blockers: string[] = [];
+  if (!pages.length) blockers.push("Meta did not return any Facebook Pages for this connected account.");
+  if (!sawInstagramAccount) blockers.push("Meta did not return any Instagram professional accounts for the available Facebook Pages.");
+
+  return {
+    accounts,
+    blockers: dedupeStringArray(blockers),
+  };
+}
+
+async function refreshStoredMetaConnection(ownerId: string, bundle: StoredMetaConnectionBundle, secret: StoredMetaConnectionSecret) {
+  const permissionSnapshot = await fetchPermissionSnapshot(secret.accessToken);
+  const targetSnapshot = await fetchMetaTargetAccounts(secret.accessToken);
+  const nowIso = new Date().toISOString();
+  const nextStatus: StoredMetaConnectionBundle["status"] = permissionSnapshot.tokenInvalid
+    ? "reconnect_required"
+    : permissionSnapshot.missingRequiredScopes.length
+      ? "needs_permissions"
+      : "connected";
+  const nextBundle: StoredMetaConnectionBundle = {
+    ...bundle,
+    status: nextStatus,
+    permissionGaps: permissionSnapshot.tokenInvalid ? [] : permissionSnapshot.missingRequiredScopes,
+    targetAccounts: targetSnapshot.accounts,
+    targetAccountBlockers: dedupeStringArray([
+      ...(permissionSnapshot.errorMessage ? [permissionSnapshot.errorMessage] : []),
+      ...targetSnapshot.blockers,
+    ]),
+    lastCheckedAtIso: nowIso,
+    accessTokenExpiresAtIso: secret.accessTokenExpiresAtIso,
+  };
+  const nextSecret: StoredMetaConnectionSecret = {
+    ...secret,
+    grantedScopes: permissionSnapshot.grantedScopes,
+  };
+
+  await storeMetaConnection(ownerId, nextBundle, nextSecret);
+  return { bundle: nextBundle, secret: nextSecret };
 }
 
 async function storeMetaConnection(ownerId: string, bundle: StoredMetaConnectionBundle, secret: StoredMetaConnectionSecret) {
@@ -465,9 +737,10 @@ export async function completeMetaOauthConnection(input: { ownerId: string; code
 
   const token = await exchangeCodeForAccessToken(input.code);
   const profile = await fetchMetaUserProfile(token.accessToken);
-  const permissionGaps = await fetchPermissionGaps(token.accessToken);
+  const permissionSnapshot = await fetchPermissionSnapshot(token.accessToken);
+  const targetSnapshot = await fetchMetaTargetAccounts(token.accessToken);
   const nowIso = new Date().toISOString();
-  const status: StoredMetaConnectionBundle["status"] = permissionGaps.length ? "needs_permissions" : "connected";
+  const status: StoredMetaConnectionBundle["status"] = permissionSnapshot.missingRequiredScopes.length ? "needs_permissions" : "connected";
 
   const bundle: StoredMetaConnectionBundle = {
     provider: "meta",
@@ -476,7 +749,9 @@ export async function completeMetaOauthConnection(input: { ownerId: string; code
     connectedMetaUserName: profile.name,
     connectedMetaUserEmail: profile.email,
     connectedAccountLabel: buildConnectedAccountLabel(profile),
-    permissionGaps,
+    permissionGaps: permissionSnapshot.missingRequiredScopes,
+    targetAccounts: targetSnapshot.accounts,
+    targetAccountBlockers: targetSnapshot.blockers,
     connectedAtIso: nowIso,
     lastCheckedAtIso: nowIso,
     accessTokenExpiresAtIso: token.accessTokenExpiresAtIso,
@@ -487,7 +762,7 @@ export async function completeMetaOauthConnection(input: { ownerId: string; code
     accessToken: token.accessToken,
     tokenType: token.tokenType,
     accessTokenExpiresAtIso: token.accessTokenExpiresAtIso,
-    grantedScopes: META_INITIAL_SCOPES.filter((scope) => !permissionGaps.includes(scope)),
+    grantedScopes: permissionSnapshot.grantedScopes,
   });
 
   return bundle;
@@ -497,14 +772,26 @@ export async function getPortalMetaProviderReadiness(
   ownerId: string,
   opts?: { portalVariant?: string | null; isOwnerSession?: boolean },
 ): Promise<PortalMetaProviderReadiness> {
+  const cacheKey = [
+    ownerId,
+    String(opts?.portalVariant || "portal"),
+    opts?.isOwnerSession ? "owner" : "member",
+  ].join(":");
+  const cached = metaProviderReadinessCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+  const inFlight = metaProviderReadinessInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = (async () => {
   const config = getMetaOauthConfig();
   const oauthConfigured = Boolean(config.appId && config.appSecret);
   const encryptionConfigured = isPortalEncryptionConfigured();
   const disabledByEnv = boolFromEnv(process.env.META_PROVIDER_DISABLED);
   const isOwnerSession = Boolean(opts?.isOwnerSession);
-  const existing = await readMediaSetupRow(ownerId).catch(() => null);
-  const current = parseMetaServiceData(existing?.dataJson);
-  const bundle = getStoredBundle(current);
 
   let status: MetaProviderStatus = "coming_soon";
   let permissionGaps: string[] = [];
@@ -512,6 +799,8 @@ export async function getPortalMetaProviderReadiness(
   let connectedMetaUserId: string | null = null;
   let connectedMetaUserName: string | null = null;
   let connectedMetaUserEmail: string | null = null;
+  let targetAccounts: PortalMetaTargetAccount[] = buildPlaceholderTargetAccounts(status);
+  let targetAccountBlockers: string[] = [];
   let disconnectHref: string | null = null;
   let setupMessage = "Meta direct publishing is still blocked. Manual posting remains available from Media Library.";
 
@@ -524,13 +813,20 @@ export async function getPortalMetaProviderReadiness(
   } else if (!encryptionConfigured) {
     status = "coming_soon";
     setupMessage = "Secure integration storage is not configured on this server yet. Manual posting remains available until secure Meta storage is ready.";
-  } else if (!bundle) {
-    status = "not_connected";
-    setupMessage = "Connect Meta to let Purely verify your account first. Posting and metrics will stay off until the next permission step is ready.";
   } else {
+    const existing = await readMediaSetupRow(ownerId).catch(() => null);
+    const current = parseMetaServiceData(existing?.dataJson);
+    const bundle = getStoredBundle(current);
+
+    if (!bundle) {
+      status = "not_connected";
+      setupMessage = "Connect Meta to let Purely verify your account first. Posting and metrics will stay off until the next permission step is ready.";
+      targetAccounts = buildPlaceholderTargetAccounts(status);
+    } else {
     const decrypted = await readMetaConnectionSecret(bundle);
     const expiresAtMs = bundle.accessTokenExpiresAtIso ? new Date(bundle.accessTokenExpiresAtIso).getTime() : 0;
     const expired = Boolean(expiresAtMs && expiresAtMs <= Date.now());
+    let activeBundle = bundle;
 
     status = !decrypted || expired ? "reconnect_required" : bundle.status;
     permissionGaps = bundle.permissionGaps;
@@ -540,12 +836,32 @@ export async function getPortalMetaProviderReadiness(
     connectedMetaUserEmail = bundle.connectedMetaUserEmail;
     disconnectHref = getMetaDisconnectHref();
 
+    if (decrypted && !expired) {
+      const refreshed = await refreshStoredMetaConnection(ownerId, bundle, decrypted).catch(() => null);
+      if (refreshed) {
+        activeBundle = refreshed.bundle;
+        status = refreshed.bundle.status;
+        permissionGaps = refreshed.bundle.permissionGaps;
+        connectedAccountLabel = refreshed.bundle.connectedAccountLabel;
+        connectedMetaUserId = refreshed.bundle.connectedMetaUserId;
+        connectedMetaUserName = refreshed.bundle.connectedMetaUserName;
+        connectedMetaUserEmail = refreshed.bundle.connectedMetaUserEmail;
+      }
+    }
+
+    targetAccounts = activeBundle.targetAccounts.length
+      ? activeBundle.targetAccounts.map((account) => mapStoredTargetAccount(account))
+      : [];
+    targetAccountBlockers = activeBundle.targetAccountBlockers;
+
     if (status === "connected") {
       setupMessage = "Meta account connected. Purely can verify your Meta account now, but posting and metrics stay disabled until the next permission step is ready.";
     } else if (status === "needs_permissions") {
       setupMessage = "Meta account connected, but the current permission set is still incomplete. Purely can verify the account now, while posting and metrics stay disabled until the next permission step is ready.";
     } else {
       setupMessage = "Your saved Meta connection needs to be reconnected before Purely can verify it again. Posting and metrics remain disabled, and manual posting stays available now.";
+      targetAccounts = buildPlaceholderTargetAccounts(status);
+    }
     }
   }
 
@@ -566,10 +882,17 @@ export async function getPortalMetaProviderReadiness(
           : status === "disabled"
             ? "Disabled"
             : "Coming soon";
-  const targetStatus = buildTargetAccountStatus(status);
-  const explanation = "Connection lets Purely verify your Meta account first. Posting and metrics will be enabled after permissions and app review are ready. Manual posting remains available now.";
+  const explanation = permissionGaps.length
+    ? `Connection is saved, but Meta still owes approved permissions before publishing can proceed. Missing: ${permissionGaps.join(", ")}. Manual posting remains available now.`
+    : targetAccountBlockers[0]
+      ? `${targetAccountBlockers[0]} Manual posting remains available while Purely keeps live Meta publishing disabled.`
+      : "Connection lets Purely verify your Meta account first. Posting and metrics will be enabled after permissions and app review are ready. Manual posting remains available now.";
 
-  return {
+  if (!targetAccounts.length && status !== "connected" && status !== "needs_permissions") {
+    targetAccounts = buildPlaceholderTargetAccounts(status);
+  }
+
+  const readiness: PortalMetaProviderReadiness = {
     provider: "meta",
     ownerScoped: true,
     status,
@@ -592,22 +915,8 @@ export async function getPortalMetaProviderReadiness(
     callbackUrl: getMetaCallbackUrl(),
     setupMessage,
     explanation,
-    targetAccounts: [
-      {
-        key: "facebook_page",
-        label: "Facebook Page",
-        status: targetStatus,
-        connected: false,
-        placeholder: true,
-      },
-      {
-        key: "instagram_professional",
-        label: "Instagram professional account",
-        status: targetStatus,
-        connected: false,
-        placeholder: true,
-      },
-    ],
+    targetAccounts,
+    targetAccountBlockers,
     capabilities: {
       publish: {
         available: false,
@@ -628,4 +937,31 @@ export async function getPortalMetaProviderReadiness(
       "Manual posting remains available now.",
     ],
   };
+
+  metaProviderReadinessCache.set(cacheKey, {
+    value: readiness,
+    expiresAt: Date.now() + META_PROVIDER_READINESS_TTL_MS,
+  });
+  return readiness;
+  })();
+
+  metaProviderReadinessInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    if (metaProviderReadinessInFlight.get(cacheKey) === request) {
+      metaProviderReadinessInFlight.delete(cacheKey);
+    }
+  }
+}
+
+export async function getPortalMetaConnectionForPublishing(ownerId: string): Promise<{
+  bundle: StoredMetaConnectionBundle | null;
+  secret: StoredMetaConnectionSecret | null;
+}> {
+  const existing = await readMediaSetupRow(ownerId).catch(() => null);
+  const current = parseMetaServiceData(existing?.dataJson);
+  const bundle = getStoredBundle(current);
+  const secret = bundle ? await readMetaConnectionSecret(bundle) : null;
+  return { bundle, secret };
 }

@@ -29,7 +29,7 @@ export async function portalMe(): Promise<{ email: string; name: string; role: s
     }
 
     return null;
-  } catch (e: any) {
+  } catch {
     // Unauthorized, forbidden, or network errors -> treat as logged out.
     return null;
   }

@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { Metadata } from "next";
 
-import { buildPlatformHostedMetadata } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -20,7 +18,7 @@ function formatDate(value: Date) {
   return value.toLocaleString();
 }
 
-export async function generateMetadata(props: PageProps): Promise<Metadata> {
+export async function generateMetadata(props: PageProps) {
   const { siteSlug, newsletterSlug } = await props.params;
 
   try {
@@ -49,15 +47,11 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
     const profile = await prisma.businessProfile.findUnique({ where: { ownerId: site.ownerId }, select: { businessName: true } });
     const name = profile?.businessName || site.name;
-    const siteHandle = canUseSlugColumn ? String((site as any).slug || (site as any).id).trim() : siteSlug;
 
-    return buildPlatformHostedMetadata({
-      siteName: name,
+    return {
       title: `${newsletter.title} | ${name}`,
       description: newsletter.excerpt,
-      path: `/${siteHandle}/newsletters/${newsletterSlug}`,
-      keywords: [newsletter.title, `${name} newsletter`, name].filter(Boolean),
-    });
+    };
   } catch {
     return {};
   }
@@ -177,7 +171,7 @@ export default async function ClientNewsletterPage(props: PageProps) {
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">
-          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
+          <div className="text-xs font-medium" style={{ color: "var(--client-muted)" }}>
             {formatDate(newsletter.sentAt ?? newsletter.updatedAt)}
           </div>
           <h1 className="mt-3 text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-link)" }}>

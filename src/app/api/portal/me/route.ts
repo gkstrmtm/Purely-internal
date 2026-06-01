@@ -25,6 +25,7 @@ export async function GET() {
       ok: true,
       ownerId,
       memberId,
+      email: auth.session.user.email,
       role: "OWNER" as const,
       permissions: normalizePortalPermissions({}, "OWNER"),
     });
@@ -45,6 +46,7 @@ export async function GET() {
     ok: true,
     ownerId,
     memberId,
+    email: auth.session.user.email,
     role,
     permissions: normalizePortalPermissions(row?.permissionsJson, role),
   });

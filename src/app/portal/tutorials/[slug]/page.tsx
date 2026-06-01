@@ -381,7 +381,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         steps: [
           "If calls are hitting voicemail or a different system, double check that your Twilio number is pointing to the AI Receptionist voice webhook URL and not an old URL.",
           "If calls connect but you do not see them in the activity list, confirm you are viewing the correct portal account and Twilio project.",
-          "If there is no transcript yet, wait a minute. If it still does not appear, reopen the call details. If nothing changes, confirm that Twilio and your voice agent API key are configured in Profile.",
+          "If a transcript is not ready yet, wait a minute. If it still does not appear, reopen the call details. If nothing changes, confirm that Twilio and your voice agent API key are configured in Profile.",
           "If SMS or email notifications are missing, open Profile and the AI Receptionist settings to confirm your contact phone and forwarding number are set correctly.",
         ],
       },

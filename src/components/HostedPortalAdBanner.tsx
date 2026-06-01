@@ -98,7 +98,7 @@ export function HostedPortalAdCard({
       ) : null}
 
       <div className="p-4">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
+        <div className="text-[11px] font-medium text-zinc-500">Sponsored</div>
         <div className="mt-1 text-base font-semibold text-zinc-900">{creative.headline || "Sponsored"}</div>
         {creative.body ? <div className="mt-2 text-sm leading-relaxed text-zinc-700">{creative.body}</div> : null}
 

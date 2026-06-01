@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
@@ -333,7 +334,7 @@ export async function renderHostedFunnelRoute(opts: {
                   if (b.type === "img") {
                     return (
                       <div key={idx} className="overflow-hidden rounded-2xl border border-zinc-200">
-                        <img src={b.src} alt={b.alt} className="h-auto w-full" />
+                        <Image src={b.src} alt={b.alt} width={1200} height={800} className="h-auto w-full" unoptimized />
                       </div>
                     );
                   }

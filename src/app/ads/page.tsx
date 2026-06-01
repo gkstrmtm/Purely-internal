@@ -170,7 +170,7 @@ export default function AdsLandingPage() {
                 <div className="grid gap-4 sm:grid-cols-3">
                   {["Balance", "Spend (7d)", "Campaigns"].map((k) => (
                     <div key={k} className="rounded-3xl border border-zinc-200 bg-white p-5">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{k}</div>
+                      <div className="text-xs font-medium text-zinc-500">{k}</div>
                       <div className="mt-3 h-7 w-24 rounded-xl bg-zinc-100" />
                       <div className="mt-3 h-3 w-32 rounded-xl bg-zinc-100" />
                     </div>

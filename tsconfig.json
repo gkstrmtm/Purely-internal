@@ -45,6 +45,8 @@
     "node_modules",
     "mobile-app",
     "mobile-app/**",
+    "tmp",
+    "tmp/**",
     ".next/dev/**",
     ".next/dev/types/**",
     ".next/dev/types/**/*",

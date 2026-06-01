@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -81,7 +81,7 @@ function DashboardScreen({
   me: { email: string; name: string; role: string } | null;
   onNavigate: (t: PortalTab) => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [credits, setCredits] = useState<any | null>(null);
   const [summary, setSummary] = useState<any | null>(null);
@@ -115,7 +115,6 @@ function DashboardScreen({
   useEffect(() => {
     if (!active) return;
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   const creditsLine = useMemo(() => {
@@ -271,7 +270,6 @@ function ServicesScreen({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active) return;
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   return (
@@ -367,7 +365,6 @@ function TasksScreen({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active) return;
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   async function onCreate() {
@@ -442,7 +439,7 @@ function InboxScreen({ active }: { active: boolean }) {
   const [channel, setChannel] = useState<"email" | "sms">("email");
   const [threads, setThreads] = useState<InboxThread[]>([]);
 
-  async function load(nextChannel = channel) {
+  const load = useCallback(async (nextChannel = channel) => {
     setBusy(true);
     setError(null);
     try {
@@ -454,13 +451,12 @@ function InboxScreen({ active }: { active: boolean }) {
     } finally {
       setBusy(false);
     }
-  }
+  }, [channel]);
 
   useEffect(() => {
     if (!active) return;
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, channel]);
+  }, [active, load]);
 
   return (
     <ScreenShell
@@ -507,7 +503,7 @@ function InboxScreen({ active }: { active: boolean }) {
 }
 
 function BillingScreen({ active }: { active: boolean }) {
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [credits, setCredits] = useState<any | null>(null);
   const [summary, setSummary] = useState<any | null>(null);
@@ -529,7 +525,6 @@ function BillingScreen({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active) return;
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   const topLine = useMemo(() => {
@@ -657,14 +652,6 @@ function ErrorBox({ text }: { text: string }) {
       <Text style={styles.errorText}>{text}</Text>
     </View>
   );
-}
-
-function prettyJson(v: any) {
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
-  }
 }
 
 function titleFromSlug(slug: string) {

@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
 import { hasPlatformAdminCapability } from "@/lib/internalCapabilities";
@@ -20,7 +20,7 @@ export default async function PlatformAdminRecoveryPage() {
       <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
         <div className="flex flex-col gap-4 border-b border-zinc-200 pb-6 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <div className="text-sm font-semibold uppercase tracking-[0.24em] text-zinc-500">Platform admin</div>
+            <div className="text-sm font-medium text-zinc-500">Platform admin</div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-brand-ink">Recovery console</h1>
             <p className="mt-2 max-w-3xl text-sm text-zinc-600 sm:text-base">
               Search archived records, review safe metadata, and restore one record at a time with an explicit reason.
@@ -31,7 +31,7 @@ export default async function PlatformAdminRecoveryPage() {
             href="/app/manager/admin"
             className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-brand-ink transition hover:bg-zinc-50"
           >
-            Back to Admin
+            Back to Platform Admin
           </Link>
         </div>
 

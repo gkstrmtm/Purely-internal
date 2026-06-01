@@ -124,7 +124,7 @@ export function SyncedReviewsBlock({
         >
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm font-semibold text-zinc-950">{review.name}</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-600">{review.rating}/5</div>
+            <div className="text-xs font-semibold text-amber-600">{review.rating}/5</div>
           </div>
 
           {review.body ? <p className="mt-4 text-sm leading-7 text-zinc-700">{review.body}</p> : null}
@@ -149,7 +149,7 @@ export function SyncedReviewsBlock({
 
           {showBusinessReply && review.businessReply ? (
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Business reply</div>
+              <div className="text-[11px] font-medium text-zinc-500">Business reply</div>
               <div className="mt-2 text-sm leading-6 text-zinc-700">{review.businessReply}</div>
               {review.businessReplyAt ? (
                 <div className="mt-2 text-[11px] text-zinc-500">{new Date(review.businessReplyAt).toLocaleDateString()}</div>

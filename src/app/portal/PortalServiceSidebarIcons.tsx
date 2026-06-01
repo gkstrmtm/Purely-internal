@@ -34,7 +34,7 @@ export const portalSidebarIconToneInkClass = "text-brand-ink pa-portal-service-i
 
 export const portalSidebarIconToneNeutralClass = "text-zinc-700 pa-portal-service-icon-tone pa-portal-service-icon-tone--neutral";
 
-export const portalSidebarSectionTitleClass = "px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-500";
+export const portalSidebarSectionTitleClass = "px-3 text-xs font-medium text-zinc-500";
 
 export const portalSidebarSectionStackClass = "mt-1 space-y-1";
 
@@ -51,8 +51,8 @@ export const portalSidebarBorderButtonActiveClass = portalSidebarButtonActiveCla
 
 export function portalSidebarIconChipClass(active: boolean) {
   return classNames(
-    "pa-sidebar-icon-chip pa-sidebar-icon-chip--interactive inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-[transform,background-color,color] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
-    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:-translate-y-0.5 group-hover:bg-zinc-100",
+    "pa-sidebar-icon-chip pa-sidebar-icon-chip--interactive inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
+    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100",
   );
 }
 

@@ -325,7 +325,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const introHtml = intro ? `<p class=\"pa-p\" style=\"max-width:760px\">${escapeHtml(intro)}</p>` : "";
       return withBlockAnchor(
         b,
-        `<section${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""} data-pa-synced-reviews=\"1\" data-pa-page-id=\"${escapeHtmlAttr(opts.pageId)}\" data-pa-limit=\"${limit}\" data-pa-min-rating=\"${minRating}\" data-pa-columns=\"${columns}\" data-pa-show-reply=\"${showBusinessReply}\" data-pa-include-photos=\"${includePhotos}\"><div>${eyebrow ? `<div style=\"font-size:11px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#64748b\">${escapeHtml(eyebrow)}</div>` : ""}${heading ? `<h2 class=\"pa-h2\" style=\"margin-top:8px\">${escapeHtml(heading)}</h2>` : ""}${introHtml}<div class=\"pa-grid\" style=\"--cols:${columns};margin-top:${eyebrow || heading || intro ? "24" : "0"}px\" data-pa-synced-reviews-root><div class=\"pa-card\" style=\"color:#475569\">Loading reviews...</div></div></div></section>`,
+        `<section${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""} data-pa-synced-reviews=\"1\" data-pa-page-id=\"${escapeHtmlAttr(opts.pageId)}\" data-pa-limit=\"${limit}\" data-pa-min-rating=\"${minRating}\" data-pa-columns=\"${columns}\" data-pa-show-reply=\"${showBusinessReply}\" data-pa-include-photos=\"${includePhotos}\"><div>${eyebrow ? `<div style=\"font-size:11px;font-weight:600;color:#64748b\">${escapeHtml(eyebrow)}</div>` : ""}${heading ? `<h2 class=\"pa-h2\" style=\"margin-top:8px\">${escapeHtml(heading)}</h2>` : ""}${introHtml}<div class=\"pa-grid\" style=\"--cols:${columns};margin-top:${eyebrow || heading || intro ? "24" : "0"}px\" data-pa-synced-reviews-root><div class=\"pa-card\" style=\"color:#475569\">Loading reviews...</div></div></div></section>`,
       );
     }
 
@@ -348,14 +348,14 @@ export function blocksToCustomHtmlDocument(opts: {
           const role = typeof (item as any).role === "string" ? String((item as any).role).trim() : "";
           const outcome = typeof (item as any).outcome === "string" ? String((item as any).outcome).trim() : "";
           if (!quote || !name) return "";
-          return `<figure class="pa-card" style="display:flex;height:100%;flex-direction:column;justify-content:space-between;border-radius:28px;padding:24px;box-shadow:0 16px 40px rgba(15,23,42,0.06)">${outcome ? `<div style="margin-bottom:16px;display:inline-flex;width:fit-content;border-radius:999px;border:1px solid #bbf7d0;background:#ecfdf5;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#047857">${escapeHtml(outcome)}</div>` : ""}<blockquote style="margin:0;font-size:16px;line-height:1.75;color:#3f3f46">&ldquo;${escapeHtml(quote)}&rdquo;</blockquote><figcaption style="margin-top:20px;border-top:1px solid #f4f4f5;padding-top:16px"><div style="font-size:14px;font-weight:700;color:#09090b">${escapeHtml(name)}</div>${role ? `<div style="margin-top:4px;font-size:14px;color:#71717a">${escapeHtml(role)}</div>` : ""}</figcaption></figure>`;
+          return `<figure class="pa-card" style="display:flex;height:100%;flex-direction:column;justify-content:space-between;border-radius:28px;padding:24px;box-shadow:0 16px 40px rgba(15,23,42,0.06)">${outcome ? `<div style="margin-bottom:16px;display:inline-flex;width:fit-content;border-radius:999px;border:1px solid #bbf7d0;background:#ecfdf5;padding:4px 12px;font-size:11px;font-weight:600;color:#047857">${escapeHtml(outcome)}</div>` : ""}<blockquote style="margin:0;font-size:16px;line-height:1.75;color:#3f3f46">&ldquo;${escapeHtml(quote)}&rdquo;</blockquote><figcaption style="margin-top:20px;border-top:1px solid #f4f4f5;padding-top:16px"><div style="font-size:14px;font-weight:700;color:#09090b">${escapeHtml(name)}</div>${role ? `<div style="margin-top:4px;font-size:14px;color:#71717a">${escapeHtml(role)}</div>` : ""}</figcaption></figure>`;
         })
         .filter(Boolean)
         .join("\n");
       if (!cards) return "";
       return withBlockAnchor(
         b,
-        `<section${cssInline ? ` style="${escapeHtmlAttr(cssInline)}"` : ""}><div>${eyebrow ? `<div style="font-size:11px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#64748b">${escapeHtml(eyebrow)}</div>` : ""}${heading ? `<h2 class="pa-h2" style="margin-top:8px">${escapeHtml(heading)}</h2>` : ""}${introHtml}<div class="pa-grid" style="--cols:${columns};margin-top:${eyebrow || heading || intro ? "24" : "0"}px">${cards}</div></div></section>`,
+        `<section${cssInline ? ` style="${escapeHtmlAttr(cssInline)}"` : ""}><div>${eyebrow ? `<div style="font-size:11px;font-weight:600;color:#64748b">${escapeHtml(eyebrow)}</div>` : ""}${heading ? `<h2 class="pa-h2" style="margin-top:8px">${escapeHtml(heading)}</h2>` : ""}${introHtml}<div class="pa-grid" style="--cols:${columns};margin-top:${eyebrow || heading || intro ? "24" : "0"}px">${cards}</div></div></section>`,
       );
     }
 
@@ -389,7 +389,7 @@ export function blocksToCustomHtmlDocument(opts: {
           const textColor = "#09090b";
           const mutedColor = "#52525b";
           const badgeMarkup = badge
-            ? `<div style="margin-bottom:16px;display:inline-flex;width:fit-content;border-radius:999px;border:1px solid ${featured ? "rgba(15,23,42,0.08)" : "#e4e4e7"};background:${featured ? "#ffffff" : "#fafafa"};padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#52525b">${escapeHtml(badge)}</div>`
+            ? `<div style="margin-bottom:16px;display:inline-flex;width:fit-content;border-radius:999px;border:1px solid ${featured ? "rgba(15,23,42,0.08)" : "#e4e4e7"};background:${featured ? "#ffffff" : "#fafafa"};padding:4px 12px;font-size:11px;font-weight:600;color:#52525b">${escapeHtml(badge)}</div>`
             : "";
           const featureMarkup = features.length
             ? `<ul style="margin:20px 0 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px;font-size:14px;color:#3f3f46">${features.map((feature) => `<li style="display:flex;align-items:flex-start;gap:12px"><span style="margin-top:7px;height:6px;width:6px;flex:0 0 auto;border-radius:999px;background:#09090b"></span><span>${escapeHtml(feature)}</span></li>`).join("")}</ul>`
@@ -406,7 +406,7 @@ export function blocksToCustomHtmlDocument(opts: {
       if (!cards) return "";
       return withBlockAnchor(
         b,
-        `<section${cssInline ? ` style="${escapeHtmlAttr(cssInline)}"` : ""}><div>${eyebrow ? `<div style="font-size:11px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#64748b">${escapeHtml(eyebrow)}</div>` : ""}${heading ? `<h2 class="pa-h2" style="margin-top:8px">${escapeHtml(heading)}</h2>` : ""}${introHtml}<div class="pa-grid" style="--cols:${columns};margin-top:${eyebrow || heading || intro ? "24" : "0"}px">${cards}</div></div></section>`,
+        `<section${cssInline ? ` style="${escapeHtmlAttr(cssInline)}"` : ""}><div>${eyebrow ? `<div style="font-size:11px;font-weight:600;color:#64748b">${escapeHtml(eyebrow)}</div>` : ""}${heading ? `<h2 class="pa-h2" style="margin-top:8px">${escapeHtml(heading)}</h2>` : ""}${introHtml}<div class="pa-grid" style="--cols:${columns};margin-top:${eyebrow || heading || intro ? "24" : "0"}px">${cards}</div></div></section>`,
       );
     }
 
@@ -773,7 +773,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const replyHtml = review.businessReply
         ? \`
 <div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:16px;background:#f8fafc;padding:14px">
-  <div style="font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#64748b">Business reply</div>
+  <div style="font-size:11px;font-weight:600;color:#64748b">Business reply</div>
   <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#334155">\${esc(review.businessReply)}</div>
 </div>\`
         : '';
@@ -781,7 +781,7 @@ export function blocksToCustomHtmlDocument(opts: {
 <article class="pa-card" style="height:100%;border-radius:28px;padding:24px;box-shadow:0 16px 40px rgba(15,23,42,.06)">
   <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
     <div style="font-size:14px;font-weight:700;color:#0f172a">\${esc(review.name || 'Customer')}</div>
-    <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#d97706">\${esc(String(review.rating || 0))}/5</div>
+    <div style="font-size:11px;font-weight:600;color:#d97706">\${esc(String(review.rating || 0))}/5</div>
   </div>
   \${review.body ? \`<p style="margin:16px 0 0 0;font-size:14px;line-height:1.8;color:#334155">\${esc(review.body)}</p>\` : ''}
   \${photoHtml}

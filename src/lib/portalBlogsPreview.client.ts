@@ -104,6 +104,10 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function cloneState<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 function clampFrequencyDays(value: number) {
   return Math.min(30, Math.max(1, Math.floor(Number(value) || 7)));
 }
@@ -136,9 +140,9 @@ function normalizeState(raw: unknown): PreviewBlogState {
           id: String(post.id || `preview-post-${index + 1}`),
           status: post.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
           slug: String(post.slug || `draft-${index + 1}`),
-          title: String(post.title || "Untitled"),
-          excerpt: String(post.excerpt || ""),
-          content: String(post.content || ""),
+          title: typeof post.title === "string" ? post.title : "",
+          excerpt: typeof post.excerpt === "string" ? post.excerpt : "",
+          content: typeof post.content === "string" ? post.content : "",
           seoKeywords: Array.isArray(post.seoKeywords) ? post.seoKeywords.map((item) => String(item)) : [],
           publishedAt: post.publishedAt ? String(post.publishedAt) : null,
           archivedAt: post.archivedAt ? String(post.archivedAt) : null,
@@ -152,19 +156,16 @@ function normalizeState(raw: unknown): PreviewBlogState {
         ? value.automation.topics.map((item) => String(item || "")).filter(Boolean)
         : base.automation.topics,
       contextFiles: Array.isArray(value.automation?.contextFiles)
-        ? value.automation.contextFiles
-            .map((item, index) => ({
-              id: String(item?.id || `preview-context-${index + 1}`),
-              fileName: String(item?.fileName || "Reference file"),
-              mimeType: String(item?.mimeType || "application/octet-stream"),
-              fileSize: Number.isFinite(item?.fileSize) ? Number(item?.fileSize) : 0,
-              tag: String(item?.tag || ""),
-              shareUrl: String(item?.shareUrl || ""),
-              previewUrl: item?.previewUrl ? String(item.previewUrl) : undefined,
-              createdAt: item?.createdAt ? String(item.createdAt) : undefined,
-            }))
-            .filter((item) => item.id && item.fileName && item.shareUrl)
-            .slice(0, 12)
+        ? value.automation.contextFiles.map((file, index) => ({
+            id: String(file?.id || `preview-context-file-${index + 1}`),
+            fileName: String(file?.fileName || `context-file-${index + 1}`),
+            mimeType: String(file?.mimeType || "application/octet-stream"),
+            fileSize: Number.isFinite(file?.fileSize) ? Number(file?.fileSize) : 0,
+            tag: String(file?.tag || "supporting context"),
+            shareUrl: String(file?.shareUrl || ""),
+            previewUrl: typeof file?.previewUrl === "string" ? file.previewUrl : undefined,
+            createdAt: typeof file?.createdAt === "string" ? file.createdAt : undefined,
+          }))
         : base.automation.contextFiles,
       autoPublish: Boolean(value.automation?.autoPublish ?? base.automation.autoPublish),
       lastGeneratedAt: value.automation?.lastGeneratedAt ? String(value.automation.lastGeneratedAt) : null,
@@ -270,19 +271,16 @@ export function savePreviewAutomationSettings(next: Partial<PreviewBlogAutomatio
         ? next.topics.map((item) => String(item || "").trim()).filter(Boolean)
         : state.automation.topics,
       contextFiles: Array.isArray(next.contextFiles)
-        ? next.contextFiles
-            .map((item, index) => ({
-              id: String(item?.id || `preview-context-${index + 1}`),
-              fileName: String(item?.fileName || "Reference file"),
-              mimeType: String(item?.mimeType || "application/octet-stream"),
-              fileSize: Number.isFinite(item?.fileSize) ? Number(item?.fileSize) : 0,
-              tag: String(item?.tag || ""),
-              shareUrl: String(item?.shareUrl || ""),
-              previewUrl: item?.previewUrl ? String(item.previewUrl) : undefined,
-              createdAt: item?.createdAt ? String(item.createdAt) : undefined,
-            }))
-            .filter((item) => item.id && item.fileName && item.shareUrl)
-            .slice(0, 12)
+        ? next.contextFiles.map((file, index) => ({
+            id: String(file?.id || `preview-context-file-${index + 1}`),
+            fileName: String(file?.fileName || `context-file-${index + 1}`),
+            mimeType: String(file?.mimeType || "application/octet-stream"),
+            fileSize: Number.isFinite(file?.fileSize) ? Number(file?.fileSize) : 0,
+            tag: String(file?.tag || "supporting context"),
+            shareUrl: String(file?.shareUrl || ""),
+            previewUrl: typeof file?.previewUrl === "string" ? file.previewUrl : undefined,
+            createdAt: typeof file?.createdAt === "string" ? file.createdAt : undefined,
+          }))
         : state.automation.contextFiles,
     },
   }));
@@ -379,7 +377,7 @@ export function buildPreviewCoverImageUrl(title: string) {
       <circle cx="1300" cy="180" r="170" fill="#c7ddff" opacity="0.55" />
       <circle cx="230" cy="690" r="220" fill="#fde1c8" opacity="0.9" />
       <rect x="116" y="118" width="1368" height="664" rx="40" fill="#ffffff" fill-opacity="0.72" stroke="#d7dee8" />
-      <text x="180" y="312" fill="#0f172a" font-family="Georgia, 'Times New Roman', serif" font-size="42" letter-spacing="2">LOCAL PREVIEW</text>
+      <text x="180" y="312" fill="#0f172a" font-family="Georgia, 'Times New Roman', serif" font-size="42">Local preview</text>
       <text x="180" y="430" fill="#111827" font-family="Georgia, 'Times New Roman', serif" font-size="84" font-weight="700">${lineOne.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</text>
       <text x="180" y="520" fill="#475569" font-family="Arial, sans-serif" font-size="34">Blog cover placeholder for local styling review</text>
     </svg>

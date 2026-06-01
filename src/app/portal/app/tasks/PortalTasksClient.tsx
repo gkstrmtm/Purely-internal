@@ -301,7 +301,7 @@ export function PortalTasksClient() {
               ))
             ) : (
               <div className="px-3 py-2 text-sm text-zinc-500">
-                <div className="font-semibold text-zinc-900">No completed tasks logged yet</div>
+                <div className="font-semibold text-zinc-900">Completed tasks have not been logged yet</div>
                 <div className="mt-1 text-xs text-zinc-500">Completed work will land here. Create the next task now if you want something new to move through the list.</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -324,7 +324,7 @@ export function PortalTasksClient() {
         </div>
       </div>
     );
-  }, [doneTasks, openTasks.length, setStatus]);
+  }, [appBase, doneTasks, openTasks.length, setStatus]);
 
   useEffect(() => {
     setSidebarOverride({

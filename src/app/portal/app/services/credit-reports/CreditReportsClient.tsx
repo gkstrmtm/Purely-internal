@@ -142,7 +142,7 @@ function readReviewDetails(details: unknown): Array<{ key: string; value: string
 }
 
 function scoreTone(score: number | null) {
-  if (score === null) return { label: "No score yet", accent: "#94a3b8", surfaceClass: "bg-slate-100 text-slate-700" };
+  if (score === null) return { label: "Score not pulled yet", accent: "#94a3b8", surfaceClass: "bg-slate-100 text-slate-700" };
   if (score >= 740) return { label: "Excellent", accent: "#15803d", surfaceClass: "bg-emerald-100 text-emerald-700" };
   if (score >= 680) return { label: "Good", accent: "#0f766e", surfaceClass: "bg-teal-100 text-teal-700" };
   if (score >= 620) return { label: "Fair", accent: "#b45309", surfaceClass: "bg-amber-100 text-amber-700" };
@@ -1032,7 +1032,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       ) : !selectedReport ? (
         <div className="mt-6 rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
           <div className="font-semibold text-red-900">Report needs attention</div>
-          <div className="mt-1">This report is not available right now. Open reports, pull a new report, or ask Pura to help.</div>
+          <div className="mt-1">We could not reopen this report just now. Head back to reports, pull a fresh report, or ask Pura to help recover it.</div>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
@@ -1312,7 +1312,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       </div>
                       <div className={classNames("rounded-2xl px-3 py-3", portalGlassButtonClass)}>
                         <div className="text-xs font-medium text-zinc-500">Dispute status</div>
-                        <div className="mt-2 text-sm text-zinc-700">{it.disputeStatus || "No dispute started yet"}</div>
+                        <div className="mt-2 text-sm text-zinc-700">{it.disputeStatus || "Dispute not started yet"}</div>
                       </div>
                     </div>
                   </div>

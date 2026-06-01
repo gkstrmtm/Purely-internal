@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { Metadata } from "next";
 
-import { buildPlatformHostedMetadata } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
@@ -21,7 +19,7 @@ function formatDate(value: Date) {
   return value.toLocaleString();
 }
 
-export async function generateMetadata(props: PageProps): Promise<Metadata> {
+export async function generateMetadata(props: PageProps) {
   const { siteSlug } = await props.params;
 
   try {
@@ -43,15 +41,8 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 
     const profile = await prisma.businessProfile.findUnique({ where: { ownerId: site.ownerId }, select: { businessName: true } });
     const name = profile?.businessName || site.name;
-    const siteHandle = canUseSlugColumn ? String((site as any).slug || (site as any).id).trim() : siteSlug;
 
-    return buildPlatformHostedMetadata({
-      siteName: name,
-      title: `${name} | Newsletters`,
-      description: `Latest newsletters from ${name}.`,
-      path: `/${siteHandle}/newsletters`,
-      keywords: [`${name} newsletter`, `${name} updates`, `${name} emails`],
-    });
+    return { title: `${name} | Newsletters`, description: `Latest newsletters from ${name}.` };
   } catch {
     return {};
   }
@@ -192,7 +183,7 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
                     className="block rounded-3xl border p-7 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md hover:brightness-[0.99]"
                     style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
                   >
-                    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
+                    <div className="text-xs font-medium" style={{ color: "var(--client-muted)" }}>
                       {formatDate(n.sentAt ?? n.updatedAt)}
                     </div>
                     <div className="mt-2 text-2xl" style={{ color: "var(--client-link)" }}>

@@ -1180,7 +1180,7 @@ export function PortalAiReceptionistClient() {
 
   function CallDetailsContent({ call, variant }: { call: EventRow; variant: "desktop" | "mobile" }) {
     const notes = deriveClientNotesFromEvent(call);
-    const nameLine = (call.contactName || "").trim() || "No caller name yet";
+    const nameLine = (call.contactName || "").trim() || "Caller name still syncing";
     const phoneLine = (call.contactPhone || "").trim() || call.from;
     const dt = `${formatDate(call.createdAtIso)} ${formatTimeOfDay(call.createdAtIso)}`.trim();
     return (
@@ -1272,7 +1272,7 @@ export function PortalAiReceptionistClient() {
             if (!src) {
               return (
                 <div className="mt-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No recording ready yet</div>
+                  <div className="font-semibold text-zinc-900">This recording is still not available</div>
                   <div className="mt-1">This call does not have a recording attached yet. If it just finished, refresh activity or review the phone setup before testing again.</div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
@@ -2213,7 +2213,7 @@ export function PortalAiReceptionistClient() {
                     if (!kb) {
                       return (
                         <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No knowledge base ready yet</div>
+                          <div className="font-semibold text-zinc-900">The voice knowledge base has not been prepared yet</div>
                           <div className="mt-1">Add notes above, upload a document, or sync once the first business context is ready so the voice agent has something real to use.</div>
                           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                             <button
@@ -2581,7 +2581,7 @@ export function PortalAiReceptionistClient() {
                         if (!kb) {
                           return (
                             <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                              <div className="font-semibold text-zinc-900">No knowledge base ready yet</div>
+                              <div className="font-semibold text-zinc-900">The SMS knowledge base has not been prepared yet</div>
                               <div className="mt-1">Add notes above, upload a file, or sync once the SMS agent has enough business context to answer confidently.</div>
                               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                                 <button
@@ -3005,7 +3005,7 @@ export function PortalAiReceptionistClient() {
 
           {!selectedCall ? (
             <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No receptionist calls yet</div>
+              <div className="font-semibold text-zinc-900">Receptionist activity will appear here once the line starts ringing</div>
               <div className="mt-1">Once the receptionist is connected and a caller reaches the number, call logs, recordings, and transcripts will show here.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button

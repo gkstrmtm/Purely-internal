@@ -1901,28 +1901,6 @@ export function renderCreditFunnelBlocks({
     "@keyframes funnel-editor-ai-settle{0%{transform:translateY(-1px) scale(1.006)}100%{transform:translateY(0) scale(1)}}",
   ].join("\n");
 
-  const BLOCK_TYPE_LABELS: Partial<Record<string, string>> = {
-    heading: "Heading",
-    paragraph: "Text",
-    button: "Button",
-    formLink: "Form link",
-    calendarEmbed: "Booking",
-    image: "Image",
-    video: "Video",
-    spacer: "Spacer",
-    syncedReviews: "Reviews",
-    testimonialGrid: "Testimonials",
-    pricingGrid: "Pricing",
-    section: "Section",
-    columns: "Columns",
-    salesCheckoutButton: "Checkout",
-    addToCartButton: "Cart",
-    headerNav: "Navigation",
-    customCode: "Code block",
-    anchor: "Anchor",
-    chatbot: "Chat widget",
-  };
-
   const CONTAINER_BLOCK_TYPES = new Set(["section", "columns"]);
   const DIRECT_TEXT_CHROME_BLOCK_TYPES = new Set(["heading", "paragraph", "button", "formLink", "pricingGrid"]);
   const CANVAS_CHROME_BLOCK_TYPES = new Set([
@@ -2416,12 +2394,9 @@ export function renderCreditFunnelBlocks({
 
       if (b.type === "salesCheckoutButton") {
         const pageId = typeof context?.funnelPageId === "string" ? context.funnelPageId : "";
-        const { offer, priceId } = resolveOfferBinding((b.props as any)?.offerId, (b.props as any)?.priceId);
+        const { priceId } = resolveOfferBinding((b.props as any)?.offerId, (b.props as any)?.priceId);
         const quantityRaw = (b.props as any)?.quantity;
         const quantity = typeof quantityRaw === "number" && Number.isFinite(quantityRaw) ? Math.max(1, Math.min(20, quantityRaw)) : undefined;
-        const productName = String(offer?.productName || (b.props as any)?.productName || "").trim();
-        const productDescription =
-          String(offer?.productDescription || (b.props as any)?.productDescription || "").trim();
         const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text) : "Buy now";
 
         if (!isEditor && (!pageId || !priceId)) return null;
@@ -4013,20 +3988,6 @@ export function renderCreditFunnelBlocks({
           const bookingStatusLabel = blockCalendarId || inheritedCalendarId
             ? (!resolvedCalendarKnown ? "Route missing" : (resolvedCalendarEnabled ? "Accepting bookings" : "Not accepting bookings"))
             : (bookingFirstPage ? "Needs setup" : "Missing");
-          const pausedCalendarSubtitle = blockCalendarId
-            ? "Step-specific calendar"
-            : inheritedCalendarId
-              ? "Funnel-linked calendar"
-              : "Booking placeholder";
-          const pausedCalendarDetail = blockCalendarId
-            ? !resolvedCalendarKnown
-              ? `${resolvedCalendarTitle || calendarId || "This calendar"} is pinned directly to this step, but it is no longer available. Reconnect this booking step to a live calendar.`
-              : `${resolvedCalendarTitle || "This calendar"} is linked directly to this step. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
-            : inheritedCalendarId
-              ? !resolvedCalendarKnown
-                ? `${resolvedCalendarTitle || inheritedCalendarId || "This calendar"} is linked at the funnel level, but it is no longer available. Reconnect the funnel calendar.`
-                : `${resolvedCalendarTitle || "This calendar"} is linked at the funnel level, so this step inherits it automatically. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
-              : "This block is still a booking placeholder with no routed calendar yet. Once you create or attach a calendar, this preview will reflect that route automatically.";
           const bookingStateCard = showBookingState && isEditor
             ? React.createElement(
                 "div",
@@ -4188,8 +4149,6 @@ export function renderCreditFunnelBlocks({
           );
         }
 
-        const height = typeof (b.props as any).height === "number" ? (b.props as any).height : 760;
-        const effectiveHeight = previewEmbedHeight(height, 760, 620);
         const slug = context?.bookingSiteSlug ? String(context.bookingSiteSlug).trim() : "";
         const ownerId = context?.bookingOwnerId ? String(context.bookingOwnerId).trim() : "";
         const funnelId = context?.funnelId ? String(context.funnelId).trim() : "";

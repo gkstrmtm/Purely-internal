@@ -310,7 +310,7 @@ export default function NewAdsCampaignPage() {
               <div className="text-sm font-semibold text-zinc-900">Basics</div>
               <div className="mt-4 grid gap-4">
                 <label className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Campaign name</div>
+                  <div className="text-xs font-medium text-zinc-500">Campaign name</div>
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -320,7 +320,7 @@ export default function NewAdsCampaignPage() {
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Start</div>
+                    <div className="text-xs font-medium text-zinc-500">Start</div>
                     <LocalDateTimePicker
                       value={startAt}
                       onChange={setStartAt}
@@ -331,7 +331,7 @@ export default function NewAdsCampaignPage() {
                     />
                   </label>
                   <label className="block">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">End</div>
+                    <div className="text-xs font-medium text-zinc-500">End</div>
                     <LocalDateTimePicker
                       value={endAt}
                       onChange={setEndAt}
@@ -353,7 +353,7 @@ export default function NewAdsCampaignPage() {
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Daily budget (USD)</div>
+                  <div className="text-xs font-medium text-zinc-500">Daily budget (USD)</div>
                   <input
                     value={dailyBudgetUsd}
                     onChange={(e) => setDailyBudgetUsd(e.target.value)}
@@ -422,7 +422,7 @@ export default function NewAdsCampaignPage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Industries</div>
+                  <div className="text-xs font-medium text-zinc-500">Industries</div>
                   <div className="mt-2">
                     <PortalMultiSelectDropdown
                       label="Industries"
@@ -437,7 +437,7 @@ export default function NewAdsCampaignPage() {
                 </div>
 
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Business models</div>
+                  <div className="text-xs font-medium text-zinc-500">Business models</div>
                   <div className="mt-2">
                     <PortalMultiSelectDropdown
                       label="Business models"
@@ -452,7 +452,7 @@ export default function NewAdsCampaignPage() {
                 </div>
 
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Locations</div>
+                  <div className="text-xs font-medium text-zinc-500">Locations</div>
                   <div className="mt-2">
                     <PortalMultiSelectDropdown
                       label="Locations"
@@ -570,7 +570,7 @@ export default function NewAdsCampaignPage() {
 
           <div className="mt-4 grid gap-4">
             <label className="block">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Headline</div>
+              <div className="text-xs font-medium text-zinc-500">Headline</div>
               <input
                 value={headline}
                 onChange={(e) => setHeadline(e.target.value)}
@@ -580,7 +580,7 @@ export default function NewAdsCampaignPage() {
             </label>
 
             <label className="block">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Body</div>
+              <div className="text-xs font-medium text-zinc-500">Body</div>
               <textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
@@ -592,7 +592,7 @@ export default function NewAdsCampaignPage() {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">CTA text</div>
+                <div className="text-xs font-medium text-zinc-500">CTA text</div>
                 <input
                   value={ctaText}
                   onChange={(e) => setCtaText(e.target.value)}
@@ -602,7 +602,7 @@ export default function NewAdsCampaignPage() {
               </label>
 
               <label className="block">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Link (https or /path)</div>
+                <div className="text-xs font-medium text-zinc-500">Link (https or /path)</div>
                 <input
                   value={linkUrl}
                   onChange={(e) => setLinkUrl(e.target.value)}
@@ -613,7 +613,7 @@ export default function NewAdsCampaignPage() {
             </div>
 
             <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Media</div>
+              <div className="text-xs font-medium text-zinc-500">Media</div>
               <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
                 <input
                   ref={fileInputRef}
@@ -658,7 +658,7 @@ export default function NewAdsCampaignPage() {
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <label className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Fit</div>
+                  <div className="text-xs font-medium text-zinc-500">Fit</div>
                   <div className="mt-2">
                     <PortalListboxDropdown
                       value={mediaFit}
@@ -673,7 +673,7 @@ export default function NewAdsCampaignPage() {
                 </label>
 
                 <label className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Focus</div>
+                  <div className="text-xs font-medium text-zinc-500">Focus</div>
                   <div className="mt-2">
                     <PortalListboxDropdown
                       value={mediaPosition}
@@ -691,7 +691,7 @@ export default function NewAdsCampaignPage() {
                 </label>
 
                 <label className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Kind</div>
+                  <div className="text-xs font-medium text-zinc-500">Kind</div>
                   <div className="mt-2">
                     <PortalListboxDropdown
                       value={mediaKind || ""}
@@ -709,7 +709,7 @@ export default function NewAdsCampaignPage() {
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Sidebar image height</div>
+                  <div className="text-xs font-medium text-zinc-500">Sidebar image height</div>
                   <input
                     type="range"
                     min={60}
@@ -722,7 +722,7 @@ export default function NewAdsCampaignPage() {
                 </label>
 
                 <label className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Top banner image size</div>
+                  <div className="text-xs font-medium text-zinc-500">Top banner image size</div>
                   <input
                     type="range"
                     min={40}
@@ -820,7 +820,7 @@ export default function NewAdsCampaignPage() {
             return (
               <div key={p.id} className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{p.label}</div>
+                  <div className="text-xs font-medium text-zinc-500">{p.label}</div>
                   {p.id === "BILLING_SPONSORED" || p.id === "FULLSCREEN_REWARD" ? (
                     <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
                       Preview only

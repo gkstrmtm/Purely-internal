@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -35,7 +34,6 @@ import {
   type PackagePreset,
 } from "./catalog";
 
-const BRAND_MIST = "#f1f5f9";
 const BRAND_INK = "#334155";
 const ZINC_200 = "#e4e4e7";
 const ZINC_600 = "#52525b";

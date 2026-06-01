@@ -553,7 +553,7 @@ function SegButton(props: {
       className={classNames(
         "h-10 rounded-2xl px-4 text-sm font-semibold transition",
         props.active
-          ? "bg-[color:var(--color-brand-ink)] text-white"
+          ? "bg-(--color-brand-ink) text-white"
           : "bg-white text-zinc-800 hover:bg-zinc-50",
       )}
     >
@@ -577,8 +577,8 @@ function SurfaceCard(props: {
 
   return (
     <div className="relative overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <div className={classNames("absolute inset-x-0 top-0 h-1 bg-gradient-to-r", accentClass, "to-transparent")} />
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{props.title}</div>
+      <div className={classNames("absolute inset-x-0 top-0 h-1 bg-linear-to-r", accentClass, "to-transparent")} />
+      <div className="text-[11px] font-medium text-zinc-500">{props.title}</div>
       <div className="mt-2 text-3xl font-bold tracking-tight text-zinc-900">{props.value}</div>
       {props.sub ? <div className="mt-1 text-xs text-zinc-600">{props.sub}</div> : null}
     </div>
@@ -780,9 +780,9 @@ function DonutMix(props: { aPct: number; aLabel: string; bLabel: string }) {
       <div className="text-sm">
         <div className="font-semibold text-zinc-900">Revenue mix</div>
         <div className="mt-1 text-xs text-zinc-600">
-          <span className="font-semibold text-[color:var(--color-brand-blue)]">{props.aLabel}</span> {Math.round(a * 100)}%
+          <span className="font-semibold text-(--color-brand-blue)">{props.aLabel}</span> {Math.round(a * 100)}%
           <span className="mx-2 text-zinc-300">•</span>
-          <span className="font-semibold text-[color:var(--color-brand-pink)]">{props.bLabel}</span> {Math.round((1 - a) * 100)}%
+          <span className="font-semibold text-(--color-brand-pink)">{props.bLabel}</span> {Math.round((1 - a) * 100)}%
         </div>
       </div>
     </div>
@@ -1294,9 +1294,9 @@ export default function ProfitVisualizationDashboardPage() {
   return (
     <div className="relative min-h-screen bg-brand-mist text-brand-ink">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-20 -top-28 h-[420px] w-[420px] rounded-full bg-[color:var(--color-brand-blue)]/15 blur-3xl" />
-        <div className="absolute -right-24 top-24 h-[420px] w-[420px] rounded-full bg-[color:var(--color-brand-pink)]/15 blur-3xl" />
-        <div className="absolute bottom-0 left-1/2 h-[520px] w-[520px] -translate-x-1/2 rounded-full bg-[color:var(--color-brand-ink)]/10 blur-3xl" />
+        <div className="absolute -left-20 -top-28 h-105 w-105 rounded-full bg-(--color-brand-blue)/15 blur-3xl" />
+        <div className="absolute -right-24 top-24 h-105 w-105 rounded-full bg-brand-pink/15 blur-3xl" />
+        <div className="absolute bottom-0 left-1/2 h-130 w-130 -translate-x-1/2 rounded-full bg-brand-ink/10 blur-3xl" />
       </div>
 
       <div className="relative mx-auto w-full max-w-7xl px-6 py-10">
@@ -1330,7 +1330,7 @@ export default function ProfitVisualizationDashboardPage() {
             <button
               type="button"
               onClick={() => void copySummary()}
-              className="h-10 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+              className="h-10 rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95"
             >
               Copy snapshot
             </button>
@@ -1390,7 +1390,7 @@ export default function ProfitVisualizationDashboardPage() {
                 <button
                   type="button"
                   onClick={() => setUserSimSeed(Math.floor(Date.now() / 1000))}
-                  className="h-10 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+                  className="h-10 rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95"
                 >
                   Shuffle users
                 </button>
@@ -1401,7 +1401,7 @@ export default function ProfitVisualizationDashboardPage() {
               <div className="rounded-2xl bg-zinc-50 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Users</div>
+                    <div className="text-xs font-medium text-zinc-500">Users</div>
                     <div className="mt-1 text-2xl font-bold text-zinc-900">{userSimCount.toLocaleString()}</div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1434,7 +1434,7 @@ export default function ProfitVisualizationDashboardPage() {
 
                 <div className="mt-4 grid gap-3">
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Mix preset</div>
+                    <div className="text-xs font-medium text-zinc-500">Mix preset</div>
                     <div className="mt-1">
                       <PortalListboxDropdown<UserSimMix>
                         value={userSimMix}
@@ -1451,14 +1451,14 @@ export default function ProfitVisualizationDashboardPage() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Credit price</div>
+                      <div className="text-[11px] font-medium text-zinc-500">Credit price</div>
                       <div className="mt-0.5 text-sm font-semibold text-zinc-900">
                         ${usdPerCreditCreditsOnly.toFixed(2)} / credit
                       </div>
                       <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">Credits-only</div>
                     </div>
                     <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Credit price</div>
+                      <div className="text-[11px] font-medium text-zinc-500">Credit price</div>
                       <div className="mt-0.5 text-sm font-semibold text-zinc-900">
                         ${usdPerCreditSubscription.toFixed(2)} / credit
                       </div>
@@ -1469,15 +1469,15 @@ export default function ProfitVisualizationDashboardPage() {
               </div>
 
               <div className="rounded-2xl bg-zinc-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Simulated month (this many users)</div>
+                <div className="text-xs font-medium text-zinc-500">Simulated month (this many users)</div>
                 <div className="mt-2 grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Total</div>
+                    <div className="text-[11px] font-medium text-zinc-500">Total</div>
                     <div className="mt-0.5 text-lg font-bold text-zinc-900">{formatMoneyCompact(userSimSummary.total)}</div>
                     <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">avg {formatMoneyCompact(userSimSummary.avg)} / user</div>
                   </div>
                   <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Goal</div>
+                    <div className="text-[11px] font-medium text-zinc-500">Goal</div>
                     <div className="mt-0.5 text-lg font-bold text-zinc-900">{formatMoneyCompact(userSimSummary.goal)}</div>
                     <div className="mt-0.5 text-[11px] font-semibold text-zinc-500">needs ~{userSimSummary.needed ? userSimSummary.needed.toLocaleString() : "-"} users</div>
                   </div>
@@ -1485,7 +1485,7 @@ export default function ProfitVisualizationDashboardPage() {
 
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Revenue mix</div>
+                    <div className="text-[11px] font-medium text-zinc-500">Revenue mix</div>
                     <div className="mt-0.5 text-sm font-semibold text-zinc-900">
                       {formatMoneyCompact(userSimSummary.subs)} subs
                       <span className="mx-2 text-zinc-300">•</span>
@@ -1498,7 +1498,7 @@ export default function ProfitVisualizationDashboardPage() {
                     </div>
                   </div>
                   <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Goal input</div>
+                    <div className="text-[11px] font-medium text-zinc-500">Goal input</div>
                     <input
                       type="number"
                       value={userSimGoalUsd}
@@ -1514,7 +1514,7 @@ export default function ProfitVisualizationDashboardPage() {
               <div className="rounded-2xl bg-zinc-50 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Selected user</div>
+                    <div className="text-xs font-medium text-zinc-500">Selected user</div>
                     <div className="mt-1 text-2xl font-bold text-zinc-900">#{userSimSelectedIdx}</div>
                   </div>
                   <input
@@ -1541,7 +1541,7 @@ export default function ProfitVisualizationDashboardPage() {
 
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Plan</div>
+                    <div className="text-[11px] font-medium text-zinc-500">Plan</div>
                     <div className="text-xs font-semibold text-zinc-800">{selectedUserSim?.plan === "membership" ? "Membership" : "Credits-only"}</div>
                   </div>
                   <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
@@ -1572,8 +1572,8 @@ export default function ProfitVisualizationDashboardPage() {
                 </div>
 
                 <div className="mt-3 overflow-auto">
-                  <table className="min-w-[560px] w-full text-left text-xs">
-                    <thead className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  <table className="min-w-140 w-full text-left text-xs">
+                    <thead className="text-[11px] font-semibold text-zinc-500">
                       <tr>
                         <th className="py-2">Module</th>
                         <th className="py-2">Users</th>
@@ -1604,15 +1604,15 @@ export default function ProfitVisualizationDashboardPage() {
                 </div>
 
                 <div className="mt-3 rounded-2xl bg-zinc-50 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Modules</div>
+                  <div className="text-[11px] font-medium text-zinc-500">Modules</div>
                   <div className="mt-1 text-sm font-semibold text-zinc-900">
                     {selectedUserSim?.modules?.length ? selectedUserSim.modules.map((k) => PORTAL_MODULE_CATALOG[k]?.title ?? k).join(", ") : "(none)"}
                   </div>
                 </div>
 
                 <div className="mt-3 overflow-auto">
-                  <table className="min-w-[420px] w-full text-left text-xs">
-                    <thead className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  <table className="min-w-105 w-full text-left text-xs">
+                    <thead className="text-[11px] font-semibold text-zinc-500">
                       <tr>
                         <th className="py-2">Service</th>
                         <th className="py-2">Credits/mo</th>
@@ -1660,7 +1660,7 @@ export default function ProfitVisualizationDashboardPage() {
                     <div className="mt-1 text-xs text-zinc-600">Cumulative profit across the timeframe.</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total</div>
+                    <div className="text-xs font-medium text-zinc-500">Total</div>
                     <div className="text-lg font-bold text-zinc-900">{formatMoneyCompact(profitTime)}</div>
                     {typeof hoverMonthIndex === "number" ? (
                       <div className="mt-1 text-[11px] font-semibold text-zinc-600">
@@ -1697,7 +1697,7 @@ export default function ProfitVisualizationDashboardPage() {
                     <div className="mt-1 text-xs text-zinc-600">Month-by-month (growth applied).</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Per month</div>
+                    <div className="text-xs font-medium text-zinc-500">Per month</div>
                     <div className="text-lg font-bold text-zinc-900">{formatMoneyCompact(profitMo)}</div>
                   </div>
                 </div>
@@ -1707,8 +1707,8 @@ export default function ProfitVisualizationDashboardPage() {
                     color="var(--color-brand-ink)"
                   />
                 </div>
-                <div className="mt-4 rounded-2xl bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white px-4 py-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-600">Quick read</div>
+                <div className="mt-4 rounded-2xl bg-linear-to-br from-(--color-brand-blue)/10 to-white px-4 py-3">
+                  <div className="text-xs font-medium text-zinc-600">Quick read</div>
                   <div className="mt-1 text-sm font-semibold text-zinc-900">
                     {formatMoneyCompact(profitSeries[0] ?? profitMo)} (month 1) → {formatMoneyCompact(profitSeries[profitSeries.length - 1] ?? profitMo)} (month {appliedMonths})
                   </div>
@@ -1722,7 +1722,7 @@ export default function ProfitVisualizationDashboardPage() {
                     <div className="mt-1 text-xs text-zinc-600">Total profit across growth scenarios (same timeframe).</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">End</div>
+                    <div className="text-xs font-medium text-zinc-500">End</div>
                     <div className="text-lg font-bold text-zinc-900">{formatMoneyCompact(endRevenue)}</div>
                   </div>
                 </div>
@@ -1746,28 +1746,28 @@ export default function ProfitVisualizationDashboardPage() {
                   <div className="text-sm font-semibold text-zinc-900">Customer math</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Total customers</div>
+                  <div className="text-xs font-medium text-zinc-500">Total customers</div>
                   <div className="text-2xl font-bold tracking-tight text-zinc-900">{cust.customers.toLocaleString()}</div>
                 </div>
               </div>
 
               <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <div className="rounded-2xl bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Membership customers</div>
+                  <div className="text-xs font-medium text-zinc-500">Membership customers</div>
                   <div className="mt-2 text-2xl font-bold text-zinc-900">
                     {(mode === "credit" ? 0 : mode === "monthly" ? cust.customers : cust.monthlyCustomers).toLocaleString()}
                   </div>
                   <div className="mt-1 text-xs text-zinc-600">Avg {formatMoneyCompact(effectiveMonthlyArpu)} / month</div>
                 </div>
                 <div className="rounded-2xl bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit customers</div>
+                  <div className="text-xs font-medium text-zinc-500">Credit customers</div>
                   <div className="mt-2 text-2xl font-bold text-zinc-900">
                     {(mode === "monthly" ? 0 : mode === "credit" ? cust.customers : cust.creditCustomers).toLocaleString()}
                   </div>
                   <div className="mt-1 text-xs text-zinc-600">Avg {formatMoneyCompact(effectiveCreditArpu)} / month</div>
                 </div>
                 <div className="rounded-2xl bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Average profit per customer</div>
+                  <div className="text-xs font-medium text-zinc-500">Average profit per customer</div>
                   <div className="mt-2 text-2xl font-bold text-zinc-900">
                     {formatMoneyCompact(cust.customers ? profitMo / cust.customers : 0)}
                   </div>
@@ -1785,7 +1785,7 @@ export default function ProfitVisualizationDashboardPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">ROI</div>
+                  <div className="text-xs font-medium text-zinc-500">ROI</div>
                   <div className="text-2xl font-bold tracking-tight text-zinc-900">
                     {(Math.round(singleCustomerRoi.roiMultiple * 10) / 10).toFixed(1)}×
                   </div>
@@ -1803,14 +1803,14 @@ export default function ProfitVisualizationDashboardPage() {
 
               <div className="mt-5 grid gap-4 lg:grid-cols-3">
                 <div className="rounded-2xl bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Plan</div>
+                  <div className="text-xs font-medium text-zinc-500">Plan</div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => setRoiPlan("membership")}
                       className={classNames(
                         "rounded-2xl px-3 py-2 text-sm font-semibold transition",
-                        roiPlan === "membership" ? "bg-[color:var(--color-brand-ink)] text-white" : "bg-white text-zinc-800 hover:bg-zinc-100",
+                        roiPlan === "membership" ? "bg-(--color-brand-ink) text-white" : "bg-white text-zinc-800 hover:bg-zinc-100",
                       )}
                     >
                       Membership
@@ -1820,7 +1820,7 @@ export default function ProfitVisualizationDashboardPage() {
                       onClick={() => setRoiPlan("credits")}
                       className={classNames(
                         "rounded-2xl px-3 py-2 text-sm font-semibold transition",
-                        roiPlan === "credits" ? "bg-[color:var(--color-brand-ink)] text-white" : "bg-white text-zinc-800 hover:bg-zinc-100",
+                        roiPlan === "credits" ? "bg-(--color-brand-ink) text-white" : "bg-white text-zinc-800 hover:bg-zinc-100",
                       )}
                     >
                       Credits-only
@@ -1836,7 +1836,7 @@ export default function ProfitVisualizationDashboardPage() {
                           onClick={() => setRoiUseEstimates(true)}
                           className={classNames(
                             "rounded-xl px-2 py-1 text-xs font-semibold transition",
-                            roiUseEstimates ? "bg-[color:var(--color-brand-ink)] text-white" : "bg-zinc-50 text-zinc-700 hover:bg-zinc-100",
+                            roiUseEstimates ? "bg-(--color-brand-ink) text-white" : "bg-zinc-50 text-zinc-700 hover:bg-zinc-100",
                           )}
                         >
                           Auto
@@ -1851,7 +1851,7 @@ export default function ProfitVisualizationDashboardPage() {
                           }}
                           className={classNames(
                             "rounded-xl px-2 py-1 text-xs font-semibold transition",
-                            !roiUseEstimates ? "bg-[color:var(--color-brand-ink)] text-white" : "bg-zinc-50 text-zinc-700 hover:bg-zinc-100",
+                            !roiUseEstimates ? "bg-(--color-brand-ink) text-white" : "bg-zinc-50 text-zinc-700 hover:bg-zinc-100",
                           )}
                         >
                           Custom
@@ -1867,7 +1867,7 @@ export default function ProfitVisualizationDashboardPage() {
 
                   <div className="mt-4 grid gap-3">
                     <label className="block">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits used / month</div>
+                      <div className="text-xs font-medium text-zinc-500">Credits used / month</div>
                       <input
                         type="number"
                         value={roiUseEstimates ? roiEstimates.creditsPerMonth : roiCreditsPerMonth}
@@ -1911,7 +1911,7 @@ export default function ProfitVisualizationDashboardPage() {
                 <div className="rounded-2xl bg-zinc-50 p-4 lg:col-span-2">
                   <div className="flex items-end justify-between gap-3">
                     <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Enabled services</div>
+                      <div className="text-xs font-medium text-zinc-500">Enabled services</div>
                       <div className="mt-1 text-sm font-semibold text-zinc-900">
                         {singleCustomerRoi.enabledKeys.length ? `${singleCustomerRoi.enabledKeys.length} selected` : "None selected"}
                       </div>
@@ -1965,7 +1965,7 @@ export default function ProfitVisualizationDashboardPage() {
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     <label className="block">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Revenue lift / month</div>
+                      <div className="text-xs font-medium text-zinc-500">Revenue lift / month</div>
                       <input
                         type="number"
                         value={roiUseEstimates ? roiEstimates.extraRevenueUsdPerMonth : roiExtraRevenueUsdPerMonth}
@@ -1979,7 +1979,7 @@ export default function ProfitVisualizationDashboardPage() {
                       />
                     </label>
                     <label className="block">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hours saved / month</div>
+                      <div className="text-xs font-medium text-zinc-500">Hours saved / month</div>
                       <input
                         type="number"
                         value={roiUseEstimates ? roiEstimates.hoursSavedPerMonth : roiHoursSavedPerMonth}
@@ -1993,7 +1993,7 @@ export default function ProfitVisualizationDashboardPage() {
                       />
                     </label>
                     <label className="block">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Time value ($/hour)</div>
+                      <div className="text-xs font-medium text-zinc-500">Time value ($/hour)</div>
                       <input
                         type="number"
                         value={roiHourlyRateUsd}
@@ -2009,26 +2009,26 @@ export default function ProfitVisualizationDashboardPage() {
 
                   <div className="mt-4 grid gap-3 md:grid-cols-4">
                     <div className="rounded-2xl bg-white px-4 py-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Cost / mo</div>
+                      <div className="text-xs font-medium text-zinc-500">Cost / mo</div>
                       <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(singleCustomerRoi.costUsd)}</div>
                       <div className="mt-1 text-[11px] text-zinc-600">
                         {formatMoneyCompact(singleCustomerRoi.moduleCostUsd)} modules + {formatMoneyCompact(singleCustomerRoi.creditsCostUsd)} credits ({Math.round(singleCustomerRoi.creditsUsed)}c)
                       </div>
                     </div>
                     <div className="rounded-2xl bg-white px-4 py-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Value / mo</div>
+                      <div className="text-xs font-medium text-zinc-500">Value / mo</div>
                       <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(singleCustomerRoi.valueUsd)}</div>
                       <div className="mt-1 text-[11px] text-zinc-600">
                         {formatMoneyCompact(singleCustomerRoi.revenueLift)} revenue + {formatMoneyCompact(singleCustomerRoi.timeValueUsd)} time value
                       </div>
                     </div>
                     <div className="rounded-2xl bg-white px-4 py-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Net / mo</div>
+                      <div className="text-xs font-medium text-zinc-500">Net / mo</div>
                       <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(singleCustomerRoi.netUsd)}</div>
                       <div className="mt-1 text-[11px] text-zinc-600">Value minus cost</div>
                     </div>
                     <div className="rounded-2xl bg-white px-4 py-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Payback</div>
+                      <div className="text-xs font-medium text-zinc-500">Payback</div>
                       <div className="mt-1 text-lg font-bold text-zinc-900">
                         {singleCustomerRoi.paybackMonths ? `${Math.max(0, Math.round(singleCustomerRoi.paybackMonths * 10) / 10)} mo` : "-"}
                       </div>
@@ -2048,7 +2048,7 @@ export default function ProfitVisualizationDashboardPage() {
 
                     <div className="mt-3 grid gap-3 md:grid-cols-3">
                       <div className="rounded-2xl bg-zinc-50 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits</div>
+                        <div className="text-xs font-medium text-zinc-500">Credits</div>
                         <div className="mt-1 text-sm font-semibold text-zinc-900">
                           {Math.round(singleCustomerRoi.creditsUsed)} credits / month
                         </div>
@@ -2073,7 +2073,7 @@ export default function ProfitVisualizationDashboardPage() {
                       </div>
 
                       <div className="rounded-2xl bg-zinc-50 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Revenue lift</div>
+                        <div className="text-xs font-medium text-zinc-500">Revenue lift</div>
                         <div className="mt-1 text-sm font-semibold text-zinc-900">
                           {formatMoneyCompact(singleCustomerRoi.revenueLift)} / month
                         </div>
@@ -2098,7 +2098,7 @@ export default function ProfitVisualizationDashboardPage() {
                       </div>
 
                       <div className="rounded-2xl bg-zinc-50 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hours saved</div>
+                        <div className="text-xs font-medium text-zinc-500">Hours saved</div>
                         <div className="mt-1 text-sm font-semibold text-zinc-900">{singleCustomerRoi.hoursSaved} hours / month</div>
                         <div className="mt-1 text-[11px] text-zinc-600">
                           Time value {formatMoneyCompact(singleCustomerRoi.timeValueUsd)} = {singleCustomerRoi.hoursSaved} × {formatMoneyCompact(roiHourlyRateUsd)} / hour.
@@ -2198,15 +2198,15 @@ export default function ProfitVisualizationDashboardPage() {
                     <div className="mt-1 text-xs text-zinc-600">Real module prices + credits assumptions.</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits spend</div>
+                    <div className="text-xs font-medium text-zinc-500">Credits spend</div>
                     <div className="text-lg font-bold text-zinc-900">{formatMoneyCompact(serviceModel.creditsUsd)}</div>
                   </div>
                 </div>
 
                 <div className="mt-4 overflow-x-auto">
-                  <table className="w-full min-w-[680px]">
+                  <table className="w-full min-w-170">
                     <thead>
-                      <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      <tr className="text-left text-xs font-semibold text-zinc-500">
                         <th className="py-2">Service</th>
                         <th className="py-2">Adoption</th>
                         <th className="py-2">Customers</th>
@@ -2240,17 +2240,17 @@ export default function ProfitVisualizationDashboardPage() {
 
                 <div className="mt-4 grid gap-3 md:grid-cols-3">
                   <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Purely revenue</div>
+                    <div className="text-xs font-medium text-zinc-500">Purely revenue</div>
                     <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(serviceModel.customerCostUsd)}</div>
                     <div className="mt-1 text-xs text-zinc-600">Modules + credits</div>
                   </div>
                   <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Customer value</div>
+                    <div className="text-xs font-medium text-zinc-500">Customer value</div>
                     <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(serviceModel.customerValueUsd)}</div>
                     <div className="mt-1 text-xs text-zinc-600">Estimated value created</div>
                   </div>
                   <div className="rounded-2xl bg-zinc-50 px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Net value</div>
+                    <div className="text-xs font-medium text-zinc-500">Net value</div>
                     <div className="mt-1 text-lg font-bold text-zinc-900">{formatMoneyCompact(serviceModel.netCustomerValueUsd)}</div>
                     <div className="mt-1 text-xs text-zinc-600">Value minus cost</div>
                   </div>
@@ -2264,14 +2264,14 @@ export default function ProfitVisualizationDashboardPage() {
                     <div className="mt-1 text-xs text-zinc-600">Which services drive the most value.</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">ROI multiple</div>
+                    <div className="text-xs font-medium text-zinc-500">ROI multiple</div>
                     <div className="text-lg font-bold text-zinc-900">{(Math.round(serviceModel.roiMultiple * 10) / 10).toFixed(1)}×</div>
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <div className="rounded-2xl bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Top by Purely revenue</div>
+                    <div className="text-xs font-medium text-zinc-500">Top by Purely revenue</div>
                     <div className="mt-2 space-y-2 text-sm">
                       {serviceModel.topByRevenue.map((r) => (
                         <div key={r.key} className="flex items-center justify-between gap-3">
@@ -2282,7 +2282,7 @@ export default function ProfitVisualizationDashboardPage() {
                     </div>
                   </div>
                   <div className="rounded-2xl bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Top by net customer value</div>
+                    <div className="text-xs font-medium text-zinc-500">Top by net customer value</div>
                     <div className="mt-2 space-y-2 text-sm">
                       {serviceModel.topByValue.map((r) => (
                         <div key={r.key} className="flex items-center justify-between gap-3">
@@ -2301,7 +2301,7 @@ export default function ProfitVisualizationDashboardPage() {
                       <div className="mt-1 text-xs text-zinc-600">Estimated customer value created vs what they pay you.</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Net (month 1)</div>
+                      <div className="text-xs font-medium text-zinc-500">Net (month 1)</div>
                       <div className="text-base font-bold text-zinc-900">{formatMoneyCompact(serviceValueSeries.net[0] ?? 0)}</div>
                     </div>
                   </div>
@@ -2315,16 +2315,16 @@ export default function ProfitVisualizationDashboardPage() {
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                     <div className="rounded-2xl bg-zinc-50 px-3 py-2">
-                      <span className="font-semibold text-[color:var(--color-brand-blue)]">Value</span> {formatMoneyCompact(serviceValueSeries.value[0] ?? 0)} → {formatMoneyCompact(serviceValueSeries.value[serviceValueSeries.value.length - 1] ?? 0)}
+                      <span className="font-semibold text-(--color-brand-blue)">Value</span> {formatMoneyCompact(serviceValueSeries.value[0] ?? 0)} → {formatMoneyCompact(serviceValueSeries.value[serviceValueSeries.value.length - 1] ?? 0)}
                     </div>
                     <div className="rounded-2xl bg-zinc-50 px-3 py-2">
-                      <span className="font-semibold text-[color:var(--color-brand-ink)]">Cost</span> {formatMoneyCompact(serviceValueSeries.cost[0] ?? 0)} → {formatMoneyCompact(serviceValueSeries.cost[serviceValueSeries.cost.length - 1] ?? 0)}
+                      <span className="font-semibold text-(--color-brand-ink)">Cost</span> {formatMoneyCompact(serviceValueSeries.cost[0] ?? 0)} → {formatMoneyCompact(serviceValueSeries.cost[serviceValueSeries.cost.length - 1] ?? 0)}
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 rounded-2xl bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Upsell opportunities</div>
+                  <div className="text-xs font-medium text-zinc-500">Upsell opportunities</div>
                   <div className="mt-2 text-xs text-zinc-600">High value/price with low adoption (simple heuristic).</div>
                   <div className="mt-3 space-y-2 text-sm">
                     {serviceModel.opportunities.map((r) => (
@@ -2581,7 +2581,7 @@ export default function ProfitVisualizationDashboardPage() {
                       <div className="rounded-2xl bg-zinc-50 p-4">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Computed AOV</div>
+                            <div className="text-xs font-medium text-zinc-500">Computed AOV</div>
                             <div className="mt-1 text-sm font-semibold text-zinc-900">Uses portal module prices + credits assumptions.</div>
                           </div>
                           <div className="text-right">
@@ -2594,7 +2594,7 @@ export default function ProfitVisualizationDashboardPage() {
                       </div>
 
                       <div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Service mix presets</div>
+                        <div className="text-xs font-medium text-zinc-500">Service mix presets</div>
                         <div className="mt-2 flex flex-wrap gap-2">
                           {(Object.keys(SERVICE_MIX_PRESETS) as ServiceMixPresetKey[]).map((k) => (
                             <button
@@ -2659,7 +2659,7 @@ export default function ProfitVisualizationDashboardPage() {
                       <div>
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Adoption rates</div>
+                            <div className="text-xs font-medium text-zinc-500">Adoption rates</div>
                             <div className="text-xs text-zinc-600">Percent of membership customers with each service.</div>
                           </div>
                           <button
@@ -2751,9 +2751,9 @@ export default function ProfitVisualizationDashboardPage() {
                   <div className="text-sm font-semibold text-zinc-900">Comparison</div>
                   <div className="mt-1 text-xs text-zinc-600">Same tier, different revenue styles.</div>
                   <div className="mt-4 overflow-x-auto">
-                    <table className="w-full min-w-[520px]">
+                    <table className="w-full min-w-130">
                       <thead>
-                        <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        <tr className="text-left text-xs font-semibold text-zinc-500">
                           <th className="py-2">Style</th>
                           <th className="py-2">Customers</th>
                           <th className="py-2">Month 1 profit</th>
@@ -2784,7 +2784,7 @@ export default function ProfitVisualizationDashboardPage() {
                 </div>
 
                 <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Snapshot text</div>
+                  <div className="text-xs font-medium text-zinc-500">Snapshot text</div>
                   <div className="mt-2 text-sm text-zinc-800">{summaryLine}</div>
                 </div>
               </div>

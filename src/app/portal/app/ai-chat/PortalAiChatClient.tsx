@@ -4730,7 +4730,7 @@ export function PortalAiChatClient({
     (_opts?: { modal?: boolean }) => {
       void _opts;
       if (!canvasUrl) {
-        toast.error("No canvas is ready yet. Send the next prompt and try again.");
+        toast.error("A canvas is not ready yet. Send the next prompt and try again.");
         return;
       }
       setCanvasOpen(true);
@@ -5000,8 +5000,8 @@ export function PortalAiChatClient({
         ) : !threads.length ? (
           <div className="p-3">
             <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No Pura chats yet</div>
-              <div className="mt-1">Start a fresh Pura thread to plan setup, troubleshoot a service, or ask what to do next in this workspace.</div>
+              <div className="font-semibold text-zinc-900">Pura is ready for the first thread</div>
+              <div className="mt-1">Start a chat to map the next workflow, troubleshoot a live setup gap, or ask Pura what deserves attention first in this workspace.</div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -5130,8 +5130,8 @@ export function PortalAiChatClient({
           ) : !threads.length ? (
             <div className="p-3">
               <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No Pura chats yet</div>
-                <div className="mt-1">Start a new thread and Pura can help set up services, explain gaps, or plan the next workflow.</div>
+                <div className="font-semibold text-zinc-900">Pura is ready for the first thread</div>
+                <div className="mt-1">Start a new chat and Pura can help set up services, explain open gaps, or turn the next idea into a real workflow.</div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
@@ -6442,8 +6442,8 @@ export function PortalAiChatClient({
                   </div>
                 ) : (
                   <div className="px-3 py-5 text-sm text-zinc-500">
-                    <div className="font-semibold text-zinc-900">No Pura chats match that search yet</div>
-                    <div className="mt-1">Clear the search to jump back into recent threads, or start a fresh chat.</div>
+                    <div className="font-semibold text-zinc-900">Chats do not match that search yet</div>
+                    <div className="mt-1">Clear the search to step back into recent work, or open a fresh thread if this is a new request.</div>
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                       <button
                         type="button"
@@ -7286,8 +7286,8 @@ export function PortalAiChatClient({
                 <ThreadMemoryDetail memory={activeWorkingMemory} unresolvedRun={activeUnresolvedRun} nextStepContext={activeNextStepContext} />
               ) : (
                 <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="font-semibold text-zinc-900">No thread memory saved yet</div>
-                  <div className="mt-1">Keep chatting in this thread and Pura will build thread memory as the work becomes more specific.</div>
+                  <div className="font-semibold text-zinc-900">Thread memory has not formed yet</div>
+                  <div className="mt-1">Keep working in this chat and Pura will start saving stable thread memory once the request, context, and next steps are specific enough to reuse.</div>
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                     <button
                       type="button"
@@ -7433,8 +7433,8 @@ export function PortalAiChatClient({
               )
             ) : !sortedRunLedgerRows.length ? (
               <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No activity runs logged for this chat yet</div>
-                <div className="mt-1">Send the next message in this thread and Pura activity will start showing up here.</div>
+                <div className="font-semibold text-zinc-900">Work runs have not been logged for this chat yet</div>
+                <div className="mt-1">Send the next request in this thread and Pura will start logging the work, steps, and follow-up suggestions here.</div>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <button
                     type="button"

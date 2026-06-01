@@ -10,11 +10,18 @@ export const META_PROVIDER_STATUSES = [
 export type MetaProviderStatus = (typeof META_PROVIDER_STATUSES)[number];
 
 export type PortalMetaTargetAccount = {
-  key: "facebook_page" | "instagram_professional";
+  key: string;
+  kind: "facebook_page" | "instagram_professional";
   label: string;
   status: MetaProviderStatus;
   connected: boolean;
   placeholder: boolean;
+  destinationType: "facebook_page" | "instagram_business" | null;
+  destinationId: string | null;
+  pageId: string | null;
+  pageLabel: string | null;
+  username: string | null;
+  reason: string | null;
 };
 
 export type PortalMetaCapability = {
@@ -47,6 +54,7 @@ export type PortalMetaProviderReadiness = {
   setupMessage: string;
   explanation: string;
   targetAccounts: PortalMetaTargetAccount[];
+  targetAccountBlockers: string[];
   capabilities: {
     publish: PortalMetaCapability;
     metrics: PortalMetaCapability;

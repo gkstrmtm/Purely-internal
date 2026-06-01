@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
@@ -26,13 +26,11 @@ export function PortalInviteAcceptClient({
 }) {
   const toast = useToast();
   const pathname = usePathname();
-  const router = useRouter();
   const lastAutoToastRef = useRef<string | null>(null);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sessionEmail, setSessionEmail] = useState("");
 
   const state = useMemo(() => {
     if (!invite) return { ok: false, reason: "Invite not found" as const };
@@ -42,42 +40,9 @@ export function PortalInviteAcceptClient({
     return { ok: true as const };
   }, [invite]);
 
-  const inviteEmail = useMemo(() => String(invite?.email || "").trim().toLowerCase(), [invite]);
-  const sessionMatchesInvite = useMemo(() => {
-    return Boolean(inviteEmail && sessionEmail.trim().toLowerCase() === inviteEmail);
-  }, [inviteEmail, sessionEmail]);
-
-  const loginHref = useMemo(() => {
-    const currentPath = String(pathname || "").trim();
-    const from = currentPath || `/portalinvite/${token}`;
-    const base = from.startsWith("/credit") ? "/credit" : "/portal";
-    return `${base}/login?from=${encodeURIComponent(from)}`;
-  }, [pathname, token]);
-
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const res = await fetch("/api/customer/me", {
-        cache: "no-store",
-        headers: { "x-pa-app": "portal", "x-portal-variant": "portal" },
-      }).catch(() => null as any);
-      if (!active || !res?.ok) return;
-      const json = (await res.json().catch(() => null)) as { user?: { email?: string; name?: string | null } } | null;
-      if (!active) return;
-
-      const nextEmail = typeof json?.user?.email === "string" ? json.user.email.trim() : "";
-      const nextName = typeof json?.user?.name === "string" ? json.user.name.trim() : "";
-      setSessionEmail(nextEmail);
-      if (!name.trim() && nextName) setName(nextName);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [name, pathname]);
 
   useEffect(() => {
     const msg = !invite ? "Invite not found." : !state.ok ? state.reason : null;
@@ -97,28 +62,26 @@ export function PortalInviteAcceptClient({
       setError("Please enter your name.");
       return;
     }
-    if (!sessionMatchesInvite && password.trim().length < 6) {
+    if (password.trim().length < 6) {
       setError("Password must be at least 6 characters.");
       return;
     }
-
-    const passwordToSend = sessionMatchesInvite && password.trim().length < 6 ? `accept-${token.slice(0, 8)}` : password;
 
     setBusy(true);
     try {
       const res = await fetch("/api/public/portal-invite/accept", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, name: safeName, password: passwordToSend }),
+        body: JSON.stringify({ token, name: safeName, password }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) {
-        throw new Error(String(json?.error || "Invite acceptance did not finish. Retry here or return to sign in."));
+        throw new Error(String(json?.error || "Failed to accept invite"));
       }
 
-      router.push(String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app", { scroll: false });
+      window.location.href = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
     } catch (e: any) {
-      setError(String(e?.message || "Invite acceptance did not finish. Retry here or return to sign in."));
+      setError(String(e?.message || "Failed to accept invite"));
     } finally {
       setBusy(false);
     }
@@ -142,7 +105,7 @@ export function PortalInviteAcceptClient({
           ) : (
             <div className="mt-6 space-y-4">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Invite details</div>
+                <div className="text-xs font-medium text-zinc-500">Invite details</div>
                 <div className="mt-2 text-sm text-zinc-800">
                   <div>
                     <span className="font-semibold">Email:</span> {invite.email}
@@ -166,22 +129,16 @@ export function PortalInviteAcceptClient({
                 />
               </div>
 
-              {sessionMatchesInvite ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                  You are already signed in as <span className="font-semibold">{invite.email}</span>. You can accept this invite without changing your password.
-                </div>
-              ) : (
-                <div>
-                  <div className="text-xs font-semibold text-zinc-700">Create password</div>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
-                  />
-                </div>
-              )}
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Create password</div>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                />
+              </div>
 
               <button
                 type="button"
@@ -197,8 +154,8 @@ export function PortalInviteAcceptClient({
 
               <div className="text-center text-xs text-zinc-500">
                 Already have an account?{" "}
-                <Link href={loginHref} className="font-semibold text-brand-ink hover:underline">
-                  Log in to continue with this invite
+                <Link href="/login?from=%2Fportal%2Fapp" className="font-semibold text-brand-ink hover:underline">
+                  Log in
                 </Link>
               </div>
             </div>

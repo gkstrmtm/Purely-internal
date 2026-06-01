@@ -1351,7 +1351,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 <div className="text-xs font-semibold text-zinc-600">Newsletter credits used</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{creditsUsed30d === null ? "Watching usage" : creditsUsed30d.toLocaleString()}</div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  Last 30 days · {generations30d === null ? "No generations yet" : `${generations30d} generation${generations30d === 1 ? "" : "s"}`} · 30 credits/generation
+                  Last 30 days · {generations30d === null ? "No sends generated in this window" : `${generations30d} generation${generations30d === 1 ? "" : "s"}`} · 30 credits/generation
                 </div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-brand-blue/10 via-white to-white p-4 shadow-sm">
@@ -1396,7 +1396,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   {newsletters.length === 0 ? (
                     <tr>
                       <td className="px-4 py-5 text-zinc-600" colSpan={4}>
-                        <div className="font-semibold text-zinc-900">No newsletters created yet</div>
+                        <div className="font-semibold text-zinc-900">Newsletters are ready for the first send flow</div>
                         <div className="mt-1 text-sm text-zinc-600">Create the first newsletter to draft content, preview delivery, and start building a repeatable send flow.</div>
                         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                           <button
@@ -1736,7 +1736,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       ) : null}
                     </div>
                     <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
-                      {manualAssetUrl ? manualAssetFileName || manualAssetUrl : "No file attached yet."}
+                      {manualAssetUrl ? manualAssetFileName || manualAssetUrl : "Attach a file when this send needs supporting media."}
                     </div>
                   </div>
                 </div>
@@ -2556,7 +2556,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   })
                 ) : (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No newsletter audience selected yet</div>
+                    <div className="font-semibold text-zinc-900">This newsletter still needs an audience</div>
                     <div className="mt-1">Pick existing tags or create one now so this newsletter goes to the right audience.</div>
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                       <button
@@ -2897,7 +2897,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Usage (30d)</div>
                 <div className="mt-2 text-sm text-zinc-800">
-                  {creditsUsed30d === null ? "Watching usage" : `${creditsUsed30d} credits used`} · {generations30d === null ? "No generations yet" : `${generations30d} generations`}
+                  {creditsUsed30d === null ? "Watching usage" : `${creditsUsed30d} credits used`} · {generations30d === null ? "No sends generated in this window" : `${generations30d} generations`}
                 </div>
               </div>
 
@@ -3159,7 +3159,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           ) : null}
                         </div>
                         <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
-                          {assetUrl ? assetFileName || assetUrl : "No file attached yet."}
+                          {assetUrl ? assetFileName || assetUrl : "Attach a file when this hosted send needs supporting media."}
                         </div>
                       </div>
                     </div>
@@ -3478,7 +3478,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       ] as any
                     }
                     onChange={(v) => setSiteConfigDomain(String(v || ""))}
-                    placeholder={funnelDomainsBusy ? "Loading domains…" : (funnelDomains || []).length ? "Choose a domain" : "No custom domains yet"}
+                    placeholder={funnelDomainsBusy ? "Loading domains…" : (funnelDomains || []).length ? "Choose a domain" : "Save a custom domain first"}
                   />
                 </div>
                 <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">

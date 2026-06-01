@@ -6,7 +6,7 @@
     "node": "20.x"
   },
   "scripts": {
-    "dev": "node scripts/start-next-dev.mjs",
+    "dev": "next dev",
     "prebuild": "node scripts/prisma-prebuild.mjs",
     "build": "next build --webpack",
     "start": "next start",
@@ -28,10 +28,8 @@
     "db:patch:blogs": "node scripts/apply-blogs-db-patch.mjs",
     "vercel-build": "npm run vercel:require-main && node scripts/prisma-prebuild.mjs && next build --webpack",
     "blogs:cleanup-asterisks": "node prisma/cleanup-blog-asterisks.js",
-    "pura:intent-smoke": "node scripts/pura-intent-smoke.cjs"
-  },
-  "prisma": {
-    "seed": "node prisma/seed.js"
+    "pura:intent-smoke": "node scripts/pura-intent-smoke.cjs",
+    "pura:production-smoke": "node scripts/pura-production-smoke.cjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",

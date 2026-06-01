@@ -99,7 +99,7 @@ export default function AdsCampaignApprovalsClient() {
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Manager</div>
+          <div className="text-xs font-medium text-zinc-500">Manager</div>
           <div className="mt-1 text-2xl font-bold text-zinc-900">Ad campaign approvals</div>
           <div className="mt-1 text-sm text-zinc-600">New Ads Manager campaigns stay offline until approved.</div>
         </div>
@@ -205,7 +205,7 @@ export default function AdsCampaignApprovalsClient() {
                         <div className="mt-1 text-sm text-zinc-600">Add optional notes (shown to the advertiser if rejected).</div>
 
                         <div className="mt-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Rejection reason</div>
+                          <div className="text-xs font-medium text-zinc-500">Rejection reason</div>
                           <PortalListboxDropdown
                             value={reasonById[c.id] ?? "MISLEADING_OR_FALSE"}
                             onChange={(v) => setReasonById((cur) => ({ ...cur, [c.id]: v }))}

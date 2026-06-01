@@ -262,7 +262,6 @@ export function LocalDateTimePicker(props: {
   }, [disablePast, minDateTime, nowSeed, open]);
 
   const minYmd = effectiveMinDateTime ? formatYmd(effectiveMinDateTime) : null;
-  const minHm = effectiveMinDateTime ? formatHm(effectiveMinDateTime) : null;
 
   const emitLiveDraft = useCallback(
     (nextYmd: string, nextHm: string) => {

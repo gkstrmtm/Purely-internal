@@ -2011,8 +2011,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               </div>
             ) : (
               <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-xs text-zinc-600">
-                <div className="font-semibold text-zinc-900">No inbox conversations yet</div>
-                <div className="mt-1 text-[11px] text-zinc-500">Start the first thread now, or finish inbox setup so inbound replies can start landing here automatically.</div>
+                <div className="font-semibold text-zinc-900">Your inbox is ready for the first conversation</div>
+                <div className="mt-1 text-[11px] text-zinc-500">Start the first thread now, or finish channel setup so replies, missed-call follow-up, and future outreach can start landing here automatically.</div>
                 <div className="mt-3 flex flex-col gap-2">
                   <button
                     type="button"
@@ -2087,8 +2087,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     if (!scheduledMessages.length && !smsTimelineItems.length) {
       return (
         <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-600">
-          <div className="font-semibold text-zinc-900">No SMS messages yet</div>
-          <div className="mt-1">Start a new SMS thread to test your messaging flow or begin a real conversation.</div>
+          <div className="font-semibold text-zinc-900">Text activity will appear here after the first message</div>
+          <div className="mt-1">Start a text thread to test delivery, begin a live conversation, or confirm your SMS setup before traffic starts landing here.</div>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <button
               type="button"
@@ -2762,7 +2762,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             </div>
           ) : (
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
-              <div className="font-semibold text-zinc-900">No inbox conversations yet</div>
+              <div className="font-semibold text-zinc-900">Start the first inbox conversation</div>
               <div className="mt-1 text-xs text-zinc-500">Send the first message or finish your inbox integrations so new inbound threads show up here automatically.</div>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                 <button
@@ -2960,9 +2960,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No email messages yet</div>
+                    <div className="font-semibold text-zinc-900">Email activity will appear here after the first message</div>
                     <div className="mt-1">
-                      {activeThread ? "This thread is ready for the first message." : "Open the composer to start a new email conversation from here."}
+                      {activeThread ? "This thread is ready for the first email. Write the opener here or use it as a clean handoff point for the next reply." : "Open the composer to send the first email from here or confirm inbox setup before live replies start landing."}
                     </div>
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                       <button
@@ -3488,8 +3488,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               </div>
             ) : (
               <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No transcript is available for this call yet</div>
-                <div className="mt-1">If this call just finished, give it a moment and reopen it. If transcripts keep missing, review the outbound setup or ask Pura to help you trace the issue.</div>
+                <div className="font-semibold text-zinc-900">The transcript is not ready yet</div>
+                <div className="mt-1">If this call just finished, give the transcript pipeline a moment and reopen the call. If it still does not appear, review the outbound setup or ask Pura to trace where the handoff is breaking.</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"

@@ -6,6 +6,11 @@ import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import type { SignaturePadHandle } from "@/components/SignaturePad";
 import { SignaturePad } from "@/components/SignaturePad";
+import {
+  notifyParentCreditFunnelEvent,
+  readTrackingContextFromWindow,
+  trackPublicCreditFunnelEvent,
+} from "@/components/funnel/clientFunnelTracking";
 import type { CreditFormContent, CreditFormField as Field, CreditFormStyle, CreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { googleFontImportCss } from "@/lib/fontPresets";
 
@@ -118,6 +123,7 @@ export function CreditHostedFormClient({
   const signatureValuesRef = useRef<Record<string, string>>({});
   const fileValuesRef = useRef<Record<string, File[]>>({});
   const signaturePadByFieldNameRef = useRef<Record<string, SignaturePadHandle | null>>({});
+  const hasTrackedFormStartRef = useRef(false);
 
   const setSignaturePadHandle = useCallback((fieldName: string, handle: SignaturePadHandle | null) => {
     signaturePadByFieldNameRef.current[fieldName] = handle;
@@ -158,8 +164,10 @@ export function CreditHostedFormClient({
 
   const actionUrl = useMemo(() => {
     const base = submitBasePath === "/portal" ? "/portal" : "/credit";
-    return `/api/public${base}/forms/${encodeURIComponent(slug)}/submit`;
-  }, [slug, submitBasePath]);
+    const url = `/api/public${base}/forms/${encodeURIComponent(slug)}/submit`;
+    const qp = hostedKey ? `?key=${encodeURIComponent(hostedKey)}` : "";
+    return `${url}${qp}`;
+  }, [hostedKey, slug, submitBasePath]);
 
   const blobUploadUrlBase = useMemo(() => {
     const base = submitBasePath === "/portal" ? "/portal" : "/credit";
@@ -202,6 +210,47 @@ export function CreditHostedFormClient({
   const displayTitle = content?.displayTitle?.trim() || formName;
   const description = content?.description?.trim() || "";
 
+  const trackFormEvent = useCallback(
+    (eventType: "form_started" | "validation_failed", payload?: Record<string, unknown>) => {
+      const trackingContext = readTrackingContextFromWindow();
+      const pageId = String(trackingContext.pageId || "").trim();
+      if (!pageId) return;
+      void trackPublicCreditFunnelEvent({
+        pageId,
+        eventType,
+        payload: {
+          formSlug: slug,
+          formName,
+          ...(payload || {}),
+        },
+        baseContext: {
+          ...trackingContext,
+          source: trackingContext.source || "hosted_form",
+        },
+      });
+    },
+    [formName, slug],
+  );
+
+  const markFormStarted = useCallback(() => {
+    if (hasTrackedFormStartRef.current) return;
+    hasTrackedFormStartRef.current = true;
+    trackFormEvent("form_started");
+  }, [trackFormEvent]);
+
+  const reportValidationFailure = useCallback(
+    (field: Field | null, reason: string, message: string) => {
+      trackFormEvent("validation_failed", {
+        reason,
+        message,
+        fieldName: field?.name || null,
+        fieldLabel: field?.label || null,
+        fieldType: field?.type || null,
+      });
+    },
+    [trackFormEvent],
+  );
+
   return (
     <>
       {googleCss ? <style>{googleCss}</style> : null}
@@ -227,7 +276,7 @@ export function CreditHostedFormClient({
 
       {success ? (
         <div className="mt-8 rounded-3xl border p-6 sm:p-8" style={{ borderColor: successBorderColor, backgroundColor: successSurfaceColor }}>
-          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: successAccentColor }}>Submission received</div>
+          <div className="text-xs font-medium" style={{ color: successAccentColor }}>Submission received</div>
           <h2 className="mt-2 text-2xl font-bold" style={{ color: successTextColor }}>
             {successTitle}
           </h2>
@@ -255,12 +304,15 @@ export function CreditHostedFormClient({
         className="mt-8 space-y-4"
         action={actionUrl}
         method="post"
+        onFocusCapture={() => markFormStarted()}
+        onChangeCapture={() => markFormStarted()}
         onSubmit={(e) => {
           e.preventDefault();
 
           // Never rely on the React event object across async boundaries.
           // Capture the form element immediately so we can safely reset it after submit.
           const formEl = e.currentTarget;
+          markFormStarted();
           setBusy(true);
           setError(null);
           setSuccess(false);
@@ -285,7 +337,9 @@ export function CreditHostedFormClient({
             if (f.type !== "checklist" || !f.required) continue;
             const selected = readFieldValue(f);
             if (!Array.isArray(selected) || selected.length === 0) {
-              setError(`Please select at least one option for “${f.label}”.`);
+              const message = `Please select at least one option for “${f.label}”.`;
+              reportValidationFailure(f, "checklist_required", message);
+              setError(message);
               setBusy(false);
               return;
             }
@@ -295,7 +349,9 @@ export function CreditHostedFormClient({
             if (f.type !== "radio" || !f.required) continue;
             const selected = readFieldValue(f);
             if (typeof selected !== "string" || !selected.trim()) {
-              setError(`Please select an option for “${f.label}”.`);
+              const message = `Please select an option for “${f.label}”.`;
+              reportValidationFailure(f, "radio_required", message);
+              setError(message);
               setBusy(false);
               return;
             }
@@ -305,7 +361,9 @@ export function CreditHostedFormClient({
             if (f.type !== "signature" || !f.required) continue;
             const selected = exportedSignatures[f.name] || readFieldValue(f);
             if (typeof selected !== "string" || !selected.trim()) {
-              setError(`Please add your signature for “${f.label}”.`);
+              const message = `Please add your signature for “${f.label}”.`;
+              reportValidationFailure(f, "signature_required", message);
+              setError(message);
               setBusy(false);
               return;
             }
@@ -315,7 +373,9 @@ export function CreditHostedFormClient({
             if (f.type !== "file_upload" || !f.required) continue;
             const selected = readFileValue(f);
             if (!Array.isArray(selected) || selected.length === 0) {
-              setError(`Please upload a file for “${f.label}”.`);
+              const message = `Please upload a file for “${f.label}”.`;
+              reportValidationFailure(f, "file_required", message);
+              setError(message);
               setBusy(false);
               return;
             }
@@ -384,10 +444,16 @@ export function CreditHostedFormClient({
             const res = await fetch(actionUrl, {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ data }),
+              body: JSON.stringify({ data, trackingContext: readTrackingContextFromWindow() }),
             });
             const json = (await res.json().catch(() => null)) as any;
-            if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Submission failed");
+            if (!res.ok || !json || json.ok !== true) {
+              const message = json?.error ? String(json.error) : "Submission failed";
+              if (res.status === 400) {
+                reportValidationFailure(null, "server_validation", message);
+              }
+              throw new Error(message);
+            }
             return json;
           })()
             .then(async (r) => {
@@ -406,6 +472,7 @@ export function CreditHostedFormClient({
               fileValuesRef.current = {};
               setFileValues({});
               setSuccess(true);
+              notifyParentCreditFunnelEvent({ eventType: "form_submitted", pageId: readTrackingContextFromWindow().pageId || null });
             })
             .catch((err) => {
               setError(err?.message ? String(err.message) : "Submission failed");

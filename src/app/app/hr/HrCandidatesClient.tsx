@@ -250,7 +250,7 @@ export default function HrCandidatesClient() {
 
           {targetRole === "DIALER" ? (
             <>
-              <div className="sm:col-span-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Dialer questions</div>
+              <div className="sm:col-span-2 text-xs font-medium text-zinc-500">Dialer questions</div>
               <label className="text-sm sm:col-span-2">
                 <div className="text-xs font-medium text-zinc-600">Cold calling experience</div>
                 <textarea
@@ -284,7 +284,7 @@ export default function HrCandidatesClient() {
 
           {targetRole === "CLOSER" ? (
             <>
-              <div className="sm:col-span-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Closer questions</div>
+              <div className="sm:col-span-2 text-xs font-medium text-zinc-500">Closer questions</div>
               <label className="text-sm sm:col-span-2">
                 <div className="text-xs font-medium text-zinc-600">Closing experience</div>
                 <textarea

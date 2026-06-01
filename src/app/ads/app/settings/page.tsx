@@ -214,7 +214,7 @@ export default function AdsSettingsPage() {
                   <div className="mt-1 text-sm text-zinc-600">Add funds to keep your campaigns running.</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Balance</div>
+                  <div className="text-xs font-medium text-zinc-500">Balance</div>
                   <div className="mt-1 text-2xl font-bold text-zinc-900">
                     {stats ? usd(stats.account.balanceCents) : "…"}
                   </div>
@@ -259,7 +259,7 @@ export default function AdsSettingsPage() {
                   <button
                     onClick={doTopup}
                     disabled={topupBusy}
-                    className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
+                    className="inline-flex w-full items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
                   >
                     {topupBusy ? "Adding…" : "Add funds"}
                   </button>
@@ -288,7 +288,7 @@ export default function AdsSettingsPage() {
                   className={
                     "rounded-2xl px-4 py-2 text-sm font-semibold disabled:opacity-60 " +
                     (enabled
-                      ? "bg-[color:var(--color-brand-blue)] text-white"
+                      ? "bg-(--color-brand-blue) text-white"
                       : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
@@ -298,7 +298,7 @@ export default function AdsSettingsPage() {
 
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 <label className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Threshold (USD)</div>
+                  <div className="text-xs font-medium text-zinc-500">Threshold (USD)</div>
                   <div className="mt-2 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm">
                     <span className="text-zinc-500">$</span>
                     <input
@@ -313,7 +313,7 @@ export default function AdsSettingsPage() {
                 </label>
 
                 <label className="block">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Reload amount (USD)</div>
+                  <div className="text-xs font-medium text-zinc-500">Reload amount (USD)</div>
                   <div className="mt-2 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm">
                     <span className="text-zinc-500">$</span>
                     <input
@@ -333,7 +333,7 @@ export default function AdsSettingsPage() {
                   type="button"
                   onClick={() => void save({ enabled, thresholdUsd, amountUsd })}
                   disabled={saving || !isDirty}
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:w-auto"
                 >
                   {saving ? "Saving…" : showSaved ? "Saved" : "Save settings"}
                 </button>
@@ -343,7 +343,7 @@ export default function AdsSettingsPage() {
         </div>
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Current</div>
+          <div className="text-xs font-medium text-zinc-500">Current</div>
           <div className="mt-2 text-sm text-zinc-700">
             {stats ? (
               <>

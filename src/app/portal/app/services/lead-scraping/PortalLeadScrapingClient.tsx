@@ -2762,7 +2762,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
       return;
     }
     if (!nurtureCampaigns.length) {
-      toast.error(nurtureCampaignLoadError || "No nurture campaigns yet.");
+      toast.error(nurtureCampaignLoadError || "Create a nurture campaign first.");
       return;
     }
     const firstActiveCampaign = nurtureCampaigns.find((campaign) => String(campaign.status || "") === "ACTIVE");
@@ -3959,7 +3959,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
               })
             ) : (
               <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-3 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No lead tags yet</div>
+                <div className="font-semibold text-zinc-900">Create the first lead tag</div>
                 <div className="mt-1">Create one here so this lead can be segmented for follow-up, nurture, or exports.</div>
                 <button
                   type="button"
@@ -4077,7 +4077,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 text-sm text-zinc-700">
-          {activeLead.address ? <div className="truncate sm:whitespace-normal">{activeLead.address}</div> : <div className="text-zinc-500">No address yet.</div>}
+          {activeLead.address ? <div className="truncate sm:whitespace-normal">{activeLead.address}</div> : <div className="text-zinc-500">Address still syncing for this lead.</div>}
           {activeLead.synopsis ? <div className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">{activeLead.synopsis}</div> : null}
           {activeLead.contactPerson || activeLead.alternateEmails?.length || activeLead.secondaryPhones?.length || activeLead.businessFacts?.length ? (
             <div className="mt-3 space-y-1 text-xs text-zinc-500">
@@ -4621,8 +4621,8 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                             </div>
                           ) : (
                             <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-3 text-xs text-zinc-600">
-                              <div className="font-semibold text-zinc-900">No locations chosen yet</div>
-                              <div className="mt-1">Add at least one city, zip, or region so the next pull knows where to search.</div>
+                              <div className="font-semibold text-zinc-900">Choose the first location</div>
+                              <div className="mt-1">Add at least one city, ZIP code, or region so the next pull knows where to search.</div>
                               <button
                                 type="button"
                                 className="mt-3 rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
@@ -4792,7 +4792,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                               </button>
                             </div>
 
-                            <div className="mt-2 text-xs text-zinc-600">{[lead.niche, lead.address].filter(Boolean).join(" • ") || "No location details yet"}</div>
+                            <div className="mt-2 text-xs text-zinc-600">{[lead.niche, lead.address].filter(Boolean).join(" • ") || "Location details still syncing"}</div>
                             {lead.synopsis ? <div className="mt-2 text-xs leading-5 text-zinc-600">{lead.synopsis}</div> : null}
                             <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
                               <span>{safeFormatDateTime(lead.createdAtIso)}</span>
@@ -4925,7 +4925,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                                     </div>
                                   </div>
 
-                                  <div className="mt-2 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ") || "No location details yet"}</div>
+                                  <div className="mt-2 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ") || "Location details still syncing"}</div>
                                   {l.synopsis ? <div className="mt-2 text-xs leading-5 text-zinc-600">{l.synopsis}</div> : null}
                                   <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-zinc-500">
                                     <span>{safeFormatDateTime(l.createdAtIso)}</span>
@@ -5167,7 +5167,7 @@ export function PortalLeadScrapingClient({ initialB2bSubTab = "leads" }: { initi
                               ))
                           ) : (
                             <div className="rounded-2xl border border-dashed border-zinc-200 bg-white/70 p-3 text-xs text-zinc-600">
-                              <div className="font-semibold text-zinc-900">No exclusions added yet</div>
+                              <div className="font-semibold text-zinc-900">Add your first exclusion</div>
                               <div className="mt-1">Add names, domains, phones, or addresses here if future pulls should skip them automatically.</div>
                               <button
                                 type="button"

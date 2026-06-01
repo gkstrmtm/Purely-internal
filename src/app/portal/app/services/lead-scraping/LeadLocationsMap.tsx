@@ -215,8 +215,8 @@ export default function LeadLocationsMap({
     return (
       <div className="flex h-full min-h-[50svh] items-center justify-center bg-zinc-50 text-center text-sm text-zinc-500">
         <div className="max-w-sm px-6">
-          <div className="font-semibold text-zinc-700">No mappable leads yet</div>
-          <div className="mt-2">Run a pull or refine your search to load leads with saved locations.</div>
+          <div className="font-semibold text-zinc-700">Mapped leads will appear here after the next pull</div>
+          <div className="mt-2">Run a pull or tighten the search so this map can load leads with saved location data.</div>
         </div>
       </div>
     );

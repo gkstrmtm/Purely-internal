@@ -33,5 +33,6 @@
     "**/node_modules/**": true,
     "**/tmp/portal-qa/review-shots/**": true,
     "**/tmp/portal-qa/review-shots-loaded/**": true
-  }
+  },
+  "css.lint.unknownAtRules": "ignore"
 }

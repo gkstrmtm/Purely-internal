@@ -1919,7 +1919,7 @@ export function PortalBillingClient({
               </div>
             ) : (
               <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No subscription plan active yet</div>
+                <div className="font-semibold text-zinc-900">A subscription plan is not active yet</div>
                 <div className="mt-1">Open Services to choose what should be enabled next, or ask Pura to help map the right plan for this workspace.</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -1989,7 +1989,7 @@ export function PortalBillingClient({
               </div>
             ) : (
               <div className="mt-3 rounded-2xl border border-dashed border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No services unlocked yet</div>
+                <div className="font-semibold text-zinc-900">Services have not been unlocked yet</div>
                 <div className="mt-1">Nothing is currently enabled for this workspace. Open Services to activate products, or review plans if you want to set the billing path first.</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button

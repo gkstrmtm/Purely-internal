@@ -84,7 +84,6 @@ function mutedTextClasses(accent: "blue" | "coral" | "ink") {
 }
 
 export default function SalesLoopPackagePage() {
-  const getStartedHref = "/portal/get-started?package=sales-loop";
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Service",
@@ -147,7 +146,7 @@ export default function SalesLoopPackagePage() {
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href={getStartedHref}
+                  href="/portal/get-started"
                   className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-base font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Start free
@@ -178,7 +177,7 @@ export default function SalesLoopPackagePage() {
                 <div className="absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-[rgba(255,255,255,0.12)] blur-2xl" />
 
                 <div className="relative">
-                  <div className="text-xs font-semibold tracking-wide text-white/75">THE LOOP</div>
+                  <div className="text-xs font-medium text-white/75">The loop</div>
                   <div className="mt-2 text-lg font-semibold text-white/95">Capture to close</div>
                   <div className="mt-1 text-sm text-white/70">A simple system that keeps leads moving.</div>
 
@@ -257,7 +256,7 @@ export default function SalesLoopPackagePage() {
                   { label: "Setup", value: "Simple" },
                 ].map((s) => (
                   <div key={s.label} className="border-t border-zinc-200 pt-4">
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{s.label}</dt>
+                    <dt className="text-xs font-medium text-zinc-500">{s.label}</dt>
                     <dd className="mt-1 text-lg font-semibold text-brand-ink">{s.value}</dd>
                   </div>
                 ))}
@@ -265,7 +264,7 @@ export default function SalesLoopPackagePage() {
 
               <div className="mt-10 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href={getStartedHref}
+                  href="/portal/get-started"
                   className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-base font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Start free
@@ -404,7 +403,7 @@ export default function SalesLoopPackagePage() {
               <div className="pointer-events-none absolute -bottom-14 -left-14 h-52 w-52 rounded-full bg-[rgba(29,78,216,0.18)] blur-2xl" aria-hidden="true" />
 
               <div className="relative">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">A simple loop</div>
+                <div className="text-xs font-medium text-zinc-500">A simple loop</div>
                 <div className="mt-2 text-xl font-bold tracking-tight text-brand-ink">Response to booked call</div>
                 <div className="mt-3 text-sm text-zinc-600 sm:text-base">
                   A clean timeline that keeps leads moving without your team remembering every follow up.
@@ -443,7 +442,7 @@ export default function SalesLoopPackagePage() {
 
                 <div className="mt-10 flex flex-col gap-3 sm:flex-row">
                   <Link
-                    href={getStartedHref}
+                    href="/portal/get-started"
                     className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:w-auto"
                   >
                     Get started
@@ -502,7 +501,7 @@ export default function SalesLoopPackagePage() {
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                   <Link
-                    href={getStartedHref}
+                    href="/portal/get-started"
                     className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-(--color-brand-blue) hover:bg-zinc-50 sm:w-auto"
                   >
                     Get started

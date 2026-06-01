@@ -11,9 +11,9 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "mobile-app/dist/**",
     ".worktrees/**",
     "tmp/**",
-    "mobile-app/**",
     "next-env.d.ts",
     // Valid TS file, but the current @typescript-eslint parser stack-overflows on it.
     "src/lib/puraReplyQuality.ts",
@@ -38,6 +38,16 @@ const eslintConfig = defineConfig([
     files: ["scripts/**/*.js"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+
+  {
+    files: ["mobile-app/**/*.{js,jsx,ts,tsx}"],
+    rules: {
+      "@next/next/no-html-link-for-pages": "off",
+      "@next/next/no-img-element": "off",
+      "@next/next/no-sync-scripts": "off",
+      "jsx-a11y/alt-text": "off",
     },
   },
 

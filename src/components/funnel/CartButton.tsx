@@ -217,7 +217,7 @@ export function CartButton({
                   </div>
 
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Qty</div>
+                    <div className="text-xs font-medium text-zinc-500">Qty</div>
                     <button
                       type="button"
                       disabled={busy || it.quantity <= 1}

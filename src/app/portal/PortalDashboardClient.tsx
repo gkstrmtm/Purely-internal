@@ -685,7 +685,7 @@ function buildContentGuidanceItem(args: {
       category: 'follow-up',
       status: 'needs-attention',
       title: isCreditWorkspace ? 'You planned consultation support content but have not marked anything posted' : 'You planned content but have not marked anything posted',
-      reason: `${continuity.plannedPosts.toLocaleString()} planned item${continuity.plannedPosts === 1 ? '' : 's'} ${continuity.plannedPosts === 1 ? 'is' : 'are'} stored here, but there is no manual post history yet.`,
+      reason: `${continuity.plannedPosts.toLocaleString()} planned item${continuity.plannedPosts === 1 ? '' : 's'} ${continuity.plannedPosts === 1 ? 'is' : 'are'} stored here, but manual post history has not been logged yet.`,
       nextActionLabel: 'Review schedule',
       href,
     };
@@ -1337,8 +1337,8 @@ export function PortalDashboardClient() {
           <div className="text-sm font-semibold text-zinc-900">{isCreditLoading ? "Credit workspace" : "Your workspace"}</div>
           <div className="mt-1 text-sm text-zinc-600">
             {isCreditLoading
-              ? "Loading your credit dashboard — services, workflow status, and billing will appear here."
-              : "Loading your dashboard — services, activity, and billing will appear here."}
+              ? "Loading your credit dashboard - services, workflow status, and billing will appear here."
+              : "Loading your dashboard - services, activity, and billing will appear here."}
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
             <a
@@ -2172,8 +2172,8 @@ export function PortalDashboardClient() {
                 ) : (
                   <div className="flex h-full w-full flex-col items-start justify-center gap-3 rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
                     <div>
-                      <div className="font-semibold text-zinc-900">No reporting pulse yet.</div>
-                      <div className="mt-1 text-xs leading-relaxed text-zinc-500">Once calls, bookings, reviews, or lead activity start landing in Purely, this card turns into your 10-day pulse instead of a static summary.</div>
+                      <div className="font-semibold text-zinc-900">Your reporting pulse will start here</div>
+                      <div className="mt-1 text-xs leading-relaxed text-zinc-500">As soon as calls, bookings, reviews, or lead activity start landing in Purely, this card turns into the 10-day motion view instead of a static placeholder.</div>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <Link href={`${portalBase}/app/services/reporting`} className={dashboardPrimaryButtonClass}>Open reporting</Link>
@@ -2581,7 +2581,7 @@ export function PortalDashboardClient() {
             case "reviewsCollected":
               return compactNum(k.reviewsCollected);
             case "avgReviewRating":
-              return typeof k.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "No rating yet";
+              return typeof k.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "Rating not available yet";
             case "newsletterSends":
               return compactNum(k.newsletterSentCount);
             case "nurtureEnrollments":
@@ -2671,8 +2671,8 @@ export function PortalDashboardClient() {
                 ))
               ) : (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-sm font-semibold text-zinc-900">No recent usage pulse yet.</div>
-                  <div className="mt-1 text-xs leading-relaxed text-zinc-500">This card starts filling in after the first tracked day with AI calls, missed calls, and credit usage. Until then, open reporting for the full workspace view.</div>
+                  <div className="text-sm font-semibold text-zinc-900">Recent usage will start showing here</div>
+                  <div className="mt-1 text-xs leading-relaxed text-zinc-500">This card fills in after the first tracked day with AI calls, missed calls, and credit usage. Until then, open reporting for the broader workspace view.</div>
                   <div className="mt-3">
                     <Link href={`${portalBase}/app/services/reporting`} className={dashboardSecondaryButtonClass}>Open reporting</Link>
                   </div>
@@ -2741,7 +2741,7 @@ export function PortalDashboardClient() {
               <StatLine label="Reviews collected" value={compactNum(k?.reviewsCollected ?? 0)} />
               <StatLine
                 label="Avg rating"
-                value={typeof k?.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "No rating yet"}
+                value={typeof k?.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "Rating not available yet"}
               />
               <StatLine label="Bookings" value={compactNum(k?.bookingsCreated ?? 0)} />
             </div>
@@ -2765,7 +2765,7 @@ export function PortalDashboardClient() {
 
   const showEditControls = Boolean(dashboard);
 
-  // Compact inline guidance panel — shown above the widget grid when items exist.
+  // Compact inline guidance panel - shown above the widget grid when items exist.
   function renderGuidancePanel() {
     if (growthPayload?.topActions?.length) {
       const visible = growthPayload.topActions.slice(0, 3);
@@ -2916,7 +2916,7 @@ export function PortalDashboardClient() {
           </Link>
         ) : null}
 
-        {/* Top item — featured */}
+        {/* Top item - featured */}
         {topItem && topColors ? (
           <div className={`rounded-[26px] border p-5 shadow-sm ${topColors.border} ${topColors.bg}`}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2939,7 +2939,7 @@ export function PortalDashboardClient() {
           </div>
         ) : null}
 
-        {/* Secondary items — compact row */}
+        {/* Secondary items - compact row */}
         {secondaryItems.length > 0 ? (
           <div className={`mt-3 grid grid-cols-1 gap-3 ${secondaryGridClass}`}>
             {secondaryItems.map((item) => {

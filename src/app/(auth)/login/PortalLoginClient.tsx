@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { IconEyeGlyph, IconEyeOffGlyph } from "@/app/portal/PortalIcons";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
@@ -15,9 +14,6 @@ function safeInternalPath(raw: string | null | undefined, fallback: string) {
   if (raw.startsWith("//")) return fallback;
   return raw;
 }
-
-type ResetChannel = "email" | "sms";
-type ResetStage = "intro" | "request" | "code" | "password";
 
 export default function PortalLoginClient() {
   const pathname = usePathname() || "";
@@ -41,178 +37,54 @@ export default function PortalLoginClient() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
 
   const [failedOnce, setFailedOnce] = useState(false);
-  const [resetChannel, setResetChannel] = useState<ResetChannel>("email");
-  const [resetStage, setResetStage] = useState<ResetStage>("intro");
-  const [availableResetChannels, setAvailableResetChannels] = useState<ResetChannel[]>([]);
+  const [resetRequested, setResetRequested] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const alternateLoginHref = portalVariant === "credit" ? "/portal/login" : "/credit/login";
+  const alternateLoginLabel = portalVariant === "credit" ? "Purely Portal Login" : "Purely Credit Login";
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setAuthError("");
     setLoading(true);
 
-    const res = await fetch(`${apiBase}/api/login`, {
-      method: "POST",
-      headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
-      credentials: "include",
-      body: JSON.stringify({ email, password }),
-    });
-
-    setLoading(false);
-
-    if (!res.ok) {
-      toast.error("Incorrect email or password");
-      setFailedOnce(true);
-      setResetStage("intro");
-      return;
-    }
-
-    const json = (await res.json().catch(() => null)) as { ok?: boolean; defaultFrom?: string | null } | null;
-    const preferredFrom = safeInternalPath(json?.defaultFrom, defaultFrom);
-
-    // Hard navigation ensures the new session cookie is applied for the next request.
-    window.location.assign(fromRaw ? from : preferredFrom);
-  }
-
-  async function loadResetOptions() {
-    if (!email.trim()) {
-      toast.error("Enter your email above first.");
-      return;
-    }
-
-    setResetLoading(true);
     try {
-      const res = await fetch(`${apiBase}/api/forgot-password/options`, {
+      const res = await fetch(`${apiBase}/api/login`, {
         method: "POST",
         headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
-        body: JSON.stringify({ email: email.trim() }),
+        credentials: "include",
+        body: JSON.stringify({ email, password }),
       });
-      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; channels?: ResetChannel[] } | null;
-      if (!res.ok || !json?.ok || !json.channels?.length) {
-        toast.error(json?.error || "We could not load reset options. Retry from sign in.");
-        return;
-      }
-      setAvailableResetChannels(json.channels);
-      setResetChannel(json.channels[0] || "email");
-      setResetStage("request");
-    } catch {
-      toast.error("Reset options did not load. Retry from sign in.");
-    } finally {
-      setResetLoading(false);
-    }
-  }
 
-  async function requestResetCode() {
-    if (!email.trim()) {
-      toast.error("Enter your email above first.");
-      return;
-    }
-    setResetLoading(true);
-    try {
-      const res = await fetch(`${apiBase}/api/forgot-password/request`, {
-        method: "POST",
-        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
-        body: JSON.stringify({ email: email.trim(), channel: resetChannel }),
-      });
-      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-      if (!res.ok || !json?.ok) {
-        toast.error(json?.error || "Reset code did not send. Retry from sign in.");
-        return;
-      }
-      setResetCode("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setShowNewPassword(false);
-      setShowConfirmPassword(false);
-      setResetStage("code");
-      toast.success(`Code sent by ${resetChannel === "sms" ? "text" : "email"}.`);
-    } catch {
-      toast.error("Reset code did not send. Retry from sign in.");
-    } finally {
-      setResetLoading(false);
-    }
-  }
+      setLoading(false);
 
-  async function verifyResetCode() {
-    if (!resetCode.trim()) {
-      toast.error("Enter the code.");
-      return;
-    }
-    setResetLoading(true);
-    try {
-      const res = await fetch(`${apiBase}/api/forgot-password/verify`, {
-        method: "POST",
-        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
-        body: JSON.stringify({ email: email.trim(), code: resetCode.trim() }),
-      });
-      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-      if (!res.ok || !json?.ok) {
-        toast.error(json?.error || "Invalid code.");
-        return;
-      }
-      setResetStage("password");
-      toast.success("Code accepted. Choose your new password.");
-    } catch {
-      toast.error("Unable to verify the code right now.");
-    } finally {
-      setResetLoading(false);
-    }
-  }
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; defaultFrom?: string | null; error?: string } | null;
 
-  async function submitNewPassword(e: React.FormEvent) {
-    e.preventDefault();
-    if (!resetCode.trim()) {
-      toast.error("Enter the code.");
-      return;
-    }
-    if (newPassword.length < 8) {
-      toast.error("Password must be at least 8 characters.");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error("Passwords do not match.");
-      return;
-    }
-
-    setResetLoading(true);
-    try {
-      const res = await fetch(`${apiBase}/api/forgot-password/reset`, {
-        method: "POST",
-        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
-        body: JSON.stringify({
-          email: email.trim(),
-          code: resetCode.trim(),
-          newPassword,
-        }),
-      });
-      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-      if (!res.ok || !json?.ok) {
-        toast.error(json?.error || "Invalid code.");
+      if (!res.ok) {
+        const message = res.status === 401 ? "Incorrect email or password." : (json?.error || "Unable to sign in right now.");
+        setAuthError(message);
+        toast.error(message);
+        if (res.status === 401) {
+          setFailedOnce(true);
+        }
         return;
       }
 
-      toast.success("Password updated. You can sign in now.");
-      setPassword("");
-      setResetCode("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setAvailableResetChannels([]);
-      setShowNewPassword(false);
-      setShowConfirmPassword(false);
-      setFailedOnce(false);
-      setResetStage("intro");
+      const preferredFrom = safeInternalPath(json?.defaultFrom, defaultFrom);
+
+      // Hard navigation ensures the new session cookie is applied for the next request.
+      window.location.assign(fromRaw ? from : preferredFrom);
     } catch {
-      toast.error("Unable to reset password right now.");
-    } finally {
-      setResetLoading(false);
+      setLoading(false);
+      const message = "Unable to reach the login service right now. Please try again.";
+      setAuthError(message);
+      toast.error(message);
     }
   }
 
@@ -241,7 +113,10 @@ export default function PortalLoginClient() {
                 className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (authError) setAuthError("");
+                }}
                 autoComplete="email"
                 required
               />
@@ -249,32 +124,28 @@ export default function PortalLoginClient() {
 
             <div>
               <label className="text-base font-medium">Password</label>
-              <div className="relative mt-2">
-                <input
-                  className={`w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400 ${password ? "pr-24" : ""}`}
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setPassword(next);
-                    if (!next) setShowPassword(false);
-                  }}
-                  autoComplete="current-password"
-                  required
-                />
-                {password ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((current) => !current)}
-                    className="absolute inset-y-1.5 right-1.5 inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:border-zinc-300 hover:bg-zinc-50"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? <IconEyeOffGlyph size={16} className="mr-2" /> : <IconEyeGlyph size={16} className="mr-2" />}
-                    {showPassword ? "Hide" : "Show"}
-                  </button>
-                ) : null}
-              </div>
+              <input
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (authError) setAuthError("");
+                }}
+                autoComplete="current-password"
+                required
+              />
             </div>
+
+            {authError ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">
+                <div className="font-semibold">Sign-in failed</div>
+                <div className="mt-1">{authError}</div>
+                <div className="mt-2 text-rose-800">
+                  If this is the wrong login, try <Link className="font-semibold underline underline-offset-4" href={alternateLoginHref}>{alternateLoginLabel}</Link> or <Link className="font-semibold underline underline-offset-4" href="/employeelogin">Employee log in</Link>.
+                </div>
+              </div>
+            ) : null}
 
             <button
               className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-base font-semibold text-white hover:opacity-95 disabled:opacity-60"
@@ -287,114 +158,104 @@ export default function PortalLoginClient() {
 
           {failedOnce ? (
             <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-base font-semibold text-zinc-900">Forgot password?</div>
-                {resetStage !== "intro" ? (
-                  <button
-                    type="button"
-                    className="text-sm font-semibold text-brand-ink hover:underline"
-                    onClick={() => {
-                      setResetStage("intro");
+              <div className="text-base font-semibold text-zinc-900">Forgot password?</div>
+              <div className="mt-1 text-sm text-zinc-600">
+                Send a one-time code to your email and phone (if configured), then choose a new password.
+              </div>
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  disabled={resetLoading || !email.trim()}
+                  className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  onClick={async () => {
+                    if (!email.trim()) {
+                      toast.error("Enter your email above first.");
+                      return;
+                    }
+                    setResetLoading(true);
+                    try {
+                      await fetch(`${apiBase}/api/forgot-password/request`, {
+                        method: "POST",
+                        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
+                        body: JSON.stringify({ email: email.trim() }),
+                      });
+                      setResetRequested(true);
+                      toast.success("If that account exists, a code was sent.");
+                    } catch {
+                      toast.error("Unable to send code right now.");
+                    } finally {
+                      setResetLoading(false);
+                    }
+                  }}
+                >
+                  {resetLoading ? "Sending…" : resetRequested ? "Resend code" : "Send code"}
+                </button>
+
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                  onClick={() => {
+                    setAuthError("");
+                    setResetRequested(false);
+                    setResetCode("");
+                    setNewPassword("");
+                    setConfirmPassword("");
+                  }}
+                >
+                  clear
+                </button>
+              </div>
+
+              {resetRequested ? (
+                <form
+                  className="mt-4 grid gap-3"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!resetCode.trim()) {
+                      toast.error("Enter the code.");
+                      return;
+                    }
+                    if (newPassword.length < 8) {
+                      toast.error("Password must be at least 8 characters.");
+                      return;
+                    }
+                    if (newPassword !== confirmPassword) {
+                      toast.error("Passwords do not match.");
+                      return;
+                    }
+
+                    setResetLoading(true);
+                    try {
+                      const res = await fetch(`${apiBase}/api/forgot-password/reset`, {
+                        method: "POST",
+                        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
+                        body: JSON.stringify({
+                          email: email.trim(),
+                          code: resetCode.trim(),
+                          newPassword,
+                        }),
+                      });
+                      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+                      if (!res.ok || !json?.ok) {
+                        toast.error(json?.error || "Invalid code.");
+                        return;
+                      }
+
+                      toast.success("Password updated. You can sign in now.");
+                      setPassword("");
                       setResetCode("");
                       setNewPassword("");
                       setConfirmPassword("");
-                    }}
-                  >
-                    Back
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="mt-4 flex items-center gap-2">
-                {(["request", "code", "password"] as ResetStage[]).map((step) => {
-                  const active = resetStage === step;
-                  const complete =
-                    (step === "request" && (resetStage === "code" || resetStage === "password")) ||
-                    (step === "code" && resetStage === "password");
-                  return (
-                    <div
-                      key={step}
-                      className={`h-2 flex-1 rounded-full ${active || complete ? "bg-brand-blue" : "bg-brand-blue/15"}`}
-                    />
-                  );
-                })}
-              </div>
-
-              {resetStage === "intro" ? (
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    disabled={resetLoading || !email.trim()}
-                    className="w-full rounded-2xl bg-brand-blue px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
-                    onClick={() => void loadResetOptions()}
-                  >
-                    {resetLoading ? "Checking…" : "Reset password"}
-                  </button>
-                </div>
-              ) : null}
-
-              {resetStage === "request" ? (
-                <div className="mt-4 space-y-4">
-                  <div className="text-sm font-semibold text-zinc-900">Choose delivery method</div>
-                  <div className={`grid gap-2 ${availableResetChannels.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-                    {availableResetChannels.includes("email") ? (
-                      <button
-                        type="button"
-                        onClick={() => setResetChannel("email")}
-                        className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition-all duration-150 ${
-                          resetChannel === "email"
-                            ? "border-brand-blue/35 bg-brand-blue/10 text-brand-blue"
-                            : "border-brand-blue/15 bg-white text-zinc-900 hover:border-brand-blue/25 hover:bg-brand-blue/5"
-                        }`}
-                      >
-                        Email
-                      </button>
-                    ) : null}
-                    {availableResetChannels.includes("sms") ? (
-                      <button
-                        type="button"
-                        onClick={() => setResetChannel("sms")}
-                        className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition-all duration-150 ${
-                          resetChannel === "sms"
-                            ? "border-brand-blue/35 bg-brand-blue/10 text-brand-blue"
-                            : "border-brand-blue/15 bg-white text-zinc-900 hover:border-brand-blue/25 hover:bg-brand-blue/5"
-                        }`}
-                      >
-                        Text message
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={resetLoading || !email.trim()}
-                    className="w-full rounded-2xl bg-brand-blue px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
-                    onClick={() => void requestResetCode()}
-                  >
-                    {resetLoading ? "Sending…" : "Continue"}
-                  </button>
-                </div>
-              ) : null}
-
-              {resetStage === "code" ? (
-                <div className="mt-4 space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center rounded-full border border-brand-blue/20 bg-brand-blue/10 px-3 py-1 text-xs font-semibold text-brand-blue">
-                      {resetChannel === "sms" ? "Text message" : "Email"}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-sm font-semibold text-brand-ink hover:underline"
-                      onClick={() => {
-                        setResetStage("request");
-                        setResetCode("");
-                      }}
-                    >
-                      Change
-                    </button>
-                  </div>
-
+                    } catch {
+                      toast.error("Unable to reset password right now.");
+                    } finally {
+                      setResetLoading(false);
+                    }
+                  }}
+                >
                   <div className="grid gap-2">
+                    <label className="text-sm font-semibold text-zinc-900">Code</label>
                     <input
                       className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
                       inputMode="numeric"
@@ -405,90 +266,33 @@ export default function PortalLoginClient() {
                     />
                   </div>
 
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <button
-                      type="button"
-                      disabled={resetLoading || !resetCode.trim()}
-                      className="flex-1 rounded-2xl bg-brand-blue px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
-                      onClick={() => void verifyResetCode()}
-                    >
-                      {resetLoading ? "Checking…" : "Continue"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={resetLoading || !email.trim()}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                      onClick={() => void requestResetCode()}
-                    >
-                      Resend code
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              {resetStage === "password" ? (
-                <form className="mt-4 grid gap-3" onSubmit={submitNewPassword}>
                   <div className="grid gap-2">
                     <label className="text-sm font-semibold text-zinc-900">New password</label>
-                    <div className="relative">
-                      <input
-                        className={`w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400 ${newPassword ? "pr-24" : ""}`}
-                        type={showNewPassword ? "text" : "password"}
-                        autoComplete="new-password"
-                        value={newPassword}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          setNewPassword(next);
-                          if (!next) setShowNewPassword(false);
-                        }}
-                        placeholder="Minimum 8 characters"
-                      />
-                      {newPassword ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowNewPassword((current) => !current)}
-                          className="absolute inset-y-1.5 right-1.5 inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:border-zinc-300 hover:bg-zinc-50"
-                          aria-label={showNewPassword ? "Hide new password" : "Show new password"}
-                        >
-                          {showNewPassword ? <IconEyeOffGlyph size={16} className="mr-2" /> : <IconEyeGlyph size={16} className="mr-2" />}
-                          {showNewPassword ? "Hide" : "Show"}
-                        </button>
-                      ) : null}
-                    </div>
+                    <input
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
+                      type="password"
+                      autoComplete="new-password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Minimum 8 characters"
+                    />
                   </div>
 
                   <div className="grid gap-2">
                     <label className="text-sm font-semibold text-zinc-900">Confirm password</label>
-                    <div className="relative">
-                      <input
-                        className={`w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400 ${confirmPassword ? "pr-24" : ""}`}
-                        type={showConfirmPassword ? "text" : "password"}
-                        autoComplete="new-password"
-                        value={confirmPassword}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          setConfirmPassword(next);
-                          if (!next) setShowConfirmPassword(false);
-                        }}
-                      />
-                      {confirmPassword ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowConfirmPassword((current) => !current)}
-                          className="absolute inset-y-1.5 right-1.5 inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:border-zinc-300 hover:bg-zinc-50"
-                          aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
-                        >
-                          {showConfirmPassword ? <IconEyeOffGlyph size={16} className="mr-2" /> : <IconEyeGlyph size={16} className="mr-2" />}
-                          {showConfirmPassword ? "Hide" : "Show"}
-                        </button>
-                      ) : null}
-                    </div>
+                    <input
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                    />
                   </div>
 
                   <button
                     type="submit"
                     disabled={resetLoading}
-                    className="mt-1 w-full rounded-2xl bg-brand-blue px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                    className="mt-1 rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-950 disabled:opacity-60"
                   >
                     {resetLoading ? "Resetting…" : "Reset password"}
                   </button>

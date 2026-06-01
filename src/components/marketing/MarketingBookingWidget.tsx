@@ -355,8 +355,8 @@ export function MarketingBookingWidget({
 
   return (
     <section className="mx-auto max-w-4xl rounded-[28px] bg-[#f7f5ef] p-8 shadow-sm">
-      <div className="text-center font-brand text-3xl text-brand-blue">book a call</div>
-      <div className="mt-2 text-center text-base text-brand-ink">choose a day and pick a time</div>
+      <div className="text-center font-brand text-3xl text-brand-blue">Book a call</div>
+      <div className="mt-2 text-center text-base text-brand-ink">Choose a day and pick a time</div>
       <div className="mt-2 text-center text-xs text-zinc-600">Times are shown in your local time ({userTimeZone}).</div>
 
       {slotsError ? (
@@ -383,7 +383,7 @@ export function MarketingBookingWidget({
               }}
               className="h-10 rounded-xl bg-zinc-800 px-5 text-sm font-semibold text-white hover:bg-zinc-900"
             >
-              book another time
+              Book another time
             </button>
           </div>
         </div>
@@ -391,14 +391,14 @@ export function MarketingBookingWidget({
 
       {step === "details" ? (
         <div className="mx-auto mt-8 max-w-2xl">
-          <div className="text-center text-sm font-semibold text-brand-ink">step 2 of 2</div>
-          <div className="mt-2 text-center font-brand text-2xl text-brand-blue">tell us who you are</div>
+          <div className="text-center text-sm font-semibold text-brand-ink">Step 2 of 2</div>
+          <div className="mt-2 text-center font-brand text-2xl text-brand-blue">Tell us who you are</div>
           <div className="mt-2 text-center text-sm text-zinc-700">We will reach out by email and text.</div>
 
           <form className="mt-6 grid gap-4" autoComplete="on" onSubmit={handleSubmitDetails}>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-brand-ink">name</span>
+                <span className="text-sm font-semibold text-brand-ink">Name</span>
                 <input
                   name="name"
                   type="text"
@@ -412,7 +412,7 @@ export function MarketingBookingWidget({
               </label>
 
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-brand-ink">company</span>
+                <span className="text-sm font-semibold text-brand-ink">Company</span>
                 <input
                   name="organization"
                   type="text"
@@ -428,7 +428,7 @@ export function MarketingBookingWidget({
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-brand-ink">email</span>
+                <span className="text-sm font-semibold text-brand-ink">Email</span>
                 <input
                   name="email"
                   type="email"
@@ -444,7 +444,7 @@ export function MarketingBookingWidget({
               </label>
 
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-brand-ink">phone</span>
+                <span className="text-sm font-semibold text-brand-ink">Phone</span>
                 <input
                   name="tel"
                   type="tel"
@@ -477,7 +477,7 @@ export function MarketingBookingWidget({
             </div>
 
             <label className="grid gap-2">
-              <span className="text-sm font-semibold text-brand-ink">what do you want automated</span>
+              <span className="text-sm font-semibold text-brand-ink">What do you want automated</span>
               <input
                 name="goals"
                 list="automation-goals"
@@ -599,7 +599,7 @@ export function MarketingBookingWidget({
 
           <div className="mt-6">
             <div className="text-center text-sm font-semibold text-brand-ink">
-              {selectedIsAvailable ? "pick a time" : "no availability this day"}
+              {selectedIsAvailable ? "Pick a time" : "No availability this day"}
             </div>
 
             {slotsLoading ? (
@@ -640,7 +640,7 @@ export function MarketingBookingWidget({
                 disabled={!selectedTime || busy}
                 className="h-11 rounded-xl bg-brand-blue px-6 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                continue
+                Continue
               </button>
             </div>
           </div>

@@ -1637,7 +1637,7 @@ export function PortalPeopleContactsClient() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-base font-semibold text-zinc-900">Contacts</div>
-              <div className="mt-1 text-sm text-zinc-600">No contacts yet. Add one manually, import a CSV, or let Pura help you decide the fastest setup path.</div>
+              <div className="mt-1 text-sm text-zinc-600">Contacts have not been added yet. Add one manually, import a CSV, or let Pura help you decide the fastest setup path.</div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -2002,14 +2002,14 @@ export function PortalPeopleContactsClient() {
                           >
                             <td className="px-3 py-3 min-w-0">
                               <div className="min-w-0">
-                                <div className="font-semibold text-zinc-900 truncate">{l.businessName || "No business name yet"}</div>
+                                <div className="font-semibold text-zinc-900 truncate">{l.businessName || "Business name not added yet"}</div>
                               </div>
                             </td>
                             <td className="px-3 py-3 min-w-0">
-                              <div className="truncate">{l.email || "No email yet"}</div>
+                              <div className="truncate">{l.email || "Email not added yet"}</div>
                             </td>
                             <td className="px-3 py-3 min-w-0">
-                              <div className="truncate">{l.phone || "No phone yet"}</div>
+                              <div className="truncate">{l.phone || "Phone not added yet"}</div>
                             </td>
                           </tr>
                         ))
@@ -2039,7 +2039,7 @@ export function PortalPeopleContactsClient() {
                             </td>
                             <td className="px-3 py-3 min-w-0">
                               <div className="min-w-0">
-                                <div className="font-semibold text-zinc-900 truncate">{c.name || "No name yet"}</div>
+                                <div className="font-semibold text-zinc-900 truncate">{c.name || "Name not added yet"}</div>
                                 {c.tags?.length ? (
                                   <div className="mt-1 flex max-w-full flex-wrap gap-1 overflow-hidden">
                                     {c.tags.slice(0, 3).map((t) => (
@@ -2060,10 +2060,10 @@ export function PortalPeopleContactsClient() {
                               </div>
                             </td>
                             <td className="px-3 py-3 min-w-0">
-                              <div className="truncate">{c.email || "No email yet"}</div>
+                              <div className="truncate">{c.email || "Email not added yet"}</div>
                             </td>
                             <td className="px-3 py-3 min-w-0">
-                              <div className="truncate">{c.phone || "No phone yet"}</div>
+                              <div className="truncate">{c.phone || "Phone not added yet"}</div>
                             </td>
                           </tr>
                         ))
@@ -2425,7 +2425,7 @@ export function PortalPeopleContactsClient() {
                           </td>
                           <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
                             <div className="min-w-0">
-                              <div className="font-semibold text-zinc-900 truncate">{c.name || "No name yet"}</div>
+                              <div className="font-semibold text-zinc-900 truncate">{c.name || "Name not added yet"}</div>
                               {c.tags?.length ? (
                                 <div className="mt-1 flex max-w-full flex-wrap gap-1 overflow-hidden">
                                   {c.tags.slice(0, 3).map((t) => (
@@ -2446,10 +2446,10 @@ export function PortalPeopleContactsClient() {
                             </div>
                           </td>
                           <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                            <div className="truncate">{c.email || "No email yet"}</div>
+                            <div className="truncate">{c.email || "Email not added yet"}</div>
                           </td>
                           <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                            <div className="truncate">{c.phone || "No phone yet"}</div>
+                            <div className="truncate">{c.phone || "Phone not added yet"}</div>
                           </td>
                         </tr>
                       ))
@@ -2458,7 +2458,7 @@ export function PortalPeopleContactsClient() {
                         <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={4}>
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
-                              <div className="font-semibold text-zinc-900">No contacts saved yet</div>
+                              <div className="font-semibold text-zinc-900">Contacts have not been saved yet</div>
                               <div className="mt-1 text-xs text-zinc-500">Add one manually or import a CSV so this table has real people to work with.</div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
@@ -2610,14 +2610,14 @@ export function PortalPeopleContactsClient() {
                       >
                         <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
                           <div className="min-w-0">
-                            <div className="font-semibold text-zinc-900 truncate">{l.businessName || "No business name yet"}</div>
+                            <div className="font-semibold text-zinc-900 truncate">{l.businessName || "Business name not added yet"}</div>
                           </div>
                         </td>
                         <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                          <div className="truncate">{l.email || "No email yet"}</div>
+                          <div className="truncate">{l.email || "Email not added yet"}</div>
                         </td>
                         <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                          <div className="truncate">{l.phone || "No phone yet"}</div>
+                          <div className="truncate">{l.phone || "Phone not added yet"}</div>
                         </td>
                       </tr>
                     ))
@@ -2885,7 +2885,7 @@ export function PortalPeopleContactsClient() {
                         ))
                       ) : (
                         <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
-                          <div className="font-semibold text-zinc-900">No contact tags yet</div>
+                          <div className="font-semibold text-zinc-900">Contact tags have not been added yet</div>
                           <div className="mt-1">Create a tag now so this contact can be segmented for follow-up, newsletters, and filtering.</div>
                           <button
                             type="button"
@@ -3028,7 +3028,7 @@ export function PortalPeopleContactsClient() {
                       ))
                     ) : (
                       <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
-                        <div className="font-semibold text-zinc-900">No custom variables saved yet</div>
+                        <div className="font-semibold text-zinc-900">Custom variables have not been saved yet</div>
                         <div className="mt-1">Add one below to store reusable values like city, referral source, or internal owner notes.</div>
                       </div>
                     )}
@@ -3265,10 +3265,10 @@ export function PortalPeopleContactsClient() {
 
                           return (
                             <tr key={idx} className="border-t border-zinc-200">
-                              <td className="px-3 py-2 max-w-45 truncate">{name || "No name yet"}</td>
-                              <td className="px-3 py-2 max-w-45 truncate">{importMapping.email ? cell(importMapping.email) : "No email yet"}</td>
-                              <td className="px-3 py-2 max-w-40 truncate">{importMapping.phone ? cell(importMapping.phone) : "No phone yet"}</td>
-                              <td className="px-3 py-2 max-w-45 truncate">{tagsText || "No tags yet"}</td>
+                              <td className="px-3 py-2 max-w-45 truncate">{name || "Name not added yet"}</td>
+                              <td className="px-3 py-2 max-w-45 truncate">{importMapping.email ? cell(importMapping.email) : "Email not mapped yet"}</td>
+                              <td className="px-3 py-2 max-w-40 truncate">{importMapping.phone ? cell(importMapping.phone) : "Phone not mapped yet"}</td>
+                              <td className="px-3 py-2 max-w-45 truncate">{tagsText || "Tags not mapped yet"}</td>
                             </tr>
                           );
                         })}
@@ -3558,7 +3558,7 @@ export function PortalPeopleContactsClient() {
                     placeholder="Full name"
                   />
                 ) : (
-                  <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "No name yet"}</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">{detail?.name ?? "Name not added yet"}</div>
                 )}
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Email</div>
                 {editingContact ? (
@@ -3569,7 +3569,7 @@ export function PortalPeopleContactsClient() {
                     placeholder="email@company.com"
                   />
                 ) : (
-                  <div className="mt-1 text-sm text-zinc-800">{detail?.email ?? "No email yet"}</div>
+                  <div className="mt-1 text-sm text-zinc-800">{detail?.email ?? "Email not added yet"}</div>
                 )}
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Phone</div>
                 {editingContact ? (
@@ -3580,7 +3580,7 @@ export function PortalPeopleContactsClient() {
                     placeholder="+15551234567"
                   />
                 ) : (
-                  <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "No phone yet"}</div>
+                  <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "Phone not added yet"}</div>
                 )}
 
                 {isCreditApp ? (
@@ -3979,7 +3979,7 @@ export function PortalPeopleContactsClient() {
                       onClick={() => setCreateTagOpen(true)}
                       className="inline-flex items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white/70 px-4 py-3 text-sm font-semibold text-zinc-700 hover:bg-white"
                     >
-                      No tags yet - create the first tag
+                      Tags have not been added yet - create the first tag
                     </button>
                   )}
                 </div>

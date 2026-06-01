@@ -267,7 +267,7 @@ export function PortalMeetingPlatformConfigurator({
               <div className="flex items-start justify-between gap-2">
                 <div className="text-sm font-semibold text-zinc-900">{meta.title}</div>
                 {meta.badge ? (
-                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
                     {meta.badge}
                   </span>
                 ) : null}

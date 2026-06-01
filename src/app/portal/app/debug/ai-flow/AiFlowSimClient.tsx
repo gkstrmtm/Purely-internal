@@ -166,7 +166,7 @@ export function AiFlowSimClient(props: {
     const steps: any[] = Array.isArray(payload?.allSteps) ? payload.allSteps : [];
     const results: any[] = Array.isArray(payload?.allResults) ? payload.allResults : [];
 
-    if (!rs.length) return "(No rounds yet - run the simulation first)";
+    if (!rs.length) return "(Rounds have not run yet - run the simulation first)";
 
     const lines: string[] = [];
     const userText = String(req?.text || "").trim();

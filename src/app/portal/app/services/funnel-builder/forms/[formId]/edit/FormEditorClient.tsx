@@ -1262,9 +1262,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
               <div className="mt-6 space-y-4">
                 {(fields || []).length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-zinc-300 bg-white/80 p-6">
-                    <div className="text-sm font-semibold text-zinc-900">No form questions yet</div>
+                    <div className="text-sm font-semibold text-zinc-900">Build your first question</div>
                     <div className="mt-2 text-sm leading-6 text-zinc-600">
-                      Start with the first question so this form can collect real responses. You can reorder, style, and fine-tune every field after it is added.
+                      Start with the first question so this form can start collecting real responses. You can reorder, style, and fine-tune every field once it is in place.
                     </div>
                     <div className="mt-4 flex flex-wrap gap-3">
                       <button

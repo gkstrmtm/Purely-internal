@@ -592,8 +592,8 @@ export function PortalNurtureCampaignsClient() {
               })
             ) : (
               <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
-                <div className="font-semibold text-zinc-900">No nurture campaigns yet</div>
-                <div className="mt-1">Create the first sequence so tags, steps, and enrollments have a live campaign to work with.</div>
+                <div className="font-semibold text-zinc-900">Nurture is ready for the first live campaign</div>
+                <div className="mt-1">Create the first sequence so tags, steps, and enrollments have a real campaign to work with.</div>
                 <button
                   type="button"
                   onClick={() => void createCampaign()}
@@ -726,7 +726,7 @@ export function PortalNurtureCampaignsClient() {
                   <div className="text-sm text-zinc-600">Loading…</div>
                 ) : campaigns.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                    <div className="font-semibold text-zinc-900">No nurture campaigns yet</div>
+                    <div className="font-semibold text-zinc-900">Nurture is ready for the first live campaign</div>
                     <div className="mt-1">Create the first campaign, then load a template or build the sequence step by step.</div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <button
@@ -789,7 +789,7 @@ export function PortalNurtureCampaignsClient() {
           ) : !detail ? (
             <div className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
               <div className="font-semibold text-red-900">Campaign needs attention</div>
-              <div className="mt-1">This campaign is not available right now. Retry here, open campaigns, or ask Pura to help.</div>
+              <div className="mt-1">We could not reopen this campaign just now. Retry here, head back to campaigns, or ask Pura to help reconnect it.</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1231,8 +1231,8 @@ export function PortalNurtureCampaignsClient() {
                       ))
                   ) : (
                     <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                      <div className="font-semibold text-zinc-900">No nurture steps yet</div>
-                      <div className="mt-1">Load a template or add the first SMS or email step so this campaign can actually nurture contacts.</div>
+                      <div className="font-semibold text-zinc-900">This campaign has not been given any nurture steps yet</div>
+                      <div className="mt-1">Load a template or add the first SMS or email step so this campaign can actually start moving contacts forward.</div>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <button
                           type="button"

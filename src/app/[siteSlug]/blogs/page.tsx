@@ -1,10 +1,6 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
-import DomainRouterBlogsPage, { generateMetadata as generateDomainRouterBlogsMetadata } from "@/app/domain-router/[domain]/blogs/page";
-import { buildPlatformHostedMetadata } from "@/lib/customDomainMetadata";
-import { hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { formatBlogDate } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -26,12 +22,6 @@ type PageProps = {
 
 export async function generateMetadata(props: PageProps) {
   const { siteSlug } = await props.params;
-  const h = await headers();
-  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
-
-  if (!isPlatformHostname(host) && host) {
-    return generateDomainRouterBlogsMetadata({ params: Promise.resolve({ domain: encodeURIComponent(host) }) });
-  }
 
   try {
     const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
@@ -39,7 +29,7 @@ export async function generateMetadata(props: PageProps) {
       ? await prisma.clientBlogSite.findFirst(
           {
             where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
-            select: ({ name: true, ownerId: true, ...(canUseSlugColumn ? { slug: true, id: true } : { id: true }) } as any),
+            select: { name: true, ownerId: true },
           } as any,
         )
       : await (async () => {
@@ -63,30 +53,17 @@ export async function generateMetadata(props: PageProps) {
     });
 
     const name = profile?.businessName || site.name;
-    const siteHandle = canUseSlugColumn ? String((site as any).slug || (site as any).id).trim() : siteSlug;
 
-    return buildPlatformHostedMetadata({
-      siteName: name,
+    return {
       title: `${name} | Blogs`,
       description: `Latest blog posts from ${name}.`,
-      path: `/${siteHandle}/blogs`,
-      keywords: [`${name} blog`, `${name} articles`, `${name} insights`],
-    });
+    };
   } catch {
     return {};
   }
 }
 
 export default async function ClientBlogsIndexPage(props: PageProps) {
-  const h = await headers();
-  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
-  if (!isPlatformHostname(host) && host) {
-    return DomainRouterBlogsPage({
-      params: Promise.resolve({ domain: encodeURIComponent(host) }),
-      searchParams: props.searchParams,
-    });
-  }
-
   const { siteSlug } = await props.params;
 
   const spUnknown: unknown = (await props.searchParams?.catch(() => ({}))) ?? {};
@@ -275,7 +252,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
                       className="group rounded-3xl border p-7 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                       style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
                     >
-                      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
+                      <div className="text-xs font-medium" style={{ color: "var(--client-muted)" }}>
                         {formatBlogDate(post.publishedAt ?? post.updatedAt)}
                       </div>
                       <div

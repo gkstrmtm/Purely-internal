@@ -137,7 +137,7 @@ export function buildBlogCtaText() {
   return {
     title: "Want this done for your business?",
     body: "Purely builds systems that automate blogging, publishing, and follow ups so you can stay consistent with SEO without spending hours writing every week.",
-    button: "book a call",
+    button: "Book a call",
     href: "/#demo",
   };
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { WebView } from "react-native-webview";
 
@@ -56,14 +56,11 @@ export function PortalWebSurface({ path }: { path: string }) {
 }
 
 function NativePortalWebView({ path }: { path: string }) {
-  const tokenPromiseRef = useRef<Promise<string | null> | null>(null);
-  if (!tokenPromiseRef.current) tokenPromiseRef.current = getPortalBearerToken();
-
   const [token, setToken] = React.useState<string | null>(null);
   React.useEffect(() => {
     let mounted = true;
     void (async () => {
-      const t = await tokenPromiseRef.current;
+      const t = await getPortalBearerToken();
       if (!mounted) return;
       setToken(t);
     })();

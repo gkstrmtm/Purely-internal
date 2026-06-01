@@ -44,7 +44,7 @@ export default function AdsLoginPage() {
 
         <form onSubmit={onSubmit} className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
           <label className="block">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Email</div>
+            <div className="text-xs font-medium text-zinc-500">Email</div>
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -56,7 +56,7 @@ export default function AdsLoginPage() {
           </label>
 
           <label className="mt-4 block">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Password</div>
+            <div className="text-xs font-medium text-zinc-500">Password</div>
             <input
               value={password}
               onChange={(e) => setPassword(e.target.value)}

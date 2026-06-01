@@ -1,11 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { Metadata } from "next";
 import type { CSSProperties } from "react";
 
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
-import { buildPlatformHostedMetadata } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
@@ -18,58 +16,6 @@ import { PublicReviewsClient } from "./PublicReviewsClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-export async function generateMetadata({ params }: { params: Promise<{ siteSlug: string }> }): Promise<Metadata> {
-  const { siteSlug } = await params;
-
-  try {
-    const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
-    const blogSite = canUseSlugColumn
-      ? await prisma.clientBlogSite.findFirst(
-          {
-            where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
-            select: { id: true, name: true, ownerId: true, slug: true },
-          } as any,
-        )
-      : await (async () => {
-          const byId = await prisma.clientBlogSite.findUnique({ where: { id: siteSlug }, select: { id: true, name: true, ownerId: true } });
-          if (byId) return byId;
-          const ownerId = await findOwnerIdByStoredBlogSiteSlug(siteSlug);
-          if (!ownerId) return null;
-          return prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, name: true, ownerId: true } });
-        })();
-
-    const bookingSite = !blogSite
-      ? await prisma.portalBookingSite.findUnique({ where: { slug: siteSlug }, select: { ownerId: true, slug: true, title: true } })
-      : null;
-    const ownerId = blogSite ? String((blogSite as any).ownerId) : bookingSite ? String(bookingSite.ownerId) : "";
-    if (!ownerId) return {};
-
-    const [profile, data] = await Promise.all([
-      prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true, logoUrl: true } as any }).catch(() => null),
-      getReviewRequestsServiceData(ownerId).catch(() => null),
-    ]);
-    const settings = data?.settings;
-    if (!settings?.publicPage?.enabled) return {};
-
-    const businessName =
-      String(profile?.businessName || "").trim() || (blogSite as any)?.name || bookingSite?.title || "Reviews";
-    const siteHandle = blogSite
-      ? (canUseSlugColumn ? String((blogSite as any).slug ?? (blogSite as any).id).trim() : siteSlug)
-      : String(bookingSite?.slug || siteSlug);
-
-    return buildPlatformHostedMetadata({
-      siteName: businessName,
-      title: `${businessName} | Reviews`,
-      description: settings.publicPage.description || `Read verified customer reviews for ${businessName}.`,
-      path: `/${siteHandle}/reviews`,
-      imageUrl: (profile as any)?.logoUrl || null,
-      keywords: [`${businessName} reviews`, `${businessName} testimonials`, `${businessName} ratings`],
-    });
-  } catch {
-    return {};
-  }
-}
 
 export default async function PublicReviewsPage({ params }: { params: Promise<{ siteSlug: string }> }) {
   const { siteSlug } = await params;
@@ -500,14 +446,14 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                     className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-sm"
                     style={{ backgroundColor: "var(--client-accent)", color: "var(--client-on-accent)" }}
                   >
-                    get started
+                    Get started
                   </Link>
                   <Link
                     href="/#demo"
                     className="inline-flex items-center justify-center rounded-2xl border px-6 py-3 text-base font-bold"
                     style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-link)" }}
                   >
-                    book a call
+                    Book a call
                   </Link>
                 </div>
               </div>

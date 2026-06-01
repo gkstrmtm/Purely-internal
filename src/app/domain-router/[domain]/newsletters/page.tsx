@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
-import { buildCustomDomainMetadata, buildCustomDomainNotFoundMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
@@ -65,38 +64,20 @@ export async function generateMetadata({
   if (!host) return {};
 
   const mapping = await resolveCustomDomain(host);
-  if (!mapping) return buildCustomDomainNotFoundMetadata(host);
-  if (mapping.status !== "VERIFIED") {
-    return buildCustomDomainMetadata({
-      host,
-      siteName: host,
-      title: "Domain pending verification",
-      description: "This domain is saved, but not verified yet.",
-      noIndex: true,
-    });
-  }
+  if (!mapping) return { title: host };
+  if (mapping.status !== "VERIFIED") return { title: "Domain pending verification" };
 
   const site = await prisma.clientBlogSite
     .findUnique({ where: { ownerId: mapping.ownerId }, select: { name: true, ownerId: true } })
     .catch(() => null);
-  if (!site) return buildCustomDomainNotFoundMetadata(host);
+  if (!site) return { title: host };
 
-  const [profile, branding] = await Promise.all([
-    prisma.businessProfile.findUnique({ where: { ownerId: site.ownerId }, select: { businessName: true } }).catch(() => null),
-    resolveCustomDomainBranding(host),
-  ]);
+  const profile = await prisma.businessProfile
+    .findUnique({ where: { ownerId: site.ownerId }, select: { businessName: true } })
+    .catch(() => null);
 
   const name = profile?.businessName || site.name;
-  return buildCustomDomainMetadata({
-    host,
-    siteName: branding.siteName,
-    title: `${name} | Newsletters`,
-    description: `Latest newsletters from ${name}.`,
-    imageUrl: branding.logoUrl,
-    iconUrl: branding.logoUrl,
-    path: "/newsletters",
-    keywords: [`${name} newsletter`, `${name} updates`, `${name} emails`],
-  });
+  return { title: `${name} | Newsletters`, description: `Latest newsletters from ${name}.` };
 }
 
 export default async function CustomDomainNewslettersIndexPage({
@@ -238,7 +219,7 @@ export default async function CustomDomainNewslettersIndexPage({
                     style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
                   >
                     <div
-                      className="text-xs font-semibold uppercase tracking-wide"
+                      className="text-xs font-medium"
                       style={{ color: "var(--client-muted)" }}
                     >
                       {formatDate(n.sentAt ?? n.updatedAt)}

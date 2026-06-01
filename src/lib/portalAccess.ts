@@ -49,6 +49,7 @@ async function isServiceLifecycleDisabled(ownerId: string, serviceKey: PortalSer
   // Only module-backed services can be paused/canceled.
   const svc = PORTAL_SERVICES.find((s) => s.slug === slug) ?? null;
   if (!svc) return false;
+  if (svc.included) return false;
 
   const row = await prisma.portalServiceSetup
     .findUnique({
