@@ -289,7 +289,7 @@ export function PortalBlogsClient({
           <div className={portalSidebarSectionStackClass}>
             {([
               { key: "posts", label: "Posts" },
-              { key: "automation", label: "Blog Automation" },
+              { key: "automation", label: "SEO Autopilot" },
               { key: "settings", label: "Settings" },
             ] as const).map((item) => (
               <PortalSidebarNavButton
@@ -1194,9 +1194,9 @@ export function PortalBlogsClient({
 
       {routeTab === "automation" ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <div className="text-sm font-semibold text-zinc-900">Blog automation schedule</div>
+          <div className="text-sm font-semibold text-zinc-900">SEO content schedule</div>
           <div className="mt-2 text-sm text-zinc-600">
-            Set a cadence and a topic list. We’ll generate SEO-ready drafts automatically so your website stays fresh and searchable.
+            Set a cadence and an optional topic queue. We use your business details to generate SEO-ready drafts automatically so your website stays fresh and searchable.
           </div>
 
           <div className="mt-5 space-y-4">
@@ -1272,7 +1272,7 @@ export function PortalBlogsClient({
               <div className="mt-1 space-y-2">
                 {autoTopics.length === 0 ? (
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-                    Add a few topics to guide what gets generated.
+                    Add a few topics to guide what gets generated, or leave this empty and we’ll lean on your business profile for broader SEO content ideas.
                   </div>
                 ) : null}
 
@@ -1311,6 +1311,9 @@ export function PortalBlogsClient({
                 </button>
               </div>
               <div className="mt-1 text-xs text-zinc-500">Topics in queue: {sanitizeTopics(autoTopics).length}</div>
+              <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
+                Topics run in order and loop back around after the list is exhausted, so the schedule can keep publishing without you having to rebuild the queue every time.
+              </div>
             </div>
 
             <label className="flex items-center justify-between gap-3 text-sm">

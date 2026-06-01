@@ -2168,7 +2168,7 @@ export function BusinessProfileForm({
                   <div className="text-sm font-semibold text-zinc-900">
                     {logoUrl ? "Logo ready" : "Drop a logo here or upload one"}
                   </div>
-                  <div className="mt-1 text-xs leading-5 text-zinc-500">
+                  <div className="mt-1 truncate text-xs leading-5 text-zinc-500" title={logoUrl || undefined}>
                     {logoUrl
                       ? logoUrl
                       : "PNG, JPG, SVG, or WebP. Uploaded logos also land in your media library."}
