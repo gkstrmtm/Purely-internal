@@ -21,7 +21,7 @@ import { SalesCheckoutButton } from "@/components/funnel/SalesCheckoutButton";
 import { SyncedReviewsBlock } from "@/components/funnel/SyncedReviewsBlock";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
-import { appendCreditFunnelTrackingParams } from "@/lib/funnelEventTracking.shared";
+import { appendCreditFunnelTrackingParams } from "@/lib/funnelEventTracking";
 import { resolveFunnelOffer, type FunnelOffer } from "@/lib/funnelOffers";
 import {
   resolveFunnelBookingSurfaceContext,
@@ -46,7 +46,22 @@ export type BlockStyle = {
   borderColor?: string;
   borderWidthPx?: number;
   maxWidthPx?: number;
+  bookingBgHex?: string;
+  bookingSurfaceHex?: string;
+  bookingSoftHex?: string;
+  bookingBorderHex?: string;
+  bookingTextHex?: string;
+  bookingMutedTextHex?: string;
+  bookingPrimaryHex?: string;
+  bookingLinkHex?: string;
 };
+
+export type HostedRuntimeBlockType =
+  | "hostedBookingApp"
+  | "hostedReviewsApp"
+  | "hostedNewsletterArchive"
+  | "hostedBlogsArchive"
+  | "hostedBlogPostBody";
 
 export type ColumnsColumn = {
   markdown: string;
@@ -276,6 +291,31 @@ export type CreditFunnelBlock =
       id: string;
       type: "calendarEmbed";
       props: { calendarId: string; height?: number; style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedBookingApp";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedReviewsApp";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedNewsletterArchive";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedBlogsArchive";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedBlogPostBody";
+      props: { style?: BlockStyle };
     }
   | {
       id: string;
@@ -843,6 +883,14 @@ function coerceStyle(raw: unknown): BlockStyle | undefined {
     borderColor: coerceCssColor(r.borderColor),
     borderWidthPx: clampNum(r.borderWidthPx, 0, 24),
     maxWidthPx: clampNum(r.maxWidthPx, 0, 1600),
+    bookingBgHex: coerceCssColor(r.bookingBgHex),
+    bookingSurfaceHex: coerceCssColor(r.bookingSurfaceHex),
+    bookingSoftHex: coerceCssColor(r.bookingSoftHex),
+    bookingBorderHex: coerceCssColor(r.bookingBorderHex),
+    bookingTextHex: coerceCssColor(r.bookingTextHex),
+    bookingMutedTextHex: coerceCssColor(r.bookingMutedTextHex),
+    bookingPrimaryHex: coerceCssColor(r.bookingPrimaryHex),
+    bookingLinkHex: coerceCssColor(r.bookingLinkHex),
   };
 
   const hasAny = Object.values(style).some((v) => v !== undefined && v !== "");
@@ -1231,6 +1279,18 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       const height = clampNum(props?.height, 120, 2000);
       const style = coerceStyle(props?.style);
       out.push({ id, type, props: { calendarId, height, style } });
+      continue;
+    }
+
+    if (
+      type === "hostedBookingApp" ||
+      type === "hostedReviewsApp" ||
+      type === "hostedNewsletterArchive" ||
+      type === "hostedBlogsArchive" ||
+      type === "hostedBlogPostBody"
+    ) {
+      const style = coerceStyle(props?.style);
+      out.push({ id, type, props: { style } } as CreditFunnelBlock);
       continue;
     }
 
@@ -1841,28 +1901,6 @@ export function renderCreditFunnelBlocks({
     "@keyframes funnel-editor-ai-settle{0%{transform:translateY(-1px) scale(1.006)}100%{transform:translateY(0) scale(1)}}",
   ].join("\n");
 
-  const BLOCK_TYPE_LABELS: Partial<Record<string, string>> = {
-    heading: "Heading",
-    paragraph: "Text",
-    button: "Button",
-    formLink: "Form link",
-    calendarEmbed: "Booking",
-    image: "Image",
-    video: "Video",
-    spacer: "Spacer",
-    syncedReviews: "Reviews",
-    testimonialGrid: "Testimonials",
-    pricingGrid: "Pricing",
-    section: "Section",
-    columns: "Columns",
-    salesCheckoutButton: "Checkout",
-    addToCartButton: "Cart",
-    headerNav: "Navigation",
-    customCode: "Code block",
-    anchor: "Anchor",
-    chatbot: "Chat widget",
-  };
-
   const CONTAINER_BLOCK_TYPES = new Set(["section", "columns"]);
   const DIRECT_TEXT_CHROME_BLOCK_TYPES = new Set(["heading", "paragraph", "button", "formLink", "pricingGrid"]);
   const CANVAS_CHROME_BLOCK_TYPES = new Set([
@@ -2356,12 +2394,9 @@ export function renderCreditFunnelBlocks({
 
       if (b.type === "salesCheckoutButton") {
         const pageId = typeof context?.funnelPageId === "string" ? context.funnelPageId : "";
-        const { offer, priceId } = resolveOfferBinding((b.props as any)?.offerId, (b.props as any)?.priceId);
+        const { priceId } = resolveOfferBinding((b.props as any)?.offerId, (b.props as any)?.priceId);
         const quantityRaw = (b.props as any)?.quantity;
         const quantity = typeof quantityRaw === "number" && Number.isFinite(quantityRaw) ? Math.max(1, Math.min(20, quantityRaw)) : undefined;
-        const productName = String(offer?.productName || (b.props as any)?.productName || "").trim();
-        const productDescription =
-          String(offer?.productDescription || (b.props as any)?.productDescription || "").trim();
         const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text) : "Buy now";
 
         if (!isEditor && (!pageId || !priceId)) return null;
@@ -2750,9 +2785,9 @@ export function renderCreditFunnelBlocks({
                 { className: "mt-1 text-xs text-zinc-600" },
                 agentId
                   ? previewUsesEmbedPlaceholders
-                    ? "Launcher preview is paused in builder preview. Open the live page to test the real chat widget. Conversation behavior comes from the linked AI Receptionist chat agent."
-                    : "Floating launcher placement is shown on the page. Test the real conversation on the live page."
-                  : "Link an AI Receptionist chat agent before expecting this widget to render on the live page.",
+                    ? "Launcher preview is paused in builder preview. Open the live page to test the real chat widget."
+                    : "Floating widget preview is shown on the page. Click the launcher to select."
+                  : "Set an Agent ID in the sidebar to enable live chat.",
               ),
             ),
           );
@@ -3558,6 +3593,7 @@ export function renderCreditFunnelBlocks({
           borderStyle: borderWidth !== undefined ? "solid" : undefined,
           borderColor: borderWidth !== undefined ? (s?.borderColor || "currentColor") : undefined,
         };
+        const editableLabelProps = editableTextProps(b, b.props.text);
         return React.createElement(
           "div",
           { key: b.id, style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) }, ...wrapProps(b.id) },
@@ -3575,9 +3611,14 @@ export function renderCreditFunnelBlocks({
                     editor?.onSelectBlockId?.(b.id);
                   }
                 : undefined,
-              ...editableTextProps(b, b.props.text),
             },
-            b.props.text,
+            React.createElement(
+              "span",
+              {
+                ...editableLabelProps,
+              },
+              b.props.text,
+            ),
           ),
         );
       }
@@ -3953,20 +3994,6 @@ export function renderCreditFunnelBlocks({
           const bookingStatusLabel = blockCalendarId || inheritedCalendarId
             ? (!resolvedCalendarKnown ? "Route missing" : (resolvedCalendarEnabled ? "Accepting bookings" : "Not accepting bookings"))
             : (bookingFirstPage ? "Needs setup" : "Missing");
-          const pausedCalendarSubtitle = blockCalendarId
-            ? "Step-specific calendar"
-            : inheritedCalendarId
-              ? "Funnel-linked calendar"
-              : "Booking placeholder";
-          const pausedCalendarDetail = blockCalendarId
-            ? !resolvedCalendarKnown
-              ? `${resolvedCalendarTitle || calendarId || "This calendar"} is pinned directly to this step, but it is no longer available. Reconnect this booking step to a live calendar.`
-              : `${resolvedCalendarTitle || "This calendar"} is linked directly to this step. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
-            : inheritedCalendarId
-              ? !resolvedCalendarKnown
-                ? `${resolvedCalendarTitle || inheritedCalendarId || "This calendar"} is linked at the funnel level, but it is no longer available. Reconnect the funnel calendar.`
-                : `${resolvedCalendarTitle || "This calendar"} is linked at the funnel level, so this step inherits it automatically. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
-              : "This block is still a booking placeholder with no routed calendar yet. Once you create or attach a calendar, this preview will reflect that route automatically.";
           const bookingStateCard = showBookingState && isEditor
             ? React.createElement(
                 "div",
@@ -4128,8 +4155,6 @@ export function renderCreditFunnelBlocks({
           );
         }
 
-        const height = typeof (b.props as any).height === "number" ? (b.props as any).height : 760;
-        const effectiveHeight = previewEmbedHeight(height, 760, 620);
         const slug = context?.bookingSiteSlug ? String(context.bookingSiteSlug).trim() : "";
         const ownerId = context?.bookingOwnerId ? String(context.bookingOwnerId).trim() : "";
         const funnelId = context?.funnelId ? String(context.funnelId).trim() : "";

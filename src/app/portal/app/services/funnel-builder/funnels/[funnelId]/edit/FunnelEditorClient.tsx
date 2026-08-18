@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
+import Image from "next/image";
 
 import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
@@ -15,7 +16,6 @@ import {
   type CreditFunnelBlock,
   type CreditFunnelEditorTextTarget,
   type PricingGridItem,
-  type TestimonialGridItem,
 } from "@/lib/creditFunnelBlocks";
 import { deriveBusinessProfileTemplateVars } from "@/lib/businessProfileTemplateVars";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
@@ -160,6 +160,10 @@ type PricingSpeechRecognitionLike = {
 
 type PricingSpeechRecognitionCtor = new () => PricingSpeechRecognitionLike;
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 function getPricingSpeechRecognitionCtor(source: Window & typeof globalThis): PricingSpeechRecognitionCtor | null {
   const scoped = source as Window & typeof globalThis & {
     SpeechRecognition?: PricingSpeechRecognitionCtor;
@@ -171,11 +175,11 @@ function getPricingSpeechRecognitionCtor(source: Window & typeof globalThis): Pr
 
 function friendlyPricingSpeechError(event: PricingSpeechRecognitionErrorEventLike) {
   const code = String(event.error || "").trim().toLowerCase();
-  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied.";
-  if (code === "no-speech") return "No speech was detected. Try again and speak a little closer to the mic.";
-  if (code === "audio-capture") return "This browser could not access a working microphone.";
-  if (code === "network") return "Speech recognition hit a network issue. Try again.";
-  return "Speech recognition stopped unexpectedly.";
+  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied. Allow access and retry here, or keep typing.";
+  if (code === "no-speech") return "No speech was detected. Retry here and speak a little closer to the mic, or keep typing.";
+  if (code === "audio-capture") return "This browser could not access a working microphone. Retry here or keep typing.";
+  if (code === "network") return "Speech recognition hit a network issue. Retry here or keep typing.";
+  return "Speech recognition stopped unexpectedly. Retry here or keep typing.";
 }
 
 function PricingAssistMicIcon({ active }: { active: boolean }) {
@@ -227,6 +231,8 @@ type SelectedEditTarget = {
 };
 
 const AI_CONTEXT_MEDIA_LIMIT = 12;
+const MAX_MEDIA_LIBRARY_BYTES = 4 * 1024 * 1024;
+const MAX_UPLOADS_BYTES = 250 * 1024 * 1024;
 
 const EMPTY_AI_DESIGN_CONTEXT: AiDesignContextDraft = {
   designBrief: "",
@@ -242,11 +248,21 @@ const CHAT_RAIL_WIDTH_STORAGE_KEY = "funnel-builder:chat-rail-width";
 const CHAT_RAIL_DEFAULT_WIDTH = 440;
 const CHAT_RAIL_MIN_WIDTH = 340;
 const CHAT_RAIL_COLLAPSE_THRESHOLD = 250;
+const CHAT_RAIL_COLLAPSED_WIDTH = 72;
+const SIDEBAR_WIDTH_STORAGE_KEY = "funnel-builder:left-rail-width";
+const SIDEBAR_DEFAULT_WIDTH = 260;
+const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_MAX_WIDTH = 380;
+const SIDEBAR_COLLAPSE_THRESHOLD = 170;
 const MOBILE_EDITOR_SIDEBAR_BREAKPOINT = 1024;
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
+
+const funnelEditorShellClass = "bg-zinc-50 text-zinc-950";
+const funnelEditorChromePanelClass = "border border-zinc-200/80 bg-white/94 text-zinc-950 shadow-[0_18px_40px_rgba(15,23,42,0.06)]";
+const funnelEditorChromeButtonClass = "border border-zinc-200 bg-white text-zinc-800 shadow-sm hover:bg-zinc-50 hover:text-zinc-950";
 
 function formatEditableTextKind(kind: string) {
   return String(kind || "text")
@@ -295,20 +311,20 @@ function normalizeFunnelEditorError(action: string, error: unknown, status?: num
   }
   if (normalized.includes("invalid slug")) return "Use letters, numbers, and dashes for the page path.";
   if (normalized.includes("invalid name")) return "Add a clearer page name and try again.";
-  if (action.includes("read aloud")) return "We couldn't generate read aloud audio right now.";
-  if (action.includes("page chat")) return "The page assistant could not respond right now.";
-  if (action.includes("publish")) return "We couldn't publish this page right now. Review any highlighted issues and try again.";
+  if (action.includes("read aloud")) return "Read aloud audio did not generate. Try again here or keep editing the page.";
+  if (action.includes("page chat")) return "The page assistant did not respond. Retry here or keep editing the page.";
+  if (action.includes("publish")) return "This page did not publish. Review any highlighted issues and try again.";
   if (action.includes("generate html") || action.includes("whole-page") || action.includes("page source")) {
-    return "We couldn't update the page source right now.";
+    return "The page source did not update. Try again here or keep editing the page.";
   }
   if (action.includes("load funnel") || action.includes("load pages") || action.includes("load threads")) {
-    return "We couldn't load this funnel workspace right now.";
+    return "This funnel workspace is still syncing. Retry here, open funnels, or ask Pura to help.";
   }
-  if (action.includes("create page")) return "We couldn't create this page right now.";
-  if (action.includes("save page")) return "We couldn't save this page right now.";
-  if (action.includes("delete page")) return "We couldn't delete this page right now.";
-  if (normalized.includes("failed")) return `We couldn't ${action} right now. Please try again.`;
-  return message || `We couldn't ${action} right now. Please try again.`;
+  if (action.includes("create page")) return "This page did not create. Try again here or keep editing the funnel.";
+  if (action.includes("save page")) return "This page did not save. Try again here or keep editing it.";
+  if (action.includes("delete page")) return "This page did not delete. Try again here or reopen it from the funnel.";
+  if (normalized.includes("failed")) return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
+  return message || `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
 }
 
 function sanitizeAiContextMediaItems(raw: unknown): AiContextMediaItem[] {
@@ -448,7 +464,7 @@ function AssistantThinkingCard({
   );
 }
 
-type PageRailDetailPanel = "booking" | "chatbot" | "commerce" | "search" | "tracking" | "advanced";
+type PageRailDetailPanel = "booking" | "commerce" | "search" | "tracking" | "advanced";
 
 function PageRailSummaryCard({
   title,
@@ -520,7 +536,7 @@ function SidebarStatusPill({
 
 function SidebarRouteChip({ label }: { label: string }) {
   return (
-    <div className="inline-flex max-w-full rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-medium leading-4 text-zinc-600 [overflow-wrap:anywhere]">
+    <div className="inline-flex max-w-full rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-medium leading-4 text-zinc-600 wrap-anywhere">
       {label}
     </div>
   );
@@ -600,9 +616,9 @@ function PreviewModeToggleButton({
       aria-pressed={active}
       title={title || label}
       className={classNames(
-        "rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition-[border-color,background-color,color,box-shadow] duration-150",
+        "pa-funnel-editor-preview-toggle rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition-[border-color,background-color,color,box-shadow] duration-150",
         active
-          ? "border-blue-200 bg-blue-50 text-blue-800 shadow-[0_8px_18px_rgba(59,130,246,0.08)]"
+          ? "pa-funnel-editor-preview-toggle--active border-zinc-300 bg-zinc-950 text-white shadow-[0_12px_24px_rgba(15,23,42,0.18)]"
           : "border-transparent text-zinc-600 hover:border-zinc-200 hover:bg-white hover:text-zinc-950",
       )}
     >
@@ -711,10 +727,6 @@ type CodeToken = {
 const CODE_SURFACE_LINE_HEIGHT = 24;
 const CODE_SURFACE_VERTICAL_PADDING = 24;
 const CODE_SURFACE_FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
-
-function countMeaningfulCodeLines(value: string) {
-  return splitCodeLines(value).filter((line) => line.trim()).length;
-}
 
 function stripDiffMarkers(value: string) {
   return splitCodeLines(value)
@@ -1031,16 +1043,10 @@ function flattenBlocksForDiff(blocks: CreditFunnelBlock[]) {
       if (!block || typeof block !== "object") continue;
       const props: any = block.props || {};
       const label = (() => {
-        if (block.type === "heading") return `Heading: ${String(props.text || "").trim().slice(0, 48) || "Untitled"}`;
-        if (block.type === "paragraph") return `Text: ${String(props.text || "").trim().slice(0, 48) || "Paragraph"}`;
-        if (block.type === "button") return `Button: ${String(props.text || "").trim().slice(0, 48) || "Button"}`;
-        if (block.type === "section") return `Section${props.anchorLabel ? `: ${String(props.anchorLabel).slice(0, 36)}` : ""}`;
-        if (block.type === "columns") return "Columns";
-        if (block.type === "customCode") return "Custom code";
-        if (block.type === "formEmbed") return `Form embed: ${String(props.formSlug || "").slice(0, 36)}`;
-        if (block.type === "calendarEmbed") return `Calendar: ${String(props.calendarId || "").slice(0, 36)}`;
-        if (block.type === "image") return `Image${props.alt ? `: ${String(props.alt).slice(0, 36)}` : ""}`;
-        if (block.type === "video") return `Video${props.name ? `: ${String(props.name).slice(0, 36)}` : ""}`;
+        if (block.type === "heading") return String(props.text || "Heading").trim() || "Heading";
+        if (block.type === "paragraph") return String(props.text || "Paragraph").trim() || "Paragraph";
+        if (block.type === "button") return String(props.text || "Button").trim() || "Button";
+        if (block.type === "section") return String(props.anchorLabel || props.anchorId || "Section").trim() || "Section";
         if (block.type === "headerNav") return "Header navigation";
         return block.type;
       })();
@@ -1067,8 +1073,7 @@ function flattenBlocksForDiff(blocks: CreditFunnelBlock[]) {
       order += 1;
 
       if (block.type === "section") {
-        const keys = ["children", "leftChildren", "rightChildren"] as const;
-        for (const key of keys) {
+        for (const key of ["children", "leftChildren", "rightChildren"] as const) {
           const nested = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
           visit(nested);
         }
@@ -1762,23 +1767,27 @@ function buildTransactionReadiness(opts: {
   const visit = (blocks: CreditFunnelBlock[]) => {
     for (const block of blocks) {
       if (!block || typeof block !== "object") continue;
-      const props: any = block.props || {};
-      const text = normalizeInlineText(String(props.text || props.heading || props.title || props.productName || props.label || ""));
+      const props = block.props && typeof block.props === "object" ? (block.props as Record<string, any>) : {};
+      const text = String(
+        props.text || props.label || props.title || props.heading || props.buttonText || props.ctaText || props.name || "",
+      ).trim();
 
       switch (block.type) {
         case "calendarEmbed": {
-          const calendarId = String(props.calendarId || "").trim();
           pushPointer(bookingPointers, bookingSeen, {
             blockId: block.id,
             kind: "Booking block",
-            label: opts.bookingCalendarTitleById?.[calendarId] || text || "Calendar embed",
-            detail: calendarId ? `calendarId: ${calendarId}` : "embedded calendar",
+            label: text || "Calendar",
+            detail: String(props.calendarId || "").trim() || "embedded calendar",
           });
           break;
         }
+        case "formLink":
         case "button": {
-          const href = String(props.href || "").trim();
-          if (/(\/book\/|#book\b|booking|schedule|calendar)/i.test(href)) {
+          const href = String(props.href || props.url || "").trim();
+          if (!href) break;
+
+          if (/(book|schedule|calendar)/i.test(href)) {
             pushPointer(bookingPointers, bookingSeen, {
               blockId: block.id,
               kind: "Booking CTA",
@@ -1907,7 +1916,7 @@ function buildTransactionReadiness(opts: {
         ? `A funnel calendar is linked, but this page still needs a booking block or booking CTA.`
         : expectsBooking
           ? `This page still cannot take a booking. Add a booking block or booking CTA.`
-          : `No booking block or booking CTA is wired on this page yet.`,
+          : `A booking block or booking CTA is not wired on this page yet.`,
     pointers: bookingPointers.slice(0, 4),
   };
 
@@ -1921,7 +1930,7 @@ function buildTransactionReadiness(opts: {
         ? `Offers exist. Add one checkout path to this page.`
         : expectsPurchase
           ? `This page still cannot take payment. Add a checkout, cart, or priced offer block.`
-          : `No checkout or cart path is wired on this page yet.`,
+          : `A checkout or cart path is not wired on this page yet.`,
     pointers: purchasePointers.slice(0, 4),
   };
 
@@ -2126,6 +2135,7 @@ type DirectionWorkbenchPanelProps = {
   onOpenBrief?: () => void;
   onAsk: (prompt: string) => void;
   onPrepareDraft: (promptHint: string, displayPrompt?: string, opts?: { sourceActionPlan?: SourceActionPlan | null }) => void;
+  onModeChange?: (mode: "plan" | "work") => void;
   onAttach?: () => void;
   onPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   attachCount?: number;
@@ -2211,9 +2221,6 @@ function AnimatedAssistantMessageText({
     return () => {
       if (timeoutId !== null) window.clearTimeout(timeoutId);
     };
-  // tokens is derived from normalizedContent; both changing at once would
-  // reset visibleCount, which is correct behavior.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animate, tokens, onComplete]);
 
   const isComplete = visibleCount >= tokens.length;
@@ -2331,6 +2338,7 @@ function DirectionWorkbenchPanel({
   onOpenBrief,
   onAsk,
   onPrepareDraft,
+  onModeChange,
   onAttach,
   onPaste,
   attachCount = 0,
@@ -2357,6 +2365,10 @@ function DirectionWorkbenchPanel({
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlCacheRef = useRef(new Map<string, string>());
   const previousConversationKeyRef = useRef(conversationKey);
+  const setAssistantMode = useCallback((nextMode: "plan" | "work") => {
+    setChatMode(nextMode);
+    onModeChange?.(nextMode);
+  }, [onModeChange]);
 
   const recentMessages = messages.slice(-8);
   const liveStatusLabel = busy
@@ -2460,6 +2472,10 @@ function DirectionWorkbenchPanel({
     setChatMode("plan");
     setDirectionNote("");
   }, [conversationKey]);
+
+  useEffect(() => {
+    onModeChange?.(chatMode);
+  }, [chatMode, onModeChange]);
 
   useEffect(() => {
     setPageHealthToastVisible(pageHealthCheck?.tone === "watch");
@@ -2594,9 +2610,42 @@ function DirectionWorkbenchPanel({
     ]
       .filter(Boolean)
       .join("\n");
-    setChatMode("work");
+    setAssistantMode("work");
     onPrepareDraft(prompt, prompt, { sourceActionPlan: plan });
   };
+
+  const idleQuickActions = chatMode === "work"
+    ? [
+        {
+          label: "Tighten the weakest part of this page",
+          prompt: "Tighten the weakest part of this page and apply the strongest update without changing what is already clearly working.",
+        },
+        {
+          label: "Apply the next highest-leverage pass",
+          prompt: "Apply the next highest-leverage pass on this page and explain what changed in practical terms.",
+        },
+      ]
+    : [
+        {
+          label: "What is making this page feel weak?",
+          prompt: "What is making this page feel weak?",
+        },
+        {
+          label: "What should change next before I keep polishing?",
+          prompt: "What should change next before I keep polishing?",
+        },
+      ];
+  const idleIntro = chatMode === "work"
+    ? {
+        eyebrow: "Apply mode",
+        title: "Use this when you want a concrete pass, not another vague suggestion.",
+        detail: "Point at the weak area, name the kind of change you want, and let the assistant push a real update into the page.",
+      }
+    : {
+        eyebrow: "Ask mode",
+        title: "Use this to diagnose what is off before you start changing things.",
+        detail: "Ask for the weakest section, the missing trust signal, the muddy headline, or the next issue worth fixing.",
+      };
 
   const stopReadAloud = useCallback(() => {
     const player = audioElementRef.current;
@@ -2623,14 +2672,14 @@ function DirectionWorkbenchPanel({
     player.onended = () => setAudioPlayingKey((current) => (current === messageKey ? null : current));
     player.onerror = () => {
       setAudioPlayingKey((current) => (current === messageKey ? null : current));
-      toast.error("Read aloud could not play this response");
+      toast.error("Read aloud did not play. Retry here.");
     };
 
     const playback = player.play();
     if (playback && typeof playback.catch === "function") {
       playback.catch(() => {
         setAudioPlayingKey((current) => (current === messageKey ? null : current));
-        toast.error("Read aloud could not start");
+        toast.error("Read aloud did not start. Retry here.");
       });
     }
     setAudioPlayingKey(messageKey);
@@ -2700,7 +2749,7 @@ function DirectionWorkbenchPanel({
               <div className={modeRailClassName}>
                 <button
                   type="button"
-                  onClick={() => setChatMode("plan")}
+                  onClick={() => setAssistantMode("plan")}
                   className={classNames(
                     modeButtonClassName,
                     chatMode === "plan" ? activeModeButtonClassName : inactiveModeButtonClassName,
@@ -2710,7 +2759,7 @@ function DirectionWorkbenchPanel({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setChatMode("work")}
+                  onClick={() => setAssistantMode("work")}
                   className={classNames(
                     modeButtonClassName,
                     chatMode === "work" ? activeModeButtonClassName : inactiveModeButtonClassName,
@@ -2747,7 +2796,7 @@ function DirectionWorkbenchPanel({
                 <div className={modeRailClassName}>
                   <button
                     type="button"
-                    onClick={() => setChatMode("plan")}
+                    onClick={() => setAssistantMode("plan")}
                     className={classNames(
                       modeButtonClassName,
                       chatMode === "plan" ? activeModeButtonClassName : inactiveModeButtonClassName,
@@ -2757,7 +2806,7 @@ function DirectionWorkbenchPanel({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setChatMode("work")}
+                    onClick={() => setAssistantMode("work")}
                     className={classNames(
                       modeButtonClassName,
                       chatMode === "work" ? activeModeButtonClassName : inactiveModeButtonClassName,
@@ -2796,7 +2845,7 @@ function DirectionWorkbenchPanel({
                 className={classNames("flex", message.role === "user" ? "justify-end" : "justify-start")}
               >
                 {message.role === "user" ? (
-                  <div className="ml-10 max-w-[min(42rem,100%)] rounded-3xl bg-brand-blue px-4 py-3.5 text-sm leading-relaxed text-white shadow-[0_10px_24px_rgba(29,78,216,0.2)]">
+                  <div className="ml-10 max-w-[min(42rem,100%)] rounded-3xl border border-sky-100 bg-[linear-gradient(180deg,#f8fbff_0%,#eef5ff_100%)] px-4 py-3.5 text-sm leading-relaxed text-slate-800 shadow-[0_10px_24px_rgba(59,130,246,0.08)]">
                     <div className="whitespace-pre-wrap">{message.content}</div>
                   </div>
                 ) : (
@@ -2807,16 +2856,17 @@ function DirectionWorkbenchPanel({
                         onClick={() => void handleReadAloud(messageKey, message.content)}
                         disabled={readAloudBusy}
                         className={classNames(
-                          "inline-flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-100",
+                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
                           readAloudActive
-                            ? "bg-[rgba(29,78,216,0.12)] text-(--color-brand-blue) shadow-[0_8px_20px_rgba(29,78,216,0.14)] hover:bg-[rgba(29,78,216,0.18)]"
-                            : "bg-transparent text-zinc-500 hover:scale-105 hover:bg-zinc-100 hover:text-zinc-900",
+                            ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                            : "border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-900",
                           readAloudBusy ? "cursor-wait opacity-70" : "",
                         )}
-                        title={readAloudBusy ? "Generating read aloud" : readAloudActive ? "Stop read aloud" : "Read aloud"}
-                        aria-label={readAloudBusy ? "Generating read aloud" : readAloudActive ? "Stop read aloud" : "Read aloud"}
+                        title={readAloudActive ? "Stop read aloud" : "Read aloud"}
+                        aria-label={readAloudActive ? "Stop read aloud" : "Read aloud"}
                       >
-                        {readAloudBusy ? <SpinnerIcon className="h-3.5 w-3.5" /> : <ReadAloudSpeakerIcon className="h-3.5 w-3.5" />}
+                        <ReadAloudSpeakerIcon className="h-3.5 w-3.5" />
+                        <span>{readAloudBusy ? "Reading..." : readAloudActive ? "Stop" : "Read aloud"}</span>
                       </button>
                     </div>
                     <AnimatedAssistantMessageText
@@ -2862,18 +2912,26 @@ function DirectionWorkbenchPanel({
               })()
             ))
           ) : !busy ? (
-            <div className="flex flex-col items-start gap-2 pt-2">
-              {[
-                "What's the main problem with this page?",
-                "What should I fix next?",
-              ].map((chip) => (
+            <div className="flex flex-col items-start gap-3 pt-2">
+              <div className="max-w-120 rounded-3xl border border-zinc-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-4 py-3.5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{idleIntro.eyebrow}</div>
+                <div className="mt-2 text-sm font-semibold leading-6 text-zinc-950">{idleIntro.title}</div>
+                <div className="mt-1.5 text-[13px] leading-6 text-zinc-600">{idleIntro.detail}</div>
+              </div>
+              {idleQuickActions.map((chip) => (
                 <button
-                  key={chip}
+                  key={chip.label}
                   type="button"
-                  onClick={() => { onAsk(chip); }}
+                  onClick={() => {
+                    if (chatMode === "work") {
+                      onPrepareDraft(chip.prompt, chip.label);
+                      return;
+                    }
+                    onAsk(chip.prompt);
+                  }}
                   className="rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-left text-sm text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-950"
                 >
-                  {chip}
+                  {chip.label}
                 </button>
               ))}
             </div>
@@ -2895,6 +2953,15 @@ function DirectionWorkbenchPanel({
       />
 
       <div className={chatFooterClassName}>
+        {selectedTargetLabel || selectedTargetContextLine ? (
+          <div className="mx-auto mb-2 flex w-full max-w-4xl flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+            <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-semibold uppercase tracking-[0.14em] text-zinc-600">
+              Editing
+            </span>
+            {selectedTargetLabel ? <span className="font-semibold text-zinc-800">{selectedTargetLabel}</span> : null}
+            {selectedTargetContextLine ? <span className="truncate text-zinc-500">{selectedTargetContextLine}</span> : null}
+          </div>
+        ) : null}
         {selectionTools ? <div className="mx-auto mb-3 w-full max-w-4xl">{selectionTools}</div> : null}
         <PageAssistantComposerRow>
           <AiPromptComposer
@@ -2905,13 +2972,13 @@ function DirectionWorkbenchPanel({
             onPaste={onPaste}
             placeholder={
               chatMode === "work"
-                ? "Name the exact changes you want applied."
-                : "Ask what feels off or what should change next."
+                ? "Describe the pass to apply."
+                : "Ask what feels weakest here."
             }
             busy={busy}
             busyLabel={inlineActivityLabel || "Thinking..."}
             attachCount={attachCount}
-            tone="pura"
+            tone="light"
           />
         </PageAssistantComposerRow>
       </div>
@@ -3263,18 +3330,14 @@ function AiPromptComposer({
   busyLabel: string;
   attachCount: number;
   className?: string;
-  tone?: "light" | "dark" | "pura";
+  tone?: "light" | "dark";
 }) {
   const canSubmit = !busy && value.trim().length > 0;
   const darkTone = tone === "dark";
-  const puraTone = tone === "pura";
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const composerStatusLabel = attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : null;
-  const statusTextColorClassName = puraTone
-    ? busy
-      ? "text-zinc-500"
-      : "text-zinc-500"
-    : busy ? (darkTone ? "text-zinc-500" : "text-zinc-500") : darkTone ? "text-zinc-500" : "text-zinc-500";
+  const statusTextColorClassName = busy ? (darkTone ? "text-zinc-500" : "text-zinc-500") : darkTone ? "text-zinc-500" : "text-zinc-500";
+  const showStatusRow = busy || Boolean(composerStatusLabel);
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -3288,21 +3351,16 @@ function AiPromptComposer({
   return (
     <div
       className={classNames(
-        "relative flex flex-col gap-1 transition-colors",
-        puraTone
-          ? "px-0 py-0"
-          : darkTone ? "border-b border-zinc-700 px-1 py-1 text-zinc-100 focus-within:border-zinc-500" : "border-b border-zinc-300/75 px-1 py-1 text-zinc-900 focus-within:border-zinc-500",
+        "relative flex flex-col gap-0.5 border-b px-1 py-0.5 transition-colors",
+        darkTone
+          ? "border-zinc-700 text-zinc-100 focus-within:border-zinc-500"
+          : "border-zinc-300/75 text-zinc-900 focus-within:border-zinc-500",
         className,
       )}
       aria-busy={busy}
     >
-      <div className={classNames("flex items-end gap-2", puraTone ? "gap-2 pb-0.5" : "") }>
-        {!puraTone ? (
-          <AiSparkIcon className={classNames(
-            "mb-2 h-3.5 w-3.5 shrink-0",
-            busy ? (darkTone ? "text-zinc-600" : "text-zinc-300") : darkTone ? "text-zinc-500" : "text-zinc-400",
-          )} />
-        ) : null}
+      <div className="flex items-end gap-2">
+        <AiSparkIcon className={classNames("mb-1.5 h-3.5 w-3.5 shrink-0", busy ? (darkTone ? "text-zinc-600" : "text-zinc-300") : darkTone ? "text-zinc-500" : "text-zinc-400")} />
         <textarea
           ref={textareaRef}
           value={value}
@@ -3314,79 +3372,75 @@ function AiPromptComposer({
             }
           }}
           className={classNames(
-            "min-w-0 flex-1 resize-none overflow-y-hidden px-3 py-2.5 text-[14px] leading-5 tracking-[-0.01em] outline-none transition-colors",
-            puraTone
-              ? "min-h-11 rounded-none border-0 bg-transparent px-0 py-2 text-zinc-900 placeholder:text-zinc-400 focus:ring-0"
-              : darkTone ? "rounded-2xl bg-transparent text-zinc-50 placeholder:text-zinc-500" : "rounded-2xl bg-transparent text-zinc-900 placeholder:text-zinc-400",
+            "min-w-0 flex-1 resize-none overflow-y-hidden rounded-2xl px-0 py-1.5 text-[14px] leading-5 tracking-[-0.01em] outline-none transition-colors",
+            darkTone ? "text-zinc-50 placeholder:text-zinc-500" : "text-zinc-900 placeholder:text-zinc-400",
+            "bg-transparent",
           )}
-          style={{ minHeight: 40, maxHeight: 220 }}
+          style={{ minHeight: 36, maxHeight: 220 }}
           rows={1}
           placeholder={placeholder}
         />
+        <div className="mb-0.5 flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onAttach}
+            className={classNames(
+              "relative inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors disabled:opacity-60",
+              darkTone ? "text-zinc-500 hover:text-zinc-100" : "text-zinc-400 hover:text-zinc-700",
+              attachCount ? "text-brand-blue" : "",
+            )}
+            title={attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : "Attach references to AI"}
+            aria-label={attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : "Attach references to AI"}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+            {attachCount ? (
+              <span className="absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-brand-blue px-1 text-[10px] font-semibold leading-4 text-white">
+                {attachCount > 9 ? "9+" : attachCount}
+              </span>
+            ) : null}
+          </button>
 
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onAttach}
-          className={classNames(
-            "relative shrink-0 items-center justify-center transition-colors disabled:opacity-60",
-            puraTone
-              ? "mb-0 inline-flex h-10 w-10 rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
-              : "mb-1 inline-flex h-8 w-8 rounded-full",
-            !puraTone && (darkTone ? "text-zinc-500 hover:text-zinc-100" : "text-zinc-400 hover:text-zinc-700"),
-            attachCount ? "text-brand-blue" : "",
-          )}
-          title={attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : "Attach references to AI"}
-          aria-label={attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : "Attach references to AI"}
-        >
-          <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-          </svg>
-          {attachCount ? (
-            <span className="absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-brand-blue px-1 text-[10px] font-semibold leading-4 text-white">
-              {attachCount > 9 ? "9+" : attachCount}
-            </span>
-          ) : null}
-        </button>
+          <button
+            type="button"
+            disabled={!canSubmit}
+            onClick={onSubmit}
+            className={classNames(
+              "group inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-100 hover:scale-105 disabled:opacity-50",
+              darkTone ? "text-zinc-400 hover:text-zinc-100" : "text-zinc-500 hover:text-zinc-900",
+              canSubmit ? "" : darkTone ? "pointer-events-none text-zinc-700" : "pointer-events-none text-zinc-300",
+            )}
+            title={busy ? busyLabel : "Send prompt to AI"}
+            aria-label={busy ? busyLabel : "Send prompt to AI"}
+          >
+            {busy ? (
+              <SpinnerIcon className="h-4 w-4" />
+            ) : (
+              <>
+                <span className="group-hover:hidden">
+                  <IconSend size={16} />
+                </span>
+                <span className="hidden group-hover:inline">
+                  <IconSendHover size={16} />
+                </span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
 
-        <button
-          type="button"
-          disabled={!canSubmit}
-          onClick={onSubmit}
-          className={classNames(
-            "group shrink-0 items-center justify-center transition-all duration-100 hover:scale-105 disabled:opacity-50",
-            puraTone
-              ? "mb-0 inline-flex h-10 w-10 rounded-xl bg-(--color-brand-blue) text-white shadow-[0_10px_24px_rgba(29,78,216,0.22)] hover:opacity-95"
-              : "mb-1 inline-flex h-8 w-8 rounded-full",
-            !puraTone && (darkTone ? "text-zinc-400 hover:text-zinc-100" : "text-zinc-500 hover:text-zinc-900"),
-            canSubmit ? "" : puraTone ? "pointer-events-none opacity-60 shadow-none" : darkTone ? "pointer-events-none text-zinc-700" : "pointer-events-none text-zinc-300",
-          )}
-          title={busy ? busyLabel : "Send prompt to AI"}
-          aria-label={busy ? busyLabel : "Send prompt to AI"}
-        >
+      {showStatusRow ? (
+        <div className={classNames("flex items-center gap-2 px-7 pb-0.5 text-[11px] tracking-[0.01em]", statusTextColorClassName)}>
           {busy ? (
-            <SpinnerIcon className="h-4 w-4" />
-          ) : (
             <>
-              <span className="group-hover:hidden">
-                <IconSend size={16} />
-              </span>
-              <span className="hidden group-hover:inline">
-                <IconSendHover size={16} />
-              </span>
+              <AssistantTypingDots tone={darkTone ? "dark" : "light"} />
+              <span className="min-w-0 truncate">{busyLabel}</span>
             </>
-          )}
-        </button>
-      </div>
-
-      <div className={classNames("flex min-h-4.5 items-center gap-2 text-[11px] tracking-[0.01em]", puraTone ? "px-0 pt-0.5" : "px-7 pb-1", statusTextColorClassName)}>
-        {busy ? (
-          <>
-            <AssistantTypingDots tone={darkTone ? "dark" : "light"} />
-            <span className="min-w-0 truncate">{busyLabel}</span>
-          </>
-        ) : composerStatusLabel ? <span className="min-w-0 truncate">{composerStatusLabel}</span> : null}
-      </div>
+          ) : composerStatusLabel ? <span className="min-w-0 truncate">{composerStatusLabel}</span> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3568,7 +3622,7 @@ async function convertPreviewImageDataUrlToPngDataUrl(
   const maxWidth = Math.max(120, Math.min(2400, Number(options?.maxWidth || 1600) || 1600));
   const maxHeight = Math.max(120, Math.min(3200, Number(options?.maxHeight || 1800) || 1800));
 
-  const img = new Image();
+  const img = new window.Image();
   img.src = dataUrl;
   await new Promise<void>((resolve, reject) => {
     img.onload = () => resolve();
@@ -4050,14 +4104,6 @@ function buildPageConversionFocus(intent: FunnelPageIntentProfile) {
   };
 }
 
-function getLatestBlockChatMessage(messages: BlockChatMessage[], role: BlockChatMessage["role"]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role === role) return message;
-  }
-  return null;
-}
-
 function ToggleSwitch({
   checked,
   disabled,
@@ -4341,117 +4387,6 @@ function migrateLegacyAnchorBlocksIntoSections(blocks: CreditFunnelBlock[]): Cre
   return changed ? next : blocks;
 }
 
-function normalizeHexInput(value: string) {
-  const v = value.trim();
-  if (!v) return "";
-  if (v.startsWith("#")) return v;
-  return "#" + v;
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function rgbToHex(r: number, g: number, b: number) {
-  const to = (x: number) => clamp(Math.round(x), 0, 255).toString(16).padStart(2, "0");
-  return `#${to(r)}${to(g)}${to(b)}`;
-}
-
-function parseCssColor(value: string | undefined | null): { hex: string; alpha: number } {
-  const v = String(value || "").trim();
-  if (!v) return { hex: "#000000", alpha: 1 };
-
-  if (v.toLowerCase() === "transparent") return { hex: "#ffffff", alpha: 0 };
-  if (isHexColor(v)) return { hex: v, alpha: 1 };
-
-  const rgba = v.match(/^rgba\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1|1\.0)\)\s*$/i);
-  if (rgba) {
-    const r = clamp(Number(rgba[1]), 0, 255);
-    const g = clamp(Number(rgba[2]), 0, 255);
-    const b = clamp(Number(rgba[3]), 0, 255);
-    const a = clamp(Number(rgba[4]), 0, 1);
-    return { hex: rgbToHex(r, g, b), alpha: a };
-  }
-
-  const rgb = v.match(/^rgb\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\)\s*$/i);
-  if (rgb) {
-    const r = clamp(Number(rgb[1]), 0, 255);
-    const g = clamp(Number(rgb[2]), 0, 255);
-    const b = clamp(Number(rgb[3]), 0, 255);
-    return { hex: rgbToHex(r, g, b), alpha: 1 };
-  }
-
-  return { hex: "#000000", alpha: 1 };
-}
-
-function maybeHexFromCssColor(raw: string | undefined | null): string | null {
-  const v = String(raw || "").trim();
-  if (!v) return null;
-
-  const lower = v.toLowerCase();
-  if (
-    lower === "transparent" ||
-    lower === "inherit" ||
-    lower === "initial" ||
-    lower === "unset" ||
-    lower === "currentcolor"
-  ) {
-    return null;
-  }
-
-  if (v.startsWith("#")) {
-    const normalized = normalizeHexInput(v);
-    return isHexColor(normalized) ? normalized : null;
-  }
-
-  if (lower.startsWith("rgb(")) {
-    const rgb = v.match(/^rgb\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\)\s*$/i);
-    if (!rgb) return null;
-    const parsed = parseCssColor(v);
-    return isHexColor(parsed.hex) ? parsed.hex : null;
-  }
-
-  if (lower.startsWith("rgba(")) {
-    const rgba = v.match(/^rgba\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1|1\.0)\)\s*$/i);
-    if (!rgba) return null;
-    const parsed = parseCssColor(v);
-    return isHexColor(parsed.hex) ? parsed.hex : null;
-  }
-
-  return null;
-}
-
-function collectHexSwatchesFromUnknown(value: unknown, out: string[], depth = 0) {
-  if (depth > 10) return;
-  if (value == null) return;
-
-  if (typeof value === "string") {
-    const hex = maybeHexFromCssColor(value);
-    if (hex) out.push(hex);
-    return;
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value) collectHexSwatchesFromUnknown(item, out, depth + 1);
-    return;
-  }
-
-  if (typeof value === "object") {
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      if (typeof entry === "string") {
-        const looksLikeColor =
-          key.toLowerCase().includes("color") || entry.trim().startsWith("#") || entry.trim().toLowerCase().startsWith("rgb");
-        if (looksLikeColor) {
-          const hex = maybeHexFromCssColor(entry);
-          if (hex) out.push(hex);
-          continue;
-        }
-      }
-      collectHexSwatchesFromUnknown(entry, out, depth + 1);
-    }
-  }
-}
-
 function compactStyle(style: BlockStyle | undefined): BlockStyle | undefined {
   if (!style) return undefined;
   const next: any = { ...style };
@@ -4549,8 +4484,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return () => {
       cancelled = true;
     };
-    // Intentionally omit `load` from deps to avoid re-creating it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funnelId, funnel, pages]);
     type StripeProductLite = {
       id: string;
@@ -4718,7 +4651,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   },
                 );
                 const json = (await res.json().catch(() => null)) as any;
-                if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to export HTML");
+                if (!res.ok || !json || json.ok !== true) {
+                  throw new Error(json?.error || "HTML export did not finish. Retry here on this page or keep editing here.");
+                }
                 const page = json.page as Partial<Page> | undefined;
                 if (page?.id) {
                   setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
@@ -4727,7 +4662,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   await load();
                 }
               } catch (e) {
-                setError((e as any)?.message ? String((e as any).message) : "Failed to export HTML");
+                setError(
+                  (e as any)?.message
+                    ? String((e as any).message)
+                    : "HTML export did not finish. Retry here on this page or keep editing here.",
+                );
               } finally {
                 setBusy(false);
               }
@@ -4898,7 +4837,35 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </div>
               </header>
 
-              {error ? <div className="mx-4 mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+              {error ? (
+                <div className="mx-4 mt-4 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <div className="font-semibold text-red-900">Funnel editor needs attention</div>
+                  <div className="mt-1">{error}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void load();
+                      }}
+                      className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                    >
+                      Retry
+                    </button>
+                    <Link
+                      href={`${basePath}/app/services/funnel-builder`}
+                      className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                    >
+                      Open funnels
+                    </Link>
+                    <Link
+                      href={`${basePath}/app/ai-chat?onboarding=1`}
+                      className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                    >
+                      Ask Pura
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
 
               {selectedPage && selectedPage.editorMode !== "MARKDOWN" ? (
                 <div
@@ -5353,7 +5320,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 {selectedBlock.props.src ? (
                                   <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Image selected.</div>
                                 ) : (
-                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No image selected.</div>
+                                  <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-600">
+                                    <div className="font-semibold text-zinc-900">No image selected</div>
+                                    <div className="mt-1">Choose an existing asset or upload one with the controls above so this block has something visible to render.</div>
+                                  </div>
                                 )}
 
                                 <label className="block">
@@ -5435,7 +5405,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             } as any);
                                             toast.success("Video uploaded and selected");
                                           } catch (err) {
-                                            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                                  const msg = (err as any)?.message ? String((err as any).message) : "That video did not upload. Try again here or choose another file.";
                                             toast.error(msg);
                                           } finally {
                                             setUploadingImageBlockId(null);
@@ -5474,7 +5444,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 {String((selectedBlock.props as any).src || "").trim() ? (
                                   <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Video selected.</div>
                                 ) : (
-                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No video selected.</div>
+                                  <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-600">
+                                    <div className="font-semibold text-zinc-900">No video selected</div>
+                                    <div className="mt-1">Choose a saved asset or upload a video above so this block can play real media instead of staying empty.</div>
+                                  </div>
                                 )}
 
                                 <label className="block">
@@ -5661,7 +5634,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                                   } as any);
                                                   toast.success("Poster uploaded and selected");
                                                 } catch (err) {
-                                                  const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                                  const msg = (err as any)?.message ? String((err as any).message) : "That poster did not upload. Try again here or choose another image.";
                                                   toast.error(msg);
                                                 } finally {
                                                   setUploadingImageBlockId(null);
@@ -5692,7 +5665,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                           <div className="mt-1 break-all font-mono text-xs text-zinc-700">{String((selectedBlock.props as any)?.posterUrl || "").trim()}</div>
                                         </div>
                                       ) : (
-                                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No poster selected.</div>
+                                        <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-600">
+                                          <div className="font-semibold text-zinc-900">No poster selected</div>
+                                          <div className="mt-1">Add a poster above if you want a cleaner preview before the video plays, especially on slower connections.</div>
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -6433,14 +6409,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   themeStage: "current",
                                 }
                               : bookingSiteSlug
-                                ? {
-                                    kind: "slug",
-                                    slug: bookingSiteSlug,
-                                    funnelId: funnel?.id || null,
-                                    pageId: selectedPage.id,
-                                    themeStage: "current",
-                                  }
-                                : null}
+                                  ? {
+                                      kind: "slug",
+                                      slug: bookingSiteSlug,
+                                      funnelId: funnel?.id || null,
+                                      pageId: selectedPage.id,
+                                      themeStage: "current",
+                                    }
+                                  : null}
                             injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
                             bookingLabel={selectedPagePreviewBookingState?.title || null}
                             surfaceContext={previewBookingSurfaceContext}
@@ -6694,14 +6670,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   themeStage: "current",
                                 }
                               : bookingSiteSlug
-                                ? {
-                                    kind: "slug",
-                                    slug: bookingSiteSlug,
-                                    funnelId: funnel?.id || null,
-                                    pageId: selectedPage.id,
-                                    themeStage: "current",
-                                  }
-                                : null}
+                                  ? {
+                                      kind: "slug",
+                                      slug: bookingSiteSlug,
+                                      funnelId: funnel?.id || null,
+                                      pageId: selectedPage.id,
+                                      themeStage: "current",
+                                    }
+                                  : null}
                             injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
                             bookingLabel={selectedPagePreviewBookingState?.title || null}
                             surfaceContext={previewBookingSurfaceContext}
@@ -6861,7 +6837,7 @@ type FunnelThread = FunnelThreadRecord;
 
 function formatThreadLastActive(raw: string | null | undefined) {
   const value = String(raw || "").trim();
-  if (!value) return "No activity yet";
+  if (!value) return "Activity not logged yet";
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return "Recently updated";
 
@@ -6885,7 +6861,7 @@ function formatThreadLastActive(raw: string | null | undefined) {
 }
 
 function formatTrackingPercent(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Unavailable";
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}%`;
 }
 
@@ -6896,7 +6872,7 @@ function buildThreadPreview(messages: Array<{ role: string; content: string }>) 
     if (!content) continue;
     return message.role === "assistant" ? content : `You: ${content}`;
   }
-  return "No saved reasoning in this thread yet.";
+  return "Saved reasoning is not available in this thread yet.";
 }
 
 function buildThreadPreviewSummary(thread: FunnelThreadRecord) {
@@ -7359,12 +7335,9 @@ export function FunnelEditorClient({
   };
   const [stripeProducts, setStripeProducts] = useState<StripeProductLite[]>([]);
   const [stripeProductsBusy, setStripeProductsBusy] = useState(false);
-  const [stripeProductsError, setStripeProductsError] = useState<string | null>(null);
+  const [, setStripeProductsError] = useState<string | null>(null);
   const [newOfferLabel, setNewOfferLabel] = useState("");
   const [newOfferProductId, setNewOfferProductId] = useState("");
-  const [newStripeProductName, setNewStripeProductName] = useState("");
-  const [newStripeProductPriceCents, setNewStripeProductPriceCents] = useState<number>(4900);
-  const [newStripeProductCurrency, setNewStripeProductCurrency] = useState("usd");
 
   const coerceStripeProductLite = useCallback((value: unknown): StripeProductLite | null => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -7420,68 +7393,23 @@ export function FunnelEditorClient({
       const res = await fetch("/api/portal/funnel-builder/sales/products", { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
-        throw new Error((json && typeof json.error === "string" && json.error) || "Unable to load Stripe products");
+        throw new Error(
+          (json && typeof json.error === "string" && json.error)
+            || "Stripe products are still syncing. Retry this panel or create a new product below.",
+        );
       }
       const items = Array.isArray(json.products) ? (json.products as any[]) : [];
       const coerced = items.map((item) => coerceStripeProductLite(item)).filter((item): item is StripeProductLite => Boolean(item));
       setStripeProducts(coerced);
     } catch (e) {
-      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to load Stripe products";
-      setStripeProductsError(msg || "Unable to load Stripe products");
+      const msg = e && typeof e === "object" && "message" in e
+        ? String((e as any).message)
+        : "Stripe products are still syncing. Retry this panel or create a new product below.";
+      setStripeProductsError(msg || "Stripe products are still syncing. Retry this panel or create a new product below.");
     } finally {
       setStripeProductsBusy(false);
     }
   }, [coerceStripeProductLite, stripeProductsBusy]);
-
-  const createStripeProduct = useCallback(async () => {
-    const name = String(newStripeProductName || "").trim();
-    const currency = String(newStripeProductCurrency || "usd").trim().toLowerCase() || "usd";
-    const unitAmount = Math.max(0, Math.floor(Number(newStripeProductPriceCents) || 0));
-
-    if (!name) {
-      toast.error("Enter a Stripe product name first");
-      return null;
-    }
-    if (unitAmount < 50) {
-      toast.error("Stripe product price must be at least 50 cents");
-      return null;
-    }
-
-    setStripeProductsBusy(true);
-    setStripeProductsError(null);
-    try {
-      const res = await fetch("/api/portal/funnel-builder/sales/products", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, unitAmount, currency }),
-      });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) {
-        throw new Error((json && typeof json.error === "string" && json.error) || "Unable to create Stripe product");
-      }
-      const created = coerceStripeProductLite(json.product);
-      if (!created) throw new Error("Stripe product was created, but the response was incomplete");
-
-      setStripeProducts((prev) => {
-        const rest = prev.filter((item) => item.id !== created.id);
-        return [created, ...rest];
-      });
-      setNewOfferProductId(created.id);
-      if (!String(newOfferLabel || "").trim()) setNewOfferLabel(created.name);
-      setNewStripeProductName("");
-      setNewStripeProductPriceCents(4900);
-      setNewStripeProductCurrency("usd");
-      toast.success("Stripe product created");
-      return created;
-    } catch (e) {
-      const message = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to create Stripe product";
-      setStripeProductsError(message || "Unable to create Stripe product");
-      toast.error(message || "Unable to create Stripe product");
-      return null;
-    } finally {
-      setStripeProductsBusy(false);
-    }
-  }, [coerceStripeProductLite, newOfferLabel, newStripeProductCurrency, newStripeProductName, newStripeProductPriceCents, toast]);
 
   const [funnel, setFunnel] = useState<Funnel | null>(initialFunnel);
   const [pages, setPages] = useState<Page[] | null>(initialPages);
@@ -7553,9 +7481,6 @@ export function FunnelEditorClient({
   const [funnelBookingError, setFunnelBookingError] = useState<string | null>(null);
   const [funnelBriefDirty, setFunnelBriefDirty] = useState(false);
 
-  const [uploadingImageBlockId, setUploadingImageBlockId] = useState<string | null>(null);
-  const [uploadingHeaderLogoBlockId, setUploadingHeaderLogoBlockId] = useState<string | null>(null);
-
   const [aiContextOpen, setAiContextOpen] = useState(false);
   const [aiContextKeys, setAiContextKeys] = useState<string[]>([]);
   void setAiContextKeys; // kept for API compatibility
@@ -7571,6 +7496,7 @@ export function FunnelEditorClient({
   const aiContextUploadInputRef = useRef<HTMLInputElement | null>(null);
   const aiContextMediaHydratingRef = useRef(false);
   const aiDesignContextHydratingRef = useRef(false);
+  const assistantContextRef = useRef<AssistantContextSummary | null>(null);
   const pageHealthToastKeyRef = useRef<Record<string, string>>({});
   const savedFunnelSeoKeyRef = useRef(serializeFunnelSeoDraft(null));
 
@@ -7587,6 +7513,8 @@ export function FunnelEditorClient({
   const [chatRailOpen, setChatRailOpen] = useState(false);
   const [chatRailWidth, setChatRailWidth] = useState(CHAT_RAIL_DEFAULT_WIDTH);
   const [chatRailResizing, setChatRailResizing] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
   const [layoutBootSettled, setLayoutBootSettled] = useState(false);
   // layoutFadeIn becomes true in a useEffect (after paint) so the grid can
   // settle to its correct column count while still invisible, then fade in.
@@ -7594,12 +7522,15 @@ export function FunnelEditorClient({
   const chatRailResizePointerIdRef = useRef<number | null>(null);
   const chatRailResizeFrameRef = useRef<number | null>(null);
   const chatRailResizePendingWidthRef = useRef<number | null>(null);
+  const sidebarResizePointerIdRef = useRef<number | null>(null);
+  const sidebarResizeFrameRef = useRef<number | null>(null);
+  const sidebarResizePendingWidthRef = useRef<number | null>(null);
   const [, setCustomCodeContextOpen] = useState(false);
   const [wholePageSyncNotice, setWholePageSyncNotice] = useState<string | null>(null);
   const [selectedHtmlRegionKey, setSelectedHtmlRegionKey] = useState<string | null>(null);
   const [selectedTextTarget, setSelectedTextTarget] = useState<CreditFunnelEditorTextTarget | null>(null);
   const [busyPhaseIdx, setBusyPhaseIdx] = useState(0);
-  const [aiResultBanner, setAiResultBanner] = useState<{ summary: string; at: string; tone: "success" | "warning" } | null>(null);
+  const [, setAiResultBanner] = useState<{ summary: string; at: string; tone: "success" | "warning" } | null>(null);
   const [aiWorkFocus, setAiWorkFocus] = useState<null | {
     mode: "builder" | "page";
     label: string;
@@ -7608,7 +7539,7 @@ export function FunnelEditorClient({
     blockId: string | null;
   }>(null);
   const [htmlChangeActivity, setHtmlChangeActivity] = useState<HtmlChangeActivityItem[]>([]);
-  const [builderChangeActivity, setBuilderChangeActivity] = useState<BuilderChangeActivityItem[]>([]);
+  const [, setBuilderChangeActivity] = useState<BuilderChangeActivityItem[]>([]);
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanelMode>("structure");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [pageRailDetailPanel, setPageRailDetailPanel] = useState<PageRailDetailPanel | null>(null);
@@ -7646,11 +7577,10 @@ export function FunnelEditorClient({
     return h === "localhost" || h.endsWith(".local") || h === "127.0.0.1";
   }, [platformTargetHost]);
 
-  const [runtimeHostedOrigin, setRuntimeHostedOrigin] = useState<string | null>((process.env.NEXT_PUBLIC_APP_URL || "").trim() || null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setRuntimeHostedOrigin(window.location.origin || (process.env.NEXT_PUBLIC_APP_URL || "").trim() || null);
+  const runtimeHostedOrigin = useMemo(() => {
+    if (typeof window !== "undefined") return window.location.origin || null;
+    const raw = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
+    return raw || null;
   }, []);
 
   const allFontPreviewGoogleCss = useMemo(() => {
@@ -7682,7 +7612,7 @@ export function FunnelEditorClient({
     return hostedPath ? toRuntimeHostedUrl(`${hostedPath}${pageSlugSuffix}`, runtimeHostedOrigin) : null;
   }, [funnel?.assignedDomain, funnel?.slug, funnel?.id, isLocalPreview, runtimeHostedOrigin, selectedPublicPageSlug]);
 
-  const [brandPalette, setBrandPalette] = useState<null | { primary?: string; secondary?: string; accent?: string; text?: string }>(null);
+  const [, setBrandPalette] = useState<null | { primary?: string; secondary?: string; accent?: string; text?: string }>(null);
   const [businessProfileSummary, setBusinessProfileSummary] = useState<BusinessProfileSummary | null>(null);
   const [businessProfileTemplateVars, setBusinessProfileTemplateVars] = useState<Record<string, string>>({});
   const [foundationArtifact, setFoundationArtifact] = useState<FunnelFoundationArtifact | null>(null);
@@ -7721,7 +7651,6 @@ export function FunnelEditorClient({
 
   const [imageCropTarget, setImageCropTarget] = useState<null | { blockId: string; src: string }>(null);
 
-  const [videoSettingsBlockId, setVideoSettingsBlockId] = useState<string | null>(null);
   const [chatRailMode, setChatRailMode] = useState<"chat" | "threads">("chat");
 
   const [pageFaviconPickerOpen, setPageFaviconPickerOpen] = useState(false);
@@ -7759,8 +7688,7 @@ export function FunnelEditorClient({
   // sees anything - eliminating the right-side column jump on load.
   useEffect(() => {
     if (layoutBootSettled && !layoutFadeIn) setLayoutFadeIn(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layoutBootSettled]);
+  }, [layoutBootSettled, layoutFadeIn]);
 
   const queueChatRailWidth = useCallback((nextWidth: number) => {
     chatRailResizePendingWidthRef.current = nextWidth;
@@ -7775,6 +7703,19 @@ export function FunnelEditorClient({
     });
   }, []);
 
+  const queueSidebarWidth = useCallback((nextWidth: number) => {
+    sidebarResizePendingWidthRef.current = nextWidth;
+    if (sidebarResizeFrameRef.current !== null) return;
+    sidebarResizeFrameRef.current = window.requestAnimationFrame(() => {
+      sidebarResizeFrameRef.current = null;
+      const pendingWidth = sidebarResizePendingWidthRef.current;
+      sidebarResizePendingWidthRef.current = null;
+      if (typeof pendingWidth === "number" && Number.isFinite(pendingWidth)) {
+        setSidebarWidth(pendingWidth);
+      }
+    });
+  }, []);
+
   const updateChatRailWidthFromClientX = useCallback(
     (clientX: number) => {
       const viewportWidth = Math.max(window.innerWidth || 0, 1024);
@@ -7783,6 +7724,17 @@ export function FunnelEditorClient({
       queueChatRailWidth(nextWidth);
     },
     [queueChatRailWidth],
+  );
+
+  const updateSidebarWidthFromClientX = useCallback(
+    (clientX: number) => {
+      const viewportWidth = Math.max(window.innerWidth || 0, 1024);
+      const reservedRightWidth = chatRailOpen ? chatRailWidth : CHAT_RAIL_COLLAPSED_WIDTH;
+      const maxWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, viewportWidth - reservedRightWidth - 360));
+      const nextWidth = clamp(Math.max(0, clientX), SIDEBAR_MIN_WIDTH, maxWidth);
+      queueSidebarWidth(nextWidth);
+    },
+    [chatRailOpen, chatRailWidth, queueSidebarWidth],
   );
 
   useEffect(() => {
@@ -7799,11 +7751,31 @@ export function FunnelEditorClient({
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
+      const storedWidth = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) || "");
+      if (!Number.isFinite(storedWidth)) return;
+      setSidebarWidth(clamp(storedWidth, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH));
+    } catch {
+      // Ignore storage access failures and keep the default width.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
       window.localStorage.setItem(CHAT_RAIL_WIDTH_STORAGE_KEY, String(Math.round(chatRailWidth)));
     } catch {
       // Ignore storage access failures and keep the in-memory width.
     }
   }, [chatRailWidth]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(sidebarWidth)));
+    } catch {
+      // Ignore storage access failures and keep the in-memory width.
+    }
+  }, [sidebarWidth]);
 
   useEffect(() => {
     if (!chatRailResizing) return;
@@ -7843,10 +7815,49 @@ export function FunnelEditorClient({
   }, [chatRailResizing, queueChatRailWidth, updateChatRailWidthFromClientX]);
 
   useEffect(() => {
+    if (!sidebarResizing) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (sidebarResizePointerIdRef.current !== null && event.pointerId !== sidebarResizePointerIdRef.current) return;
+      updateSidebarWidthFromClientX(event.clientX);
+    };
+    const stopResizing = (event?: PointerEvent) => {
+      if (event && sidebarResizePointerIdRef.current !== null && event.pointerId !== sidebarResizePointerIdRef.current) return;
+      const rawWidth = event ? Math.max(0, event.clientX) : null;
+      sidebarResizePointerIdRef.current = null;
+      setSidebarResizing(false);
+      if (rawWidth !== null && rawWidth <= SIDEBAR_COLLAPSE_THRESHOLD) {
+        setSidebarCollapsed(true);
+        queueSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+      }
+    };
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResizing);
+    window.addEventListener("pointercancel", stopResizing);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResizing);
+      window.removeEventListener("pointercancel", stopResizing);
+    };
+  }, [queueSidebarWidth, sidebarResizing, updateSidebarWidthFromClientX]);
+
+  useEffect(() => {
     return () => {
       if (chatRailResizeFrameRef.current !== null) {
         window.cancelAnimationFrame(chatRailResizeFrameRef.current);
         chatRailResizeFrameRef.current = null;
+      }
+      if (sidebarResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(sidebarResizeFrameRef.current);
+        sidebarResizeFrameRef.current = null;
       }
     };
   }, []);
@@ -7936,21 +7947,6 @@ export function FunnelEditorClient({
     if (!selectedThreadId) return;
     setDraftThreadPageId(null);
   }, [selectedThreadId]);
-
-  const openThreadFromRail = useCallback(
-    (thread: FunnelThread) => {
-      setDraftThreadPageId(null);
-      setThreadSelectionMode("manual");
-      if (thread.pageId && thread.pageId !== selectedPageId) {
-        requestPageSelection(thread.pageId, { nextThreadId: thread.id });
-        setChatRailMode("chat");
-        return;
-      }
-      setSelectedThreadId(thread.id);
-      setChatRailMode("chat");
-    },
-    [requestPageSelection, selectedPageId],
-  );
 
   const bookingCalendarEditorIdRef = useRef<string | null>(null);
 
@@ -8697,8 +8693,6 @@ export function FunnelEditorClient({
   // NOTE: While the DB schema supports larger rows, many serverless hosts (incl. Vercel)
   // impose a relatively small request-body limit for function invocations. In practice,
   // uploads above a few MB may never reach our handler.
-  const MAX_MEDIA_LIBRARY_BYTES = 4 * 1024 * 1024; // ~4MB per file (direct-to-API)
-  const MAX_UPLOADS_BYTES = 250 * 1024 * 1024; // 250MB per file (disk-backed)
 
   const uploadToMediaLibrary = useCallback(async (files: FileList | File[], opts?: { maxFiles?: number }) => {
     const maxFiles = Math.max(1, Math.min(20, Math.floor(opts?.maxFiles ?? 20)));
@@ -8746,7 +8740,7 @@ export function FunnelEditorClient({
       const items = await uploadToMediaLibrary([file], { maxFiles: 1 });
       const first = items[0];
       const nextUrl = String(first?.shareUrl || "").trim();
-      if (!nextUrl) throw new Error("Upload succeeded, but did not return a URL");
+      if (!nextUrl) throw new Error("That file uploaded, but no URL came back. Retry here or choose another file.");
       return { url: nextUrl, mediaItem: first ?? null };
     }
 
@@ -8759,8 +8753,8 @@ export function FunnelEditorClient({
         headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
       });
     } catch (e) {
-      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Blob upload failed";
-      throw new Error(msg || "Blob upload failed");
+      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "That file did not upload. Try again here or choose another file.";
+      throw new Error(msg || "That file did not upload. Try again here or choose another file.");
     }
 
     // Create a media library item that points to the blob.
@@ -8783,13 +8777,13 @@ export function FunnelEditorClient({
       throw new Error(
         typeof finalizeJson?.error === "string"
           ? finalizeJson.error
-          : "Upload succeeded, but could not add to media library",
+          : "That file did not add. Try again here or choose another file.",
       );
     }
 
     const mediaItem = finalizeJson.item as PortalMediaPickItem;
     const nextUrl = String(mediaItem.shareUrl || blob.url || "").trim();
-    if (!nextUrl) throw new Error("Upload did not return a URL");
+    if (!nextUrl) throw new Error("That file did not attach. Try again here or choose another file.");
     return { url: nextUrl, mediaItem };
   }, [portalVariant, uploadToMediaLibrary]);
 
@@ -8832,8 +8826,8 @@ export function FunnelEditorClient({
 
       toast.success(`Uploaded ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}`);
     } catch (e) {
-      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Upload failed";
-      toast.error(msg || "Upload failed");
+      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Those files did not upload. Try again here or choose different files.";
+      toast.error(msg || "Those files did not upload. Try again here or choose different files.");
     } finally {
       setAiContextUploadBusy(false);
     }
@@ -9160,12 +9154,6 @@ export function FunnelEditorClient({
     if (funnel?.bookingCalendarId) return "funnel";
     return "placeholder";
   }, [funnel?.bookingCalendarId, selectedCalendarBlockPinnedCalendarId]);
-  const selectedCommerceOffer = useMemo(() => {
-    if (!selectedBlock || (selectedBlock.type !== "salesCheckoutButton" && selectedBlock.type !== "addToCartButton")) {
-      return null;
-    }
-    return resolveFunnelOffer(availableFunnelOffers, (selectedBlock.props as any)?.offerId);
-  }, [availableFunnelOffers, selectedBlock]);
   const selectedPricingBlock = useMemo(
     () => (selectedBlock?.type === "pricingGrid" ? selectedBlock : null),
     [selectedBlock],
@@ -9369,7 +9357,7 @@ export function FunnelEditorClient({
       pricingAssistRecognitionRef.current = null;
       pricingAssistDictationFieldKeyRef.current = null;
       setPricingAssistDictatingFieldKey(null);
-      setPricingAssistDictationError("Speech-to-text could not start in this browser session.");
+      setPricingAssistDictationError("Speech-to-text did not start in this browser session. Retry here or keep typing.");
     }
   }, [pricingAssistDictatingFieldKey, stopPricingAssistDictation, updatePricingAssistFieldValue]);
   useEffect(() => {
@@ -9644,7 +9632,7 @@ export function FunnelEditorClient({
         summary: logoUrl
           ? "Selected header logo for brand asset changes."
           : "Selected empty header logo slot for brand asset changes.",
-        contextLine: logoUrl ? "Current logo is set." : "No logo is set yet.",
+        contextLine: logoUrl ? "Current logo is set." : "Logo is not set yet.",
         blockType: "headerNav",
         blockId: selectedBlock.id,
         currentState: {
@@ -9788,7 +9776,7 @@ export function FunnelEditorClient({
         scope: "block",
       },
     };
-  }, [availableFunnelOffers, focusedPricingGridCard, funnel?.bookingCalendarId, selectedBlock, selectedCalendarBlockResolvedCalendarTitle, selectedCalendarBlockRouteKind, selectedTextTarget]);
+  }, [availableFunnelOffers, focusedPricingGridCard, selectedBlock, selectedCalendarBlockResolvedCalendarTitle, selectedCalendarBlockRouteKind, selectedTextTarget]);
   const assistantSelectedEditTarget = pagePreviewEditSelectionActive ? selectedEditTarget : null;
   const selectionSidebarTarget = selectedPage && pageCanvasView === "preview" && previewMode === "edit"
     ? selectedEditTarget
@@ -9886,7 +9874,7 @@ export function FunnelEditorClient({
 
     if (configured) {
       if (missing > 0) {
-        return `${configured} linked, ${missing} missing route${missing === 1 ? "" : "s"}.`;
+        return `${configured} linked, ${missing} route${missing === 1 ? " is" : "s are"} still missing.`;
       }
       if (pageCalendarBlockStats.duplicateConfiguredCount > 0) {
         return `${configured} linked, duplicate route detected.`;
@@ -9902,7 +9890,7 @@ export function FunnelEditorClient({
   const pageCalendarRouteSummaryLabel = useMemo(() => {
     if (!pageCalendarConfiguredCount) return null;
     if (pageCalendarBlockStats.missingConfiguredCount > 0) {
-      return `${pageCalendarConfiguredCount} step-linked, ${pageCalendarBlockStats.missingConfiguredCount} missing route${pageCalendarBlockStats.missingConfiguredCount === 1 ? "" : "s"}`;
+      return `${pageCalendarConfiguredCount} step-linked, ${pageCalendarBlockStats.missingConfiguredCount} route${pageCalendarBlockStats.missingConfiguredCount === 1 ? " is" : "s are"} still missing`;
     }
     return pageCalendarConfiguredCount === 1
       ? "1 step-linked calendar"
@@ -9956,12 +9944,7 @@ export function FunnelEditorClient({
     }
 
     return pageCustomCodeBlocks.find((block) => isMeaningfulCustomCodeBlock(block)) || pageCustomCodeBlocks[0] || null;
-  }, [aiSidebarCustomCodeBlockId, pageCustomCodeBlocks, selectedBlock]);
-
-  const selectedOrCanonicalCustomCodeBlock = useMemo(() => {
-    if (selectedBlock?.type === "customCode") return selectedBlock;
-    return canonicalCustomCodeBlock;
-  }, [canonicalCustomCodeBlock, selectedBlock]);
+  }, [aiSidebarCustomCodeBlockId, pageCustomCodeBlocks]);
 
   useEffect(() => {
     if (!selectedPage?.id || !pageUiStateStorageKey) return;
@@ -10406,31 +10389,6 @@ export function FunnelEditorClient({
     () => previewRenderableBlocks.some((block) => block.type !== "page"),
     [previewRenderableBlocks],
   );
-  const aiSurfaceLabel = useMemo(() => {
-    if (selectedPage?.editorMode === "BLOCKS") {
-      if (builderSurfaceMode === "whole-page") return pageCanvasView === "source" ? "page source" : "page surface";
-      return "page edit surface";
-    }
-    return pageCanvasView === "source" ? "page source" : "page surface";
-  }, [builderSurfaceMode, pageCanvasView, selectedPage?.editorMode]);
-  const aiScopeSummary = useMemo(() => {
-    if (!selectedPage) return "Pura is idle until you select a page.";
-    if (selectedPage.editorMode === "BLOCKS" && builderSurfaceMode === "blocks") {
-      if (selectedBlock) return `Pura is using the current page plus the selected ${describeBuilderBlockNoun(selectedBlock)}.`;
-      return "Pura is using the current page surface and its live section tree.";
-    }
-    return "Pura is using the current page draft source for this page only.";
-  }, [builderSurfaceMode, selectedBlock, selectedPage]);
-  const aiScopeDetails = useMemo(
-    () => [
-      `Surface: ${aiSurfaceLabel}`,
-      `Page route: ${selectedPageRouteLabel}`,
-      pageTransactionReadiness.transactionReady ? "Transaction path: booking or payment is already wired" : "Transaction path: booking/payment still needs wiring",
-      aiReferenceCount ? `Attached references: ${aiReferenceCount}` : "Attached references: none",
-    ],
-    [aiReferenceCount, aiSurfaceLabel, pageTransactionReadiness.transactionReady, selectedPageRouteLabel],
-  );
-
   const storedPageSourceHtml = useMemo(() => getFunnelPageCurrentHtml(selectedPage), [selectedPage]);
   const currentPagePublishedHtml = useMemo(() => getFunnelPagePublishedHtml(selectedPage), [selectedPage]);
   const currentPageDraftIsNewerThanLive = useMemo(() => isFunnelPageDraftNewerThanLive(selectedPage), [selectedPage]);
@@ -10512,14 +10470,14 @@ export function FunnelEditorClient({
           );
           const json = (await res.json().catch(() => null)) as any;
           if (!res.ok || !json || json.ok !== true || !json.foundation) {
-            throw new Error(json?.error || "Unable to resolve foundation");
+            throw new Error(json?.error || "This foundation did not refresh yet.");
           }
           if (foundationArtifactRequestRef.current !== requestId) return;
           setFoundationArtifact(json.foundation as FunnelFoundationArtifact);
         } catch (e) {
           if (foundationArtifactRequestRef.current !== requestId) return;
-          const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to resolve foundation";
-          setFoundationArtifactError(msg || "Unable to resolve foundation");
+          const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "This foundation did not refresh yet.";
+          setFoundationArtifactError(msg || "This foundation did not refresh yet.");
         } finally {
           if (foundationArtifactRequestRef.current === requestId) setFoundationArtifactBusy(false);
         }
@@ -10551,7 +10509,7 @@ export function FunnelEditorClient({
     if (selectedPageGraph.sourceMode === "custom-html") return storedPageSourceHtml;
     if (generatedBlockWholePageHtml) return generatedBlockWholePageHtml;
     return storedPageSourceHtml;
-  }, [generatedBlockWholePageHtml, selectedPage, selectedPageDirty, selectedPageGraph.sourceMode, storedPageSourceHtml]);
+  }, [generatedBlockWholePageHtml, selectedPage, selectedPageGraph.sourceMode, storedPageSourceHtml]);
   const normalizedCommittedPageSourceHtml = useMemo(
     () => stripDiffMarkers(committedPageSourceHtml),
     [committedPageSourceHtml],
@@ -10718,7 +10676,7 @@ export function FunnelEditorClient({
     void loadStripeProducts();
   }, [loadStripeProducts, pageHasStripeProductButtons, selectedBlock, stripeProducts.length, stripeProductsBusy]);
 
-  const newId = () => {
+  const newId = useCallback(() => {
     try {
       const maybeCrypto = globalThis.crypto as Crypto | undefined;
       const id = typeof maybeCrypto?.randomUUID === "function" ? maybeCrypto.randomUUID() : "";
@@ -10727,7 +10685,7 @@ export function FunnelEditorClient({
       // ignore
     }
     return `b_${Math.random().toString(36).slice(2)}_${Date.now()}`;
-  };
+  }, []);
 
   const setSelectedPageLocal = useCallback((patch: Partial<Page>) => {
     if (!selectedPage) return;
@@ -10825,11 +10783,11 @@ export function FunnelEditorClient({
     const formsJson = formsRes ? ((await formsRes.json().catch(() => null)) as any) : null;
     const analyticsJson = analyticsRes ? ((await analyticsRes.json().catch(() => null)) as any) : null;
     if (!fRes.ok || !fJson || fJson.ok !== true)
-      throw new Error(fJson?.error || "Failed to load funnel");
+      throw new Error(fJson?.error || "This funnel workspace is still syncing. Retry here, open funnels, or ask Pura to help.");
     if (!pRes.ok || !pJson || pJson.ok !== true)
-      throw new Error(pJson?.error || "Failed to load pages");
+      throw new Error(pJson?.error || "This funnel workspace is still syncing. Retry here, open funnels, or ask Pura to help.");
     if (!tRes.ok || !tJson || tJson.ok !== true)
-      throw new Error(tJson?.error || "Failed to load threads");
+      throw new Error(tJson?.error || "This funnel workspace is still syncing. Retry here, open funnels, or ask Pura to help.");
 
     const cachedDraft = readFunnelEditorDraftCache(funnelId);
     const liveDirtyPages = (pagesRef.current || []).filter((page) => dirtyPageIdsRef.current[page.id]);
@@ -10924,13 +10882,15 @@ export function FunnelEditorClient({
         body: JSON.stringify({ seo: funnel.seo ?? null }),
       });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save SEO");
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "SEO changes did not save. Review this section here, then save again or ask Pura.");
+      }
       savedFunnelSeoKeyRef.current = serializeFunnelSeoDraft(json.funnel?.seo ?? null);
       setFunnel(json.funnel as Funnel);
       setSeoDirty(false);
       toast.success("SEO saved");
     } catch (e) {
-      const msg = (e as any)?.message ? String((e as any).message) : "Failed to save SEO";
+      const msg = (e as any)?.message ? String((e as any).message) : "SEO changes did not save. Review this section here, then save again or ask Pura.";
       setSeoError(msg);
       toast.error(msg);
     } finally {
@@ -10952,12 +10912,16 @@ export function FunnelEditorClient({
         }),
       });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save booking route");
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Booking route changes did not save. Review this section here, then save again.");
+      }
       setFunnel(json.funnel as Funnel);
       setFunnelBookingDirty(false);
       toast.success("Booking route saved");
     } catch (e) {
-      const msg = (e as any)?.message ? String((e as any).message) : "Failed to save booking route";
+      const msg = (e as any)?.message
+        ? String((e as any).message)
+        : "Booking route changes did not save. Review this section here, then save again.";
       setFunnelBookingError(msg);
       toast.error(msg);
     } finally {
@@ -11114,7 +11078,7 @@ export function FunnelEditorClient({
 
     const draft = buildOfferFromStripeProduct(product, { id: `offer_${newId()}`, label });
     if (!draft) {
-      toast.error("Unable to build an offer from that Stripe product");
+      toast.error("That offer did not build. Review the Stripe product here and try again.");
       return null;
     }
 
@@ -11179,7 +11143,7 @@ export function FunnelEditorClient({
       );
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true || !json.thread) {
-        throw new Error(json?.error || "Failed to save thread");
+        throw new Error(json?.error || "This thread did not save. Retry here or reopen the funnel workspace.");
       }
       const nextThread = json.thread as FunnelThread;
       upsertThreadLocal(nextThread);
@@ -11320,7 +11284,9 @@ export function FunnelEditorClient({
           },
         );
         const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save");
+        if (!res.ok || !json || json.ok !== true) {
+          throw new Error(json?.error || "Page changes did not save. Review this page here, then save again.");
+        }
         const latestRequestSeq = pageSaveRequestRef.current[pageId] || 0;
         if (requestSeq !== latestRequestSeq) return true;
 
@@ -11387,7 +11353,7 @@ export function FunnelEditorClient({
 
         return true;
       } catch (e) {
-        const message = (e as any)?.message ? String((e as any).message) : "Failed to save";
+        const message = (e as any)?.message ? String((e as any)?.message) : "Page changes did not save. Review this page here, then save again.";
         const trackingContext = readTrackingContextFromWindow({
           pageId,
           pageSlug: selectedPage?.slug || null,
@@ -11466,7 +11432,7 @@ export function FunnelEditorClient({
     setSelectedPageLocal({ slug: normalizedSlug });
     const saved = await savePage({ slug: normalizedSlug });
     if (!saved) {
-      setSetupPageSlugError("Failed to save the page path.");
+      setSetupPageSlugError("The page path did not save. Review it here, then save it again.");
       return false;
     }
 
@@ -11656,11 +11622,11 @@ export function FunnelEditorClient({
         const created = await uploadToMediaLibrary(list, { maxFiles: 1 });
         const item = created[0];
         const nextUrl = String(item?.shareUrl || item?.previewUrl || item?.downloadUrl || "").trim();
-        if (!nextUrl) throw new Error("Upload succeeded, but did not return a URL");
+        if (!nextUrl) throw new Error("That tab icon uploaded, but no URL came back. Retry here or choose another image.");
         await setPageFaviconUrl(nextUrl);
         toast.success("Tab icon updated");
       } catch (err) {
-        const message = (err as any)?.message ? String((err as any).message) : "Could not update the tab icon";
+        const message = (err as any)?.message ? String((err as any).message) : "That tab icon did not update. Retry here or choose another image.";
         toast.error(message);
       } finally {
         setPageFaviconUploadBusy(false);
@@ -11737,12 +11703,15 @@ export function FunnelEditorClient({
         body: JSON.stringify({ metaPixelId: normalizeEditorMetaPixelId(nextPixelIdRaw) }),
       });
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save funnel tracking");
-      setFunnel(json.funnel as Funnel);
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Funnel tracking did not save. Review this section here, then save again.");
+      }
       toast.success(json?.funnel?.trackingSettings?.funnelPixelId ? "Funnel Meta pixel saved" : "Funnel Meta pixel cleared");
       return true;
     } catch (e) {
-      const message = (e as any)?.message ? String((e as any).message) : "Failed to save funnel tracking";
+      const message = (e as any)?.message
+        ? String((e as any).message)
+        : "Funnel tracking did not save. Review this section here, then save again.";
       setError(message);
       toast.error(message);
       return false;
@@ -11900,7 +11869,7 @@ export function FunnelEditorClient({
     }
   };
 
-  const convertCurrentPageToBlocks = async () => {
+  const convertCurrentPageToBlocks = useCallback(async () => {
     if (!selectedPage || selectedPage.editorMode !== "CUSTOM_HTML") return;
 
     const currentHtml = getFunnelPageCurrentHtml(selectedPage);
@@ -11964,7 +11933,7 @@ export function FunnelEditorClient({
     } finally {
       setBusy(false);
     }
-  };
+  }, [funnelId, load, pushUndoSnapshot, selectedPage, toast]);
 
   const setEditorMode = async (mode: "BLOCKS" | "CUSTOM_HTML") => {
     if (!selectedPage) return;
@@ -12176,7 +12145,7 @@ export function FunnelEditorClient({
     }
   };
 
-  function requestPageSelection(nextPageId: string | null, options?: { nextThreadId?: string | null }) {
+  const requestPageSelection = useCallback((nextPageId: string | null, options?: { nextThreadId?: string | null }) => {
     const decision = getFunnelEditorPageSelectionDecision({
       busy,
       savingPage,
@@ -12207,7 +12176,22 @@ export function FunnelEditorClient({
     setThreadSelectionMode("auto");
     setSelectedThreadId(pageThread?.id || null);
     setDraftThreadPageId(decision.nextPageId && !pageThread ? decision.nextPageId : null);
-  }
+  }, [busy, savingPage, selectedPage, selectedPageDirty, selectedPageId, sourceHasPendingChanges, threads]);
+
+  const openThreadFromRail = useCallback(
+    (thread: FunnelThread) => {
+      setDraftThreadPageId(null);
+      setThreadSelectionMode("manual");
+      if (thread.pageId && thread.pageId !== selectedPageId) {
+        requestPageSelection(thread.pageId, { nextThreadId: thread.id });
+        setChatRailMode("chat");
+        return;
+      }
+      setSelectedThreadId(thread.id);
+      setChatRailMode("chat");
+    },
+    [requestPageSelection, selectedPageId],
+  );
 
   const executeEditorBackNavigation = useCallback(() => {
     router.replace(`${basePath}/app/services/funnel-builder`, { scroll: false });
@@ -12268,14 +12252,14 @@ export function FunnelEditorClient({
     executeEditorBackNavigation();
   };
 
-  const upsertBlock = (block: CreditFunnelBlock) => {
+  const upsertBlock = useCallback((block: CreditFunnelBlock) => {
     if (!selectedPage) return;
     const nextEditable = replaceBlockInTree(editableBlocks, block);
     setSelectedPageLocal({
       editorMode: "BLOCKS",
       blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
     });
-  };
+  }, [editableBlocks, pageSettingsBlock, replaceBlockInTree, selectedPage, setSelectedPageLocal]);
 
   const openBookingCalendarEditor = useCallback((calendarId: string | null | undefined) => {
     const nextCalendarId = typeof calendarId === "string" ? calendarId.trim() : "";
@@ -12574,80 +12558,6 @@ export function FunnelEditorClient({
     setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: [nextPage, ...editableBlocks] });
   };
 
-  const updateSelectedColumnsColumnStyle = (columnIndex: number, patch: Partial<BlockStyle>) => {
-    if (!selectedBlock || selectedBlock.type !== "columns") return;
-    const cols = Array.isArray((selectedBlock.props as any).columns) ? ((selectedBlock.props as any).columns as any[]) : [];
-    if (columnIndex < 0 || columnIndex >= cols.length) return;
-    const nextCols = cols.map((c, idx) => {
-      if (idx !== columnIndex) return c;
-      const prevStyle = c && typeof c === "object" ? (c as any).style : undefined;
-      return { ...(c || {}), style: applyStylePatch(prevStyle, patch) };
-    });
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        columns: nextCols,
-      } as any,
-    });
-  };
-
-  const updateSelectedSectionSideStyle = (side: "leftStyle" | "rightStyle", patch: Partial<BlockStyle>) => {
-    if (!selectedBlock || selectedBlock.type !== "section") return;
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        [side]: applyStylePatch((selectedBlock.props as any)[side], patch),
-      } as any,
-    });
-  };
-
-  const updateSelectedTestimonialGridItem = (itemIndex: number, patch: Partial<TestimonialGridItem>) => {
-    if (!selectedBlock || selectedBlock.type !== "testimonialGrid") return;
-    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
-    if (itemIndex < 0 || itemIndex >= items.length) return;
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        items: items.map((item, index) => (index === itemIndex ? { ...item, ...patch } : item)),
-      },
-    });
-  };
-
-  const addSelectedTestimonialGridItem = () => {
-    if (!selectedBlock || selectedBlock.type !== "testimonialGrid") return;
-    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        items: [
-          ...items,
-          {
-            quote: "Add a concise client quote here.",
-            name: "Customer name",
-            role: "Customer role",
-          },
-        ],
-      },
-    });
-  };
-
-  const removeSelectedTestimonialGridItem = (itemIndex: number) => {
-    if (!selectedBlock || selectedBlock.type !== "testimonialGrid") return;
-    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
-    if (items.length <= 1) return;
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        items: items.filter((_, index) => index !== itemIndex),
-      },
-    });
-  };
-
   const updateSelectedPricingGridItem = (itemIndex: number, patch: Partial<PricingGridItem>) => {
     if (!selectedBlock || selectedBlock.type !== "pricingGrid") return;
     const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
@@ -12700,24 +12610,6 @@ export function FunnelEditorClient({
           : item.description,
       ctaText: !currentCtaText && offer?.priceId ? "Buy now" : item.ctaText,
       ctaHref: offer?.priceId ? undefined : item.ctaHref,
-    });
-  };
-
-  const bindSelectedCommerceButtonOffer = (offerIdRaw: string) => {
-    if (!selectedBlock || (selectedBlock.type !== "salesCheckoutButton" && selectedBlock.type !== "addToCartButton")) return;
-    const offer = resolveFunnelOffer(availableFunnelOffers, offerIdRaw);
-    const nextOfferId = offer?.id || undefined;
-    const currentProductName = String((selectedBlock.props as any)?.productName || "").trim();
-    const currentProductDescription = String((selectedBlock.props as any)?.productDescription || "").trim();
-    upsertBlock({
-      ...selectedBlock,
-      props: {
-        ...selectedBlock.props,
-        offerId: nextOfferId,
-        priceId: offer?.priceId || String((selectedBlock.props as any)?.priceId || "").trim(),
-        productName: currentProductName || offer?.productName || undefined,
-        productDescription: currentProductDescription || offer?.productDescription || undefined,
-      },
     });
   };
 
@@ -14520,7 +14412,7 @@ export function FunnelEditorClient({
     }
   };
 
-  const runAiChat = async (
+  const runAiChat = useCallback(async (
     prompt: string,
     opts?: {
       persistAssistantOnly?: boolean;
@@ -14564,7 +14456,7 @@ export function FunnelEditorClient({
             sectionPlanItems,
             designContext: sanitizedAiDesignContext,
             contextMedia: effectiveAiContextMedia,
-            assistantContext,
+            assistantContext: assistantContextRef.current,
             selectedRegion: selectedHtmlRegion
               ? {
                   key: selectedHtmlRegion.key,
@@ -14624,7 +14516,7 @@ export function FunnelEditorClient({
       setAiWorkFocus(null);
       setBusy(false);
     }
-  };
+  }, [assistantSelectedEditTarget, committedPageSourceHtml, effectiveAiContextMedia, ensurePageChatMirror, funnelId, htmlRegionScopes, persistThreadMessages, sanitizedAiDesignContext, selectedHtmlRegion, selectedPage, selectedThread, selectedThreadMessages]);
 
   const runPricingEditorAssist = useCallback(async (promptOverride?: string) => {
     if (!selectedPricingBlock || selectedPricingItems.length === 0) return;
@@ -14740,7 +14632,7 @@ export function FunnelEditorClient({
         ? "If the operator gives exact prices, precise package contents, or direct anchoring instructions, keep those as hard constraints and improve the framing around them."
         : null,
       !overallGuidance && !refinementGuidance && !packageNoteSections
-        ? "Operator added no extra notes yet. Start from the current ladder and draft a stronger baseline package plan."
+        ? "Operator notes have not been added yet. Start from the current ladder and draft a stronger baseline package plan."
         : null,
     ]
       .filter(Boolean)
@@ -14778,7 +14670,7 @@ export function FunnelEditorClient({
     setChatRailMode("chat");
     setChatRailOpen(true);
     await runAiChat(prompt, { workLabel: "AI is drafting the pricing ladder" });
-  }, [businessProfileSummary, funnel?.brief, pageConversionFocus, pageIntentProfile, pricingAssistPackageDescriptors, pricingAssistPackageNotes, pricingAssistRefinementPrompt, pricingEditorComparisonNotes, pricingEditorPrompt, runAiChat, selectedPricingBlock, selectedPricingItems]);
+  }, [availableFunnelOffers, businessProfileSummary, funnel?.brief, pageConversionFocus, pageIntentProfile, pricingAssistPackageDescriptors, pricingAssistPackageNotes, pricingAssistRefinementPrompt, pricingEditorComparisonNotes, pricingEditorPrompt, runAiChat, selectedPricingBlock, selectedPricingItems]);
 
   const restoreLastAiRun = async () => {
     if (!selectedPage || !lastAiRun || lastAiRun.pageId !== selectedPage.id) return;
@@ -14999,7 +14891,7 @@ export function FunnelEditorClient({
       await navigator.clipboard.writeText(funnelLiveHref);
       toast.success("Live funnel URL copied");
     } catch {
-      toast.error("Could not copy live funnel URL");
+      toast.error("That live funnel URL did not copy. Retry here.");
     }
   }, [funnelLiveHref, toast]);
 
@@ -15135,10 +15027,10 @@ export function FunnelEditorClient({
   const trackingRuntimeStatusLabel = selectedPageExecutionSummary?.trackingReady
     ? selectedPageExecutionSummary?.metaPixelReady
       ? "Tracking live"
-      : "Pixel missing"
-    : "Event store unavailable";
+      : "Pixel setup needed"
+    : "Event store syncing";
   const trackingRuntimeHelperLabel = !selectedPageExecutionSummary?.trackingReady
-    ? "Live verification is unavailable right now."
+    ? "Live verification is still syncing right now."
     : selectedPageExecutionSummary?.metaPixelReady
       ? "Page events and this Pixel ID are both active."
       : effectiveMetaPixelId
@@ -15151,7 +15043,7 @@ export function FunnelEditorClient({
   const bookingSummaryLabel = !funnel?.bookingCalendarId
     ? pageCalendarRouteSummaryLabel || (pageHasCalendarPlaceholder
       ? "Booking blocks are still placeholder-only."
-      : "No funnel calendar linked yet")
+      : "Funnel calendar not linked yet")
     : pageCalendarConfiguredCount
       ? `${linkedFunnelCalendarTitle} with ${pageCalendarConfiguredCount} step override${pageCalendarConfiguredCount === 1 ? "" : "s"}`
       : `Linked to funnel: ${linkedFunnelCalendarTitle}`;
@@ -15168,16 +15060,6 @@ export function FunnelEditorClient({
       : pageCalendarConfiguredCount
       ? "Mixed routes"
       : "Linked";
-    const chatbotSummaryLabel = !pageHasChatbotBlock
-      ? "No AI widget on this page yet"
-      : aiReceptionistChatAgentId
-        ? "Public launcher is ready on the live page"
-        : "Widget placed, but no live agent is linked yet";
-    const chatbotSummaryStatusLabel = !pageHasChatbotBlock
-      ? "Optional"
-      : aiReceptionistChatAgentId
-        ? "Ready"
-        : "Needs agent";
   const searchSummaryLabel = funnel?.seo?.noIndex ? "Hidden from search" : "Search visible";
   const canvasSummaryLabel = !showCanvasDefaults
     ? "Inherited from imported page"
@@ -15186,7 +15068,7 @@ export function FunnelEditorClient({
       : pageCanvasFontPresetKey === "default"
         ? "Inherited app font"
         : String(pageCanvasFontPresetKey || "Advanced defaults");
-  const trackingSummaryLabel = effectiveMetaPixelId ? `Using ${effectiveMetaPixelSourceLabel.toLowerCase()} Pixel ID` : "No Pixel ID yet";
+  const trackingSummaryLabel = effectiveMetaPixelId ? `Using ${effectiveMetaPixelSourceLabel.toLowerCase()} Pixel ID` : "Pixel ID not added yet";
   const purchaseReadinessItem = pageTransactionReadiness.items.find((item) => item.key === "purchase") || null;
   const commerceReadyOfferCount = availableFunnelOffers.length;
   const commerceSummaryLabel = purchaseReadinessItem?.status === "ready"
@@ -15196,8 +15078,8 @@ export function FunnelEditorClient({
         ? "Commerce is placed. Add one checkout path to finish it."
         : "Commerce is placed. Link one live offer to finish it."
       : commerceReadyOfferCount
-        ? `${commerceReadyOfferCount} offer${commerceReadyOfferCount === 1 ? "" : "s"} ready, no payment path yet`
-        : "No payment path on this page yet";
+        ? `${commerceReadyOfferCount} offer${commerceReadyOfferCount === 1 ? "" : "s"} ready, payment path not wired yet`
+        : "Payment path is not wired on this page yet";
   const commerceStatusLabel = purchaseReadinessItem?.status === "ready"
     ? "Ready"
     : pageHasStripeProductButtons
@@ -15226,7 +15108,7 @@ export function FunnelEditorClient({
         ? "Needs route"
         : "Not linked";
     const tracking = !selectedPageExecutionSummary?.trackingReady
-      ? "Unavailable"
+      ? "Syncing"
       : selectedPageExecutionSummary?.metaPixelReady
         ? "Live + pixel"
         : effectiveMetaPixelId
@@ -15275,6 +15157,9 @@ export function FunnelEditorClient({
     sourceEditMode,
     workflowView.workflowStatusLabel,
   ]);
+  useEffect(() => {
+    assistantContextRef.current = assistantContext;
+  }, [assistantContext]);
   const sidebarTitle = wholePageModeActive && !wholePageUsesBuilderSidebar
       ? "Page context"
       : wholePageUsesBuilderSidebar || blocksSurfaceActive || builderTopLevelPanel === "settings"
@@ -15292,15 +15177,10 @@ export function FunnelEditorClient({
       : funnel?.bookingCalendarId
         ? `New booking steps inherit ${linkedFunnelCalendarTitle}.`
         : "No booking step is selected on this page.";
-  const chatbotSupportLabel = !pageHasChatbotBlock
-    ? "Add a Chat widget block when this page needs a visitor-facing AI launcher."
-    : aiReceptionistChatAgentId
-      ? "This block only controls the public launcher and placement. Conversation instructions, lead handling, and handoff live in AI Receptionist."
-      : "This page already has a Chat widget block, but the linked AI Receptionist chat agent is missing. The widget will not render publicly until that agent is configured.";
   const commerceSupportLabel = purchaseReadinessItem?.summary
     || (pageHasStripeProductButtons
       ? "Checkout or cart UI is present, but at least one offer or path still needs setup."
-      : "No checkout or cart path is wired on this page yet.");
+      : "A checkout or cart path is not wired on this page yet.");
   const searchSupportLabel = selectedPage?.seo?.faviconUrl
     ? "Tab icon is already set. Title, description, and visibility controls live here."
     : "Tab icon, title, description, and search visibility live here.";
@@ -15347,7 +15227,8 @@ export function FunnelEditorClient({
   })();
   const loadingPageWorkspace = !selectedPage && pages === null;
   const showChatRail = chatRailOpen && (Boolean(selectedPage) || loadingPageWorkspace);
-  const reserveChatRailSpace = chatRailOpen && (Boolean(selectedPage) || loadingPageWorkspace);
+  const showCollapsedChatRail = !chatRailOpen && (Boolean(selectedPage) || loadingPageWorkspace);
+  const reserveChatRailSpace = (chatRailOpen || showCollapsedChatRail) && (Boolean(selectedPage) || loadingPageWorkspace);
   const bookingRailDetail = (
     <div className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-2">
@@ -15394,40 +15275,16 @@ export function FunnelEditorClient({
       </button>
     </div>
   );
-  const chatbotRailDetail = (
-    <div className="space-y-2">
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
-          {pageHasChatbotBlock
-            ? "A Chat widget block is placed on this page."
-            : "No Chat widget block is placed on this page yet."}
-        </div>
-        <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
-          {aiReceptionistChatAgentId
-            ? "A linked AI Receptionist chat agent is available for this widget."
-            : "No AI Receptionist chat agent is linked yet, so the live page cannot open this widget."}
-        </div>
-      </div>
-
-      <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
-        Builder preview only shows launcher placement. Test the real conversation on the live or published page.
-      </div>
-
-      <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
-        This block currently controls launcher color, style, image, and screen position. Visitor-facing behavior, internal instructions, lead capture, and fallback handling come from AI Receptionist.
-      </div>
-    </div>
-  );
   const commerceRailDetail = (
     <div className="space-y-2">
       <div className="grid gap-2 sm:grid-cols-2">
         <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
           {commerceReadyOfferCount
             ? `${commerceReadyOfferCount} active offer${commerceReadyOfferCount === 1 ? " is" : "s are"} ready at the funnel level.`
-            : "No active funnel offers are ready yet."}
+            : "Active funnel offers are not ready yet."}
         </div>
         <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
-          {purchaseReadinessItem?.summary || "No checkout or cart path is wired on this page yet."}
+          {purchaseReadinessItem?.summary || "A checkout or cart path is not wired on this page yet."}
         </div>
       </div>
 
@@ -15439,6 +15296,26 @@ export function FunnelEditorClient({
               <div>{pointer.detail}</div>
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {(!commerceReadyOfferCount || purchaseReadinessItem?.status !== "ready") ? (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {selectedPricingBlock ? (
+            <button
+              type="button"
+              onClick={() => setPricingEditorOpen(true)}
+              className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50"
+            >
+              Open pricing editor
+            </button>
+          ) : null}
+          <Link
+            href={`${basePath}/app/ai-chat?onboarding=1`}
+            className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50"
+          >
+            Ask Pura for help
+          </Link>
         </div>
       ) : null}
     </div>
@@ -15466,14 +15343,14 @@ export function FunnelEditorClient({
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-zinc-200 bg-white">
                 {selectedPage?.seo?.faviconUrl ? (
-                  <img src={selectedPage.seo.faviconUrl} alt="Tab icon" className="h-full w-full object-cover" />
+                  <Image src={selectedPage.seo.faviconUrl} alt="Tab icon" width={40} height={40} className="h-full w-full object-cover" />
                 ) : (
                   <span className="text-xs font-semibold text-zinc-400">Icon</span>
                 )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold text-zinc-900">
-                  {pageFaviconUploadBusy ? "Uploading tab icon..." : selectedPage?.seo?.faviconUrl ? "Tab icon ready" : "No tab icon yet"}
+                  {pageFaviconUploadBusy ? "Uploading tab icon..." : selectedPage?.seo?.faviconUrl ? "Tab icon ready" : "Tab icon not added yet"}
                 </div>
                 <div className="mt-1 text-xs leading-5 text-zinc-500">
                   Drop an image here, upload one, or choose one from the media library.
@@ -15582,7 +15459,28 @@ export function FunnelEditorClient({
       </label>
       <div className="text-xs leading-5 text-zinc-500">These fields become the hosted page title and search description when this funnel is served publicly.</div>
 
-      {seoError ? <div className="text-xs font-semibold text-red-700">{seoError}</div> : null}
+      {seoError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+          <div className="font-semibold text-red-900">Search preview needs attention</div>
+          <div className="mt-1 leading-5">{seoError}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={seoBusy}
+              onClick={() => void saveFunnelSeo()}
+              className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              {seoBusy ? "Saving…" : "Retry save"}
+            </button>
+            <Link
+              href={`${basePath}/app/ai-chat?onboarding=1`}
+              className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+            >
+              Ask Pura
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between gap-3 border-t border-zinc-200 pt-2">
         <div className="text-xs text-zinc-500">
@@ -15609,7 +15507,7 @@ export function FunnelEditorClient({
       <div className="grid gap-2 sm:grid-cols-2">
         <div className={sidebarSupportItemClassName}>
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Account pixel ID</div>
-          <div className="mt-1 text-sm font-semibold text-zinc-900">{workspaceDefaultMetaPixelId || "Not configured"}</div>
+          <div className="mt-1 text-sm font-semibold text-zinc-900">{workspaceDefaultMetaPixelId || "Pixel ID not added yet"}</div>
           <Link
             href={`${basePath}/app/services/funnel-builder`}
             className="mt-2 inline-flex text-xs font-semibold text-zinc-700 hover:text-zinc-900"
@@ -15619,7 +15517,7 @@ export function FunnelEditorClient({
         </div>
         <div className={sidebarSupportItemClassName}>
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Active pixel ID</div>
-          <div className="mt-1 text-sm font-semibold text-zinc-900">{effectiveMetaPixelId || "No pixel ID yet"}</div>
+          <div className="mt-1 text-sm font-semibold text-zinc-900">{effectiveMetaPixelId || "Pixel ID not added yet"}</div>
           <div className="mt-1 text-xs leading-5 text-zinc-500">{effectiveMetaPixelId ? `Source: ${effectiveMetaPixelSourceLabel.toLowerCase()}.` : "Internal tracking only."}</div>
         </div>
       </div>
@@ -15688,7 +15586,7 @@ export function FunnelEditorClient({
               {!funnelAnalytics
                 ? "Analytics are loading."
                 : !funnelAnalytics.trackingReady
-                  ? "Event store unavailable"
+                  ? "Event store syncing"
                   : funnelAnalytics.totalSessions
                     ? `${funnelAnalytics.totalSessions} tracked session${funnelAnalytics.totalSessions === 1 ? "" : "s"} and ${funnelAnalytics.totalEvents} event${funnelAnalytics.totalEvents === 1 ? "" : "s"} in the last ${funnelAnalytics.windowDays} days`
                     : `No tracked sessions in the last ${funnelAnalytics.windowDays} days`}
@@ -15807,111 +15705,85 @@ export function FunnelEditorClient({
         description: "Routing, inheritance, and scheduler readiness for this page.",
         content: bookingRailDetail,
       }
-    : pageRailDetailPanel === "chatbot"
-      ? {
-          title: "Chat widget",
-          description: "Launcher readiness, preview limits, and where the live conversation behavior is configured.",
-          content: chatbotRailDetail,
-        }
     : pageRailDetailPanel === "commerce"
       ? {
-          title: "Checkout setup",
+          title: "Commerce details",
           description: "Offer readiness, checkout wiring, and payment path pointers.",
           content: commerceRailDetail,
         }
       : pageRailDetailPanel === "search"
         ? {
-            title: "SEO settings",
-            description: "Search title, description, favicon, and visibility controls.",
+            title: "Search settings",
+            description: "SEO title, description, favicon, and visibility controls.",
             content: searchRailDetail,
           }
         : pageRailDetailPanel === "tracking"
           ? {
-              title: "Tracking and analytics",
+              title: "Tracking details",
               description: "Pixel routing, runtime verification, and first-party analytics for this page.",
               content: trackingRailDetail,
             }
           : pageRailDetailPanel === "advanced"
             ? {
-                title: "Page defaults",
+                title: "Advanced defaults",
                 description: "Page-wide typography defaults and inherited canvas settings.",
                 content: advancedRailDetail,
               }
             : null;
   const sidebarSettingsPanel = selectedPage ? (
     <div className="space-y-2.5 pt-1">
-      <div className="space-y-2">
-        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Conversion setup</div>
-        <PageRailSummaryCard
-          title="Booking"
-          summary={bookingSummaryLabel}
-          detail={bookingSupportLabel}
-          statusLabel={bookingSummaryStatusLabel}
-          statusTone={(!funnel?.bookingCalendarId && pageHasCalendarPlaceholder) || pageCalendarBlockStats.missingConfiguredCount > 0 ? "warning" : funnel?.bookingCalendarId || pageCalendarConfiguredCount ? "success" : "neutral"}
-          actionLabel="Manage booking"
-          onOpen={() => setPageRailDetailPanel("booking")}
-        />
-        <PageRailSummaryCard
-          title="Checkout"
-          summary={commerceSummaryLabel}
-          detail={commerceSupportLabel}
-          statusLabel={commerceStatusLabel}
-          statusTone={purchaseReadinessItem?.status === "ready" ? "success" : pageHasStripeProductButtons || commerceReadyOfferCount > 0 ? "warning" : "neutral"}
-          actionLabel="Manage checkout"
-          onOpen={() => setPageRailDetailPanel("commerce")}
-          extraAction={selectedPricingBlock ? (
-            <button
-              type="button"
-              onClick={() => setPricingEditorOpen(true)}
-              className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
-            >
-              Pricing editor
-            </button>
-          ) : null}
-        />
-        <PageRailSummaryCard
-          title="Chat widget"
-          summary={chatbotSummaryLabel}
-          detail={chatbotSupportLabel}
-          statusLabel={chatbotSummaryStatusLabel}
-          statusTone={!pageHasChatbotBlock ? "neutral" : aiReceptionistChatAgentId ? "success" : "warning"}
-          actionLabel="Manage widget"
-          onOpen={() => setPageRailDetailPanel("chatbot")}
-        />
-      </div>
-
-      <div className="space-y-2 pt-1">
-        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Visibility and measurement</div>
-        <PageRailSummaryCard
-          title="SEO"
-          summary={searchSummaryLabel}
-          detail={searchSupportLabel}
-          statusLabel="SEO"
-          actionLabel="Manage SEO"
-          onOpen={() => setPageRailDetailPanel("search")}
-        />
-        <PageRailSummaryCard
-          title="Tracking"
-          summary={trackingSummaryLabel}
-          detail={trackingSupportLabel}
-          statusLabel={trackingRuntimeStatusLabel}
-          statusTone={selectedPageExecutionSummary?.trackingReady && selectedPageExecutionSummary?.metaPixelReady ? "success" : effectiveMetaPixelId || selectedPageExecutionSummary?.trackingReady ? "warning" : "neutral"}
-          actionLabel="Manage tracking"
-          onOpen={() => setPageRailDetailPanel("tracking")}
-        />
-      </div>
-
-      <div className="space-y-2 pt-1">
-        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Page defaults</div>
-        <PageRailSummaryCard
-          title="Defaults"
-          summary="Typography and inherited page defaults. Most pages should leave this alone."
-          detail={advancedSupportLabel}
-          statusLabel="Defaults"
-          actionLabel="Open defaults"
-          onOpen={() => setPageRailDetailPanel("advanced")}
-        />
-      </div>
+      <PageRailSummaryCard
+        title="Booking"
+        summary={bookingSummaryLabel}
+        detail={bookingSupportLabel}
+        statusLabel={bookingSummaryStatusLabel}
+        statusTone={(!funnel?.bookingCalendarId && pageHasCalendarPlaceholder) || pageCalendarBlockStats.missingConfiguredCount > 0 ? "warning" : funnel?.bookingCalendarId || pageCalendarConfiguredCount ? "success" : "neutral"}
+        actionLabel="Open booking"
+        onOpen={() => setPageRailDetailPanel("booking")}
+      />
+      <PageRailSummaryCard
+        title="Commerce"
+        summary={commerceSummaryLabel}
+        detail={commerceSupportLabel}
+        statusLabel={commerceStatusLabel}
+        statusTone={purchaseReadinessItem?.status === "ready" ? "success" : pageHasStripeProductButtons || commerceReadyOfferCount > 0 ? "warning" : "neutral"}
+        actionLabel="Open commerce"
+        onOpen={() => setPageRailDetailPanel("commerce")}
+        extraAction={selectedPricingBlock ? (
+          <button
+            type="button"
+            onClick={() => setPricingEditorOpen(true)}
+            className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+          >
+            Pricing editor
+          </button>
+        ) : null}
+      />
+      <PageRailSummaryCard
+        title="Search"
+        summary={searchSummaryLabel}
+        detail={searchSupportLabel}
+        statusLabel="SEO"
+        actionLabel="Open search"
+        onOpen={() => setPageRailDetailPanel("search")}
+      />
+      <PageRailSummaryCard
+        title="Tracking"
+        summary={trackingSummaryLabel}
+        detail={trackingSupportLabel}
+        statusLabel={trackingRuntimeStatusLabel}
+        statusTone={selectedPageExecutionSummary?.trackingReady && selectedPageExecutionSummary?.metaPixelReady ? "success" : effectiveMetaPixelId || selectedPageExecutionSummary?.trackingReady ? "warning" : "neutral"}
+        actionLabel="Open tracking"
+        onOpen={() => setPageRailDetailPanel("tracking")}
+      />
+      <PageRailSummaryCard
+        title="Advanced"
+        summary="Font and page defaults. Most pages should leave this alone."
+        detail={advancedSupportLabel}
+        statusLabel="Advanced"
+        actionLabel="Open advanced"
+        onOpen={() => setPageRailDetailPanel("advanced")}
+      />
 
       <PortalMediaPickerModal
         open={pageFaviconPickerOpen}
@@ -16237,7 +16109,7 @@ export function FunnelEditorClient({
             toast.success("Cropped image saved as a copy");
             setImageCropTarget(null);
           } catch (err) {
-            const msg = (err as any)?.message ? String((err as any).message) : "Crop upload failed";
+              const msg = (err as any)?.message ? String((err as any).message) : "That cropped image did not upload. Try again here or choose another image.";
             toast.error(msg);
           }
         }}
@@ -16450,7 +16322,30 @@ export function FunnelEditorClient({
                             </button>
                           </div>
 
-                          {setupPageSlugError ? <div className="mt-2 text-xs leading-5 text-red-600">{setupPageSlugError}</div> : null}
+                          {setupPageSlugError ? (
+                            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-700">
+                              <div className="font-semibold text-red-900">Page path needs attention</div>
+                              <div className="mt-1">{setupPageSlugError}</div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void commitSetupPageSlug();
+                                  }}
+                                  className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                                >
+                                  Try again
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setSetupPageSlugError(null)}
+                                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                                >
+                                  Clear message
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
 
                         {showFoundationOverviewStep ? (
@@ -17122,7 +17017,7 @@ export function FunnelEditorClient({
                       <div>
                         <div className="font-semibold text-zinc-900">Current risks</div>
                         <div className="mt-2 space-y-2 text-sm leading-6 text-zinc-700">
-                          {(foundationArtifact?.conversionRisks.length ? foundationArtifact.conversionRisks : ["No major conversion-risk note is persisted yet."]).map((item, index) => (
+                          {(foundationArtifact?.conversionRisks.length ? foundationArtifact.conversionRisks : ["A major conversion-risk note is not persisted yet."]).map((item, index) => (
                             <div key={`${item}-${index}`}>{item}</div>
                           ))}
                         </div>
@@ -17138,7 +17033,7 @@ export function FunnelEditorClient({
                     </div>
                     {foundationArtifactError ? (
                       <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-                        Foundation refresh failed, so this view is showing the structured fallback. {foundationArtifactError}
+                        Foundation refresh did not finish, so this view is showing the structured fallback. Keep working from this summary or use the prompts below. {foundationArtifactError}
                       </div>
                     ) : null}
                   </div>
@@ -17362,7 +17257,7 @@ export function FunnelEditorClient({
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Setup status</div>
                 <div className="mt-2 text-xl font-semibold tracking-tight text-zinc-950">
                   {!dialogHasRoute
-                    ? "No calendar linked yet"
+                    ? "Calendar not linked yet"
                     : dialogRouteKind === "block"
                       ? "Calendar linked to this step"
                       : "Calendar linked to this funnel"}
@@ -17375,6 +17270,46 @@ export function FunnelEditorClient({
                     : !dialogSetupComplete
                       ? `${dialogResolvedCalendarTitle || "This calendar"} is linked ${dialogRouteKind === "block" ? "to this step" : "to this funnel"}. Finish the remaining details below before the booking flow goes live.`
                       : dialogPathHelp}
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {!dialogHasRoute ? (
+                    <button
+                      type="button"
+                      disabled={quickCalendarBusy || !funnel || (dialogMode === "block" && dialogBlock?.type !== "calendarEmbed")}
+                      onClick={() =>
+                        void createQuickCalendarAndSyncFunnel({
+                          title: dialog?.type === "booking-routing" ? dialog.newCalendarTitle : "",
+                          routeTarget: dialogMode,
+                          blockId: dialogBlock?.type === "calendarEmbed" ? dialogBlock.id : null,
+                          openEditor: true,
+                        })
+                      }
+                      className={classNames(
+                        "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                        quickCalendarBusy || !funnel || (dialogMode === "block" && dialogBlock?.type !== "calendarEmbed")
+                          ? "bg-zinc-400"
+                          : "bg-(--color-brand-blue) hover:bg-blue-700",
+                      )}
+                    >
+                      {quickCalendarBusy ? "Creating..." : quickCreateButtonLabel}
+                    </button>
+                  ) : !dialogSetupComplete ? (
+                    <button
+                      type="button"
+                      onClick={() => openBookingCalendarEditor(dialogResolvedCalendarId)}
+                      className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    >
+                      Finish calendar setup
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, surface: "route" } : prev))}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    {dialogHasRoute ? "Change route" : "Attach existing calendar"}
+                  </button>
                 </div>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -17427,7 +17362,7 @@ export function FunnelEditorClient({
                       </div>
                       <div className={classNames("rounded-2xl border px-4 py-3", dialogCalendarHasLocation ? "border-zinc-200 bg-zinc-50" : "border-amber-200 bg-amber-50")}>
                         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Location</div>
-                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasLocation ? "Configured" : "Missing"}</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasLocation ? "Configured" : "Setup needed"}</div>
                         <div className="mt-1 text-xs leading-5 text-zinc-600">
                           {dialogCalendarHasLocation
                             ? dialogLocationSummaryText
@@ -17436,7 +17371,7 @@ export function FunnelEditorClient({
                       </div>
                       <div className={classNames("rounded-2xl border px-4 py-3", dialogCalendarHasDetails ? "border-zinc-200 bg-zinc-50" : "border-amber-200 bg-amber-50")}>
                         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Booking copy</div>
-                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasDetails ? "Configured" : "Missing"}</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasDetails ? "Configured" : "Setup needed"}</div>
                         <div className="mt-1 text-xs leading-5 text-zinc-600">{dialogCalendarHasDetails ? "Expectations and details are in place." : "Add the booking details and expectations before this goes live."}</div>
                       </div>
                     </div>
@@ -17468,10 +17403,10 @@ export function FunnelEditorClient({
                       <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Setup checklist</div>
                       <div className="mt-3 space-y-2 text-sm leading-6 text-zinc-700">
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                          Meeting location: {dialogCalendarHasLocation ? dialogLocationSummaryText : "still missing"}
+                          Meeting location: {dialogCalendarHasLocation ? dialogLocationSummaryText : "setup still needed"}
                         </div>
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                          Booking details: {dialogCalendarHasDetails ? "configured" : "still missing"}
+                          Booking details: {dialogCalendarHasDetails ? "configured" : "setup still needed"}
                         </div>
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
                           Notifications: {dialogCalendarHasNotifications ? "configured" : "optional and currently empty"}
@@ -17485,7 +17420,37 @@ export function FunnelEditorClient({
                         <div className="mt-2 text-sm leading-6 text-zinc-700">
                           Preset, timing, or availability defaults have unsaved changes for future calendars created from this funnel.
                         </div>
-                        {funnelBookingError ? <div className="mt-3 text-xs text-red-600">{funnelBookingError}</div> : null}
+                        {funnelBookingError ? (
+                          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                            <div className="font-semibold text-red-900">Booking defaults need attention</div>
+                            <div className="mt-1 leading-5">{funnelBookingError}</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={funnelBookingBusy || !funnelBookingDirty}
+                                onClick={() => {
+                                  void saveFunnelBookingRouting();
+                                }}
+                                className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                              >
+                                {funnelBookingBusy ? "Saving…" : "Try save again"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFunnelBookingError(null)}
+                                className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                              >
+                                Keep editing
+                              </button>
+                              <Link
+                                href={`${basePath}/app/ai-chat?onboarding=1`}
+                                className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                              >
+                                Ask Pura
+                              </Link>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -17635,7 +17600,35 @@ export function FunnelEditorClient({
                           </div>
                         </div>
 
-                        {quickCalendarError ? <div className="mt-3 text-xs text-red-600">{quickCalendarError}</div> : null}
+                        {quickCalendarError ? (
+                          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                            <div className="font-semibold text-red-900">Quick calendar setup hit a snag</div>
+                            <div className="mt-1 leading-5">{quickCalendarError}</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={quickCalendarBusy || !funnel || (dialogMode === "block" && dialogBlock?.type !== "calendarEmbed")}
+                                onClick={() =>
+                                  void createQuickCalendarAndSyncFunnel({
+                                    title: dialog?.type === "booking-routing" ? dialog.newCalendarTitle : "",
+                                    routeTarget: dialogMode,
+                                    blockId: dialogBlock?.type === "calendarEmbed" ? dialogBlock.id : null,
+                                    openEditor: true,
+                                  })
+                                }
+                                className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                              >
+                                Retry setup
+                              </button>
+                              <Link
+                                href={`${basePath}/app/ai-chat?onboarding=1`}
+                                className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                              >
+                                Ask Pura
+                              </Link>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="rounded-3xl border border-zinc-200 bg-white p-5">
@@ -17701,7 +17694,7 @@ export function FunnelEditorClient({
                                 options={[
                                   {
                                     value: "",
-                                    label: "No shared funnel calendar yet",
+                                    label: "Shared funnel calendar not linked yet",
                                     hint: "The funnel will stay unassigned until you choose or create one.",
                                   },
                                   ...enabledBookingCalendars.map((calendar) => ({
@@ -17809,7 +17802,38 @@ export function FunnelEditorClient({
                             {`New calendars created from this popup start with the ${selectedBookingPreset.label.toLowerCase()} setup: ${resolvedFunnelBookingDefaults.durationMinutes} minutes, ${formatBookingNoticeWindow(resolvedFunnelBookingDefaults.minimumNoticeMinutes)}, ${resolvedFunnelBookingDefaults.timeZone}, and the ${selectedAvailabilityLabel.toLowerCase()} schedule.`}
                           </div>
 
-                          {funnelBookingError ? <div className="text-xs text-red-600">{funnelBookingError}</div> : null}
+                          {funnelBookingError ? (
+                            <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                              <div className="font-semibold text-red-900">Booking defaults need attention</div>
+                              <div className="mt-1 leading-5">{funnelBookingError}</div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void saveFunnelBookingRouting()}
+                                  disabled={funnelBookingBusy || !funnelBookingDirty}
+                                  className={classNames(
+                                    "rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700",
+                                    funnelBookingBusy || !funnelBookingDirty ? "cursor-not-allowed opacity-60" : "",
+                                  )}
+                                >
+                                  {funnelBookingBusy ? "Saving…" : "Try save again"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setFunnelBookingError(null)}
+                                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100"
+                                >
+                                  Keep editing
+                                </button>
+                                <Link
+                                  href={`${basePath}/app/ai-chat?onboarding=1`}
+                                  className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                                >
+                                  Ask Pura
+                                </Link>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
 
@@ -18055,7 +18079,7 @@ export function FunnelEditorClient({
                         ? `The primary CTA will bind to ${selectedCreateOffer.label}${selectedCreateOffer.displayPrice ? ` · ${selectedCreateOffer.displayPrice}` : ""}.`
                         : availableFunnelOffers.length
                           ? "Choose an offer now to seed the sales CTA already connected."
-                          : "No funnel offers exist yet, so the page will start with an unbound CTA."}
+                          : "Funnel offers have not been created yet, so the page will start with an unbound CTA."}
                     </div>
                   </label>
                 ) : null}
@@ -18142,7 +18166,48 @@ export function FunnelEditorClient({
                 </div>
               </div>
 
-              {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
+              {dialogError ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <div className="font-semibold text-red-900">Page plan needs attention</div>
+                  <div className="mt-1">{dialogError}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy || dialog?.type !== "create-page"}
+                      onClick={() => {
+                        if (dialog?.type !== "create-page") return;
+                        void performCreatePage({
+                          requestId: dialog.requestId,
+                          slug: dialog.slug,
+                          title: dialog.title,
+                          pageType: dialog.pageType,
+                          primaryCta: dialog.primaryCta,
+                          heroAssetMode: dialog.heroAssetMode,
+                          audience: dialog.audience,
+                          offer: dialog.offer,
+                          selectedOfferId: dialog.selectedOfferId,
+                        });
+                      }}
+                      className="rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {busy ? "Creating…" : "Try create again"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDialogError(null)}
+                      className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                    >
+                      Keep editing
+                    </button>
+                    <Link
+                      href={`${basePath}/app/ai-chat?onboarding=1`}
+                      className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                    >
+                      Ask Pura
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
             </div>
           );
         })()}
@@ -18270,7 +18335,43 @@ export function FunnelEditorClient({
             />
           </label>
 
-          {dialogError ? <div className="text-sm font-semibold text-red-700">{dialogError}</div> : null}
+          {dialogError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div className="font-semibold text-red-900">Form setup needs attention</div>
+              <div className="mt-1">{dialogError}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy || dialog?.type !== "create-form"}
+                  onClick={() => {
+                    if (dialog?.type !== "create-form") return;
+                    void performCreateForm({
+                      slug: dialog.slug,
+                      name: dialog.name,
+                      templateKey: dialog.templateKey,
+                      themeKey: dialog.themeKey,
+                    });
+                  }}
+                  className="rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  {busy ? "Creating…" : "Try create again"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDialogError(null)}
+                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Keep editing
+                </button>
+                <Link
+                  href={`${basePath}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
+          ) : null}
         </div>
       </AppModal>
 
@@ -18527,11 +18628,12 @@ export function FunnelEditorClient({
                   >
                     <div className="aspect-4/3 border-b border-zinc-200 bg-zinc-100">
                       {image ? (
-                        <img
+                        <Image
                           src={m.url}
                           alt={label}
+                          width={640}
+                          height={480}
                           className="h-full w-full object-cover"
-                          loading="lazy"
                         />
                       ) : (
                         <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-zinc-500">
@@ -18564,7 +18666,29 @@ export function FunnelEditorClient({
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500">
-              No references attached yet. Upload files or pick existing assets from your media library.
+              <div className="font-semibold text-zinc-900">References are not attached to this prompt yet</div>
+              <div className="mt-1">Upload files or pick existing assets from your media library so Pura can use them while planning and editing.</div>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy || aiContextUploadBusy}
+                  onClick={() => aiContextUploadInputRef.current?.click()}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {aiContextUploadBusy ? "Uploading..." : "Upload"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || aiContextUploadBusy}
+                  onClick={() => {
+                    setMediaPickerTarget({ type: "ai-context" });
+                    setMediaPickerOpen(true);
+                  }}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  From library
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -18841,10 +18965,10 @@ export function FunnelEditorClient({
                               event.stopPropagation();
                               openPricingSummaryEditor(itemIndex);
                             }}
-                            className="flex min-h-[92px] w-full flex-col items-start justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:border-zinc-300 hover:bg-white"
+                            className="flex min-h-23 w-full flex-col items-start justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:border-zinc-300 hover:bg-white"
                           >
                             <div className="max-h-12 overflow-hidden text-sm leading-6 text-zinc-700">
-                              {summaryPreview || "No summary written yet. Open the writer when this tier needs longer package copy."}
+                              {summaryPreview || "Summary not written yet. Open the writer when this tier needs longer package copy."}
                             </div>
                             <div className="mt-2 text-[11px] font-semibold text-zinc-500">
                               {summaryPreview ? "Open writer" : "Write summary"}
@@ -18929,7 +19053,7 @@ export function FunnelEditorClient({
                             <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-3">
                               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Summary</div>
                               <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-800">
-                                {summaryPreview || "No summary written yet. Open the writer to draft the package story for this package."}
+                                {summaryPreview || "Summary not written yet. Open the writer to draft the package story for this package."}
                               </div>
                             </div>
 
@@ -19076,7 +19200,7 @@ export function FunnelEditorClient({
               const cardName = String(item.name || `Package ${itemIndex + 1}`).trim() || `Package ${itemIndex + 1}`;
               return (
                 <div
-                  className="fixed inset-0 z-[90] flex items-center justify-center bg-white/45 p-4 backdrop-blur-[3px]"
+                  className="fixed inset-0 z-90 flex items-center justify-center bg-white/45 p-4 backdrop-blur-[3px]"
                   onClick={closePricingSummaryEditor}
                 >
                   <div
@@ -19084,7 +19208,7 @@ export function FunnelEditorClient({
                     aria-modal="true"
                     aria-label={`Edit ${cardName} summary`}
                     onClick={(event) => event.stopPropagation()}
-                    className="w-[min(820px,calc(100vw-28px))] rounded-[32px] border border-zinc-200 bg-white shadow-[0_36px_120px_rgba(15,23,42,0.18)]"
+                    className="w-[min(820px,calc(100vw-28px))] rounded-4xl border border-zinc-200 bg-white shadow-[0_36px_120px_rgba(15,23,42,0.18)]"
                   >
                     <div className="flex items-start justify-between gap-4 px-6 pt-6">
                       <div className="min-w-0 flex-1">
@@ -19107,7 +19231,7 @@ export function FunnelEditorClient({
                         value={item.description ?? ""}
                         onChange={(e) => updateSelectedPricingGridItem(itemIndex, { description: e.target.value })}
                         rows={14}
-                        className="min-h-[52vh] w-full resize-none rounded-[24px] border border-zinc-200 bg-white px-5 py-4 text-[15px] leading-7 text-zinc-900 outline-none focus:border-zinc-300"
+                        className="min-h-[52vh] w-full resize-none rounded-3xl border border-zinc-200 bg-white px-5 py-4 text-[15px] leading-7 text-zinc-900 outline-none focus:border-zinc-300"
                         placeholder="Write the package summary, buyer fit, and what makes this tier worth choosing."
                       />
 
@@ -19129,7 +19253,7 @@ export function FunnelEditorClient({
 
             {pricingAssistComposerOpen ? (
               <div
-                className="fixed inset-0 z-[90] flex items-center justify-center bg-zinc-950/12 p-4 backdrop-blur-md"
+                className="fixed inset-0 z-90 flex items-center justify-center bg-zinc-950/12 p-4 backdrop-blur-md"
                 onClick={closePricingAssistComposer}
               >
                 <div
@@ -19198,7 +19322,7 @@ export function FunnelEditorClient({
                         </div>
                       </div>
 
-                      <div className="rounded-[24px] border border-blue-100 bg-[linear-gradient(180deg,rgba(248,250,252,0.9)_0%,rgba(239,246,255,0.72)_100%)] p-4 shadow-[0_14px_40px_rgba(59,130,246,0.06)]">
+                      <div className="rounded-3xl border border-blue-100 bg-[linear-gradient(180deg,rgba(248,250,252,0.9)_0%,rgba(239,246,255,0.72)_100%)] p-4 shadow-[0_14px_40px_rgba(59,130,246,0.06)]">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
@@ -19226,7 +19350,7 @@ export function FunnelEditorClient({
                             title={
                               pricingAssistDictationSupported
                                 ? (pricingAssistDictatingFieldKey === "overall" ? "Stop dictation" : "Dictate overall notes")
-                                : "Speech-to-text is not available in this browser"
+                                : "Speech-to-text is not available in this browser. Try Chrome or Safari."
                             }
                             aria-label={pricingAssistDictatingFieldKey === "overall" ? "Stop dictation" : "Dictate overall notes"}
                           >
@@ -19243,7 +19367,7 @@ export function FunnelEditorClient({
                         />
                       </div>
 
-                      <div className="rounded-[24px] border border-zinc-200 bg-white p-3">
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-3">
                         <div className="flex items-center justify-between gap-3 px-2 pb-3 pt-1">
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
@@ -19302,7 +19426,7 @@ export function FunnelEditorClient({
                                       title={
                                         pricingAssistDictationSupported
                                           ? (dictatingThisPackage ? "Stop dictation" : `Dictate notes for ${descriptor.packageName}`)
-                                          : "Speech-to-text is not available in this browser"
+                                          : "Speech-to-text is not available in this browser. Try Chrome or Safari."
                                       }
                                       aria-label={dictatingThisPackage ? "Stop dictation" : `Dictate notes for ${descriptor.packageName}`}
                                     >
@@ -19337,7 +19461,7 @@ export function FunnelEditorClient({
                                   placeholder={`Example: make ${descriptor.packageName} feel like the core option, sharpen what it includes, and compare it loosely against the others without rewriting everything.`}
                                 />
                                 <div className="mt-3 rounded-[18px] border border-zinc-200 bg-white px-3 py-2 text-sm leading-6 text-zinc-500">
-                                  Current summary: <span className="text-zinc-700">{descriptor.summaryText || "Not set yet."}</span>
+                                  Current summary: <span className="text-zinc-700">{descriptor.summaryText || "Not added yet."}</span>
                                 </div>
                               </div>
                             );
@@ -19348,7 +19472,7 @@ export function FunnelEditorClient({
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200/80 px-6 py-4 text-xs text-zinc-500">
-                    <div className="flex-1 min-w-[280px]">
+                    <div className="flex-1 min-w-70">
                       {pricingAssistRefinementOpen ? (
                         <div className="rounded-[22px] border border-blue-100 bg-[linear-gradient(135deg,rgba(248,250,252,0.96)_0%,rgba(239,246,255,0.92)_62%,rgba(246,249,255,0.98)_100%)] p-3 shadow-[0_10px_30px_rgba(59,130,246,0.06)]">
                           <div className="flex items-start justify-between gap-3">
@@ -19381,7 +19505,7 @@ export function FunnelEditorClient({
                                 title={
                                   pricingAssistDictationSupported
                                     ? (pricingAssistDictatingFieldKey === "refinement" ? "Stop dictation" : "Dictate next-pass notes")
-                                    : "Speech-to-text is not available in this browser"
+                                    : "Speech-to-text is not available in this browser. Try Chrome or Safari."
                                 }
                                 aria-label={pricingAssistDictatingFieldKey === "refinement" ? "Stop dictation" : "Dictate next-pass notes"}
                               >
@@ -19453,14 +19577,14 @@ export function FunnelEditorClient({
         ) : null}
       </AppModal>
 
-      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfb_100%)] backdrop-blur-sm">
+      <header className={classNames("sticky top-0 z-20 border-b border-zinc-200 bg-white/92 backdrop-blur-sm", funnelEditorShellClass)}>
         <div className="px-4 py-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               onClick={requestEditorExit}
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              className={classNames("rounded-xl px-3 py-2 text-sm font-semibold", funnelEditorChromeButtonClass)}
             >
               Back
             </button>
@@ -19479,7 +19603,7 @@ export function FunnelEditorClient({
                     ...(pages || []).map((p) => ({ value: p.id, label: p.title })),
                   ]}
                   className="w-full sm:min-w-55 sm:w-auto"
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                  buttonClassName={classNames("flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-slate-400", funnelEditorChromeButtonClass)}
                   disabled={busy || !pages || pages.length === 0}
                 />
 
@@ -19495,12 +19619,12 @@ export function FunnelEditorClient({
                   + Page
                 </button>
 
-                <div className="inline-flex items-center self-start rounded-xl border border-zinc-200 bg-white p-1 sm:self-auto">
+                <div className={classNames("inline-flex items-center self-start rounded-xl border border-zinc-200 bg-white p-1 shadow-sm sm:self-auto", funnelEditorChromeButtonClass)}>
                   <button
                     type="button"
                     disabled={busy || !selectedPage || !canUndo}
                     onClick={() => undo()}
-                    className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                    className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950 disabled:opacity-40"
                     title={
                       typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
                         ? "Undo (âŒ˜Z)"
@@ -19514,7 +19638,7 @@ export function FunnelEditorClient({
                     type="button"
                     disabled={busy || !selectedPage || !canRedo}
                     onClick={() => redo()}
-                    className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                    className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950 disabled:opacity-40"
                     title={
                       typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
                         ? "Redo (â‡§âŒ˜Z)"
@@ -19531,14 +19655,14 @@ export function FunnelEditorClient({
                   <span className={classNames(
                     "order-last inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium sm:order-0",
                     selectedPageDirty
-                      ? "border-amber-200 bg-amber-50/80 text-zinc-800"
-                      : "border-zinc-200 bg-white text-zinc-600",
+                      ? "border-amber-300 bg-amber-50 text-amber-900"
+                      : "border-sky-200 bg-sky-50 text-sky-800",
                   )}>
                     <span
                       aria-hidden="true"
                       className={classNames(
                         "h-1.5 w-1.5 rounded-full",
-                        selectedPageDirty ? "bg-amber-500" : "bg-emerald-500",
+                        selectedPageDirty ? "bg-amber-500" : "bg-sky-500",
                       )}
                     />
                     {saveStatusLabel}
@@ -19585,7 +19709,8 @@ export function FunnelEditorClient({
                   disabled={!selectedPage}
                   onClick={() => setWorkspaceActionsOpen(true)}
                   className={classNames(
-                    "inline-flex w-full items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 sm:w-auto",
+                    "inline-flex w-full items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold sm:w-auto",
+                    funnelEditorChromeButtonClass,
                     !selectedPage ? "opacity-50" : "",
                   )}
                 >
@@ -19610,7 +19735,8 @@ export function FunnelEditorClient({
 
       <div
         style={{
-          ...(reserveChatRailSpace ? ({ ["--funnel-chat-rail-width" as any]: `${chatRailWidth}px` } as any) : {}),
+          ...(reserveChatRailSpace ? ({ ["--funnel-chat-rail-width" as any]: `${showChatRail ? chatRailWidth : CHAT_RAIL_COLLAPSED_WIDTH}px` } as any) : {}),
+          ...(!sidebarCollapsed ? ({ ["--funnel-left-rail-width" as any]: `${sidebarWidth}px` } as any) : {}),
           transitionProperty: "grid-template-columns, opacity",
           // While booting: nothing transitions - grid settles silently at opacity 0.
           // On first reveal (layoutBootSettled && !layoutFadeIn → layoutFadeIn):
@@ -19628,54 +19754,97 @@ export function FunnelEditorClient({
         } as any}
         className={classNames(
           "relative flex flex-1 flex-col overflow-auto lg:min-h-0 lg:overflow-hidden motion-reduce:transition-none",
+          funnelEditorShellClass,
           reserveChatRailSpace
             ? sidebarCollapsed
               ? "lg:grid lg:grid-cols-[72px_minmax(0,1fr)_var(--funnel-chat-rail-width)]"
-              : "lg:grid lg:grid-cols-[244px_minmax(0,1fr)_var(--funnel-chat-rail-width)] xl:grid-cols-[260px_minmax(0,1fr)_var(--funnel-chat-rail-width)]"
+              : "lg:grid lg:grid-cols-[var(--funnel-left-rail-width)_minmax(0,1fr)_var(--funnel-chat-rail-width)]"
             : sidebarCollapsed
               ? "lg:grid lg:grid-cols-[72px_minmax(0,1fr)]"
-              : "lg:grid lg:grid-cols-[244px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)]",
+              : "lg:grid lg:grid-cols-[var(--funnel-left-rail-width)_minmax(0,1fr)]",
         )}
       >
         <aside
           className={classNames(
-            "w-full shrink-0 border-b border-zinc-200 bg-[linear-gradient(180deg,#fbfbfb_0%,#ffffff_100%)] py-3 lg:order-1 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r",
+            "relative w-full shrink-0 border-b border-zinc-200 py-3 lg:order-1 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r",
+            funnelEditorShellClass,
             sidebarCollapsed ? "overflow-hidden px-2 lg:px-2" : "overflow-y-auto px-2.5 lg:px-3",
           )}
         >
           {sidebarCollapsed ? (
-            <div className="flex h-full flex-col items-center py-1">
+            <div className="flex h-full flex-col items-center py-1.5">
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed(false)}
-                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-zinc-700 hover:bg-zinc-50 lg:w-10 lg:rounded-md lg:px-0"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200/90 bg-white text-zinc-500 shadow-[0_12px_24px_rgba(15,23,42,0.06)] transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-300 hover:text-zinc-950 hover:shadow-[0_16px_28px_rgba(15,23,42,0.09)]"
                 title="Expand sidebar"
                 aria-label="Expand sidebar"
               >
                 <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M7 4l6 6-6 6" />
                 </svg>
-                <span className="text-xs font-semibold lg:hidden">{sidebarTitle}</span>
               </button>
             </div>
           ) : (
             <>
               <div className="mb-3 flex items-center justify-between gap-3 border-b border-zinc-200 pb-3">
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-zinc-900">{sidebarTitle}</div>
+                  <div className="text-sm font-semibold text-zinc-950">{sidebarTitle}</div>
                   {selectedPage && !blocksSurfaceActive ? <div className="mt-1 truncate text-xs text-zinc-500">{selectedPage.title || "Untitled page"}</div> : null}
                 </div>
                 <button
                   type="button"
                   onClick={() => setSidebarCollapsed(true)}
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-500 shadow-[0_10px_22px_rgba(15,23,42,0.06)] transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-300 hover:text-zinc-950 hover:shadow-[0_14px_28px_rgba(15,23,42,0.09)]"
+                  title="Collapse sidebar"
+                  aria-label="Collapse sidebar"
                 >
                   <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M13 4l-6 6 6 6" />
                   </svg>
-                  Collapse
                 </button>
               </div>
+              <button
+                type="button"
+                aria-label="Resize page context panel"
+                title="Drag to resize page context panel"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  sidebarResizePointerIdRef.current = event.pointerId;
+                  try {
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                  } catch {
+                    // Some environments reject pointer capture for synthetic or degraded pointer flows.
+                  }
+                  setSidebarResizing(true);
+                }}
+                onPointerUp={(event) => {
+                  try {
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                      event.currentTarget.releasePointerCapture(event.pointerId);
+                    }
+                  } catch {
+                    // Ignore pointer-capture release failures when capture was never established.
+                  }
+                }}
+                onPointerCancel={(event) => {
+                  try {
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                      event.currentTarget.releasePointerCapture(event.pointerId);
+                    }
+                  } catch {
+                    // Ignore pointer-capture release failures when capture was never established.
+                  }
+                }}
+                className="absolute inset-y-0 right-0 z-20 hidden w-3 translate-x-1/2 touch-none cursor-col-resize lg:block"
+              >
+                <span
+                  className={classNames(
+                    "absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors",
+                    sidebarResizing ? "bg-blue-400" : "bg-zinc-200 hover:bg-zinc-300",
+                  )}
+                />
+              </button>
 
               {!selectedPage ? (
                 pages === null ? (
@@ -19764,32 +19933,33 @@ export function FunnelEditorClient({
 
         <main
           className={classNames(
-            "relative flex min-h-0 flex-col bg-zinc-100 p-3 sm:p-4",
+            "relative flex min-h-0 flex-col bg-transparent p-3 sm:p-4",
             wholePageModeActive ? "overflow-hidden" : "overflow-auto",
             "lg:order-2",
           )}
         >
           <div
             className={classNames(
-              "flex min-h-0 flex-1 flex-col overflow-hidden border border-zinc-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.06)]",
-              previewDevice === "mobile" ? "rounded-2xl" : "rounded-none",
+              "flex min-h-0 flex-1 flex-col overflow-hidden shadow-[0_12px_32px_rgba(15,23,42,0.06)]",
+              funnelEditorChromePanelClass,
+              previewDevice === "mobile" ? "rounded-2xl" : "rounded-[22px]",
             )}
           >
-            <div className="flex items-center justify-between border-b border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fbfbfb_100%)] px-3.5 py-2">
+            <div className="flex items-center justify-between border-b border-zinc-200 bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] px-3.5 py-2 text-zinc-950">
               <div className="min-w-0 flex flex-wrap items-center gap-2">
-                <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Page"}</div>
+                <div className="truncate text-sm font-semibold text-zinc-950">{selectedPage?.title || "Page"}</div>
                 {selectedPage ? (
-                  <div className="max-w-full truncate rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
+                  <div className="max-w-full truncate rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-600 shadow-sm">
                     {selectedPageRouteLabel}
                   </div>
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="inline-flex items-center gap-1.5 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-1">
+                <div className="inline-flex items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white/92 p-1 shadow-sm">
                   <button
                     type="button"
                     onClick={() => setPreviewDevice((prev) => (prev === "desktop" ? "mobile" : "desktop"))}
-                    className="relative mr-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                    className="relative mr-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-950"
                     aria-label={previewDevice === "desktop" ? "Switch to mobile preview" : "Switch to desktop preview"}
                     title={previewDevice === "desktop" ? "Switch to mobile" : "Switch to desktop"}
                   >
@@ -19854,39 +20024,12 @@ export function FunnelEditorClient({
                           openSourceWorkspace();
                         }}
                       />
-                      <div className="hidden lg:flex lg:items-center">
-                        <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
-                        <button
-                          type="button"
-                          aria-label={chatRailOpen ? "Hide the page assistant" : "Show the page assistant"}
-                          title={chatRailOpen ? "Hide the page assistant" : "Show the page assistant"}
-                          onClick={() => {
-                            if (chatRailOpen) {
-                              setChatRailOpen(false);
-                              return;
-                            }
-                            setChatRailMode("chat");
-                            setChatRailOpen(true);
-                          }}
-                          className={classNames(
-                            "inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
-                            chatRailOpen
-                              ? "bg-brand-ink text-white shadow-sm"
-                              : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900",
-                          )}
-                        >
-                          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="3.5" width="14" height="13" rx="2.2" />
-                            <path d="M8 3.5v13" />
-                          </svg>
-                        </button>
-                      </div>
                     </>
                   ) : null}
                 </div>
                 {selectedPage && selectedPageSupportsBlocksSurface && pageCanvasView === "preview" ? (
                   <div className="flex items-center gap-2">
-                    <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
+                    <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white/92 p-1 shadow-sm">
                       <PreviewModeToggleButton
                         label="View"
                         active={previewMode === "preview"}
@@ -19960,7 +20103,7 @@ export function FunnelEditorClient({
                                   void navigator.clipboard?.writeText?.(currentPageSourceHtml || currentPagePublishedHtml || getFunnelPageDraftHtml(selectedPage));
                                   toast.success("HTML copied");
                                 } catch {
-                                  toast.error("Could not copy HTML");
+                                  toast.error("That HTML did not copy. Retry here.");
                                 }
                               }}
                               className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
@@ -20048,7 +20191,38 @@ export function FunnelEditorClient({
                           </div>
                         ) : (
                           <div className="flex h-full min-h-[36vh] items-center justify-center px-6 text-center text-sm text-zinc-400">
-                            {wholePageStatusMessage || "No page source available yet. Save the page to generate the source view."}
+                            <div className="max-w-lg">
+                              <div>{wholePageStatusMessage || "Page source appears after you save the page."}</div>
+                              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                                {wholePageSourceEditable ? (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => beginSourceEditing({ selectAll: true })}
+                                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                    Start page source
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={busy || savingPage || !selectedPageDirty}
+                                    onClick={() => void saveCurrentPage()}
+                                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                    {savingPage ? "Saving..." : "Save draft"}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void setEditorMode(wholePageSourceEditable ? "CUSTOM_HTML" : "BLOCKS")}
+                                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  {wholePageSourceEditable ? "Stay in page mode" : "Open builder"}
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         )}
                       </WholePageLensWindow>
@@ -20107,14 +20281,14 @@ export function FunnelEditorClient({
                                         themeStage: "current",
                                       }
                                     : bookingSiteSlug
-                                      ? {
-                                          kind: "slug",
-                                          slug: bookingSiteSlug,
-                                          funnelId: funnel?.id || null,
-                                          pageId: selectedPage.id,
-                                          themeStage: "current",
-                                        }
-                                      : null}
+                                        ? {
+                                            kind: "slug",
+                                            slug: bookingSiteSlug,
+                                            funnelId: funnel?.id || null,
+                                            pageId: selectedPage.id,
+                                            themeStage: "current",
+                                          }
+                                        : null}
                                   injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
                                   bookingLabel={selectedPagePreviewBookingState?.title || null}
                                   surfaceContext={previewBookingSurfaceContext}
@@ -20136,7 +20310,7 @@ export function FunnelEditorClient({
                               )}
                             >
                               {previewDevice === "mobile" ? <div className="mx-auto mb-3 h-1.5 w-24 rounded-full bg-zinc-300" /> : null}
-                              <div className={classNames(previewDevice === "mobile" ? "h-[min(82vh,860px)] overflow-auto rounded-[28px] bg-white" : "min-h-160 max-h-[calc(100dvh-220px)] overflow-y-auto bg-white shadow-[0_0_0_1px_rgba(24,24,27,0.08)]")}>
+                              <div className={classNames(previewDevice === "mobile" ? "h-[min(82vh,860px)] overflow-auto rounded-[28px] bg-white" : "min-h-160 max-h-[calc(100dvh-220px)] overflow-y-auto rounded-[18px] border border-zinc-200/80 bg-white")}>
                                 {renderCreditFunnelBlocks({
                                   blocks: previewRenderableBlocks,
                                   basePath: hostedBasePath,
@@ -20164,7 +20338,38 @@ export function FunnelEditorClient({
                           </div>
                         ) : (
                           <div className="flex h-full min-h-[50vh] items-center justify-center rounded-[28px] border border-dashed border-zinc-300 bg-white px-6 text-center text-sm text-zinc-600">
-                            {wholePageSyncNotice || "No page source available yet. Save the page to generate the source view."}
+                            <div className="max-w-lg">
+                              <div>{wholePageSyncNotice || "Page source appears after you save the page."}</div>
+                              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                                {wholePageSourceEditable ? (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => beginSourceEditing({ selectAll: true })}
+                                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                    Start page source
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={busy || savingPage || !selectedPageDirty}
+                                    onClick={() => void saveCurrentPage()}
+                                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                    {savingPage ? "Saving..." : "Save draft"}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void setEditorMode(wholePageSourceEditable ? "CUSTOM_HTML" : "BLOCKS")}
+                                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  {wholePageSourceEditable ? "Stay in page mode" : "Open builder"}
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         )}
                       </WholePageLensWindow>
@@ -20444,6 +20649,30 @@ export function FunnelEditorClient({
           </div>
         </main>
 
+        {showCollapsedChatRail ? (
+          <aside className="relative hidden min-h-0 overflow-hidden border-l border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] lg:flex lg:flex-col lg:order-3">
+            <div className="flex h-full flex-col items-center justify-start px-2 py-3.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setChatRailMode("chat");
+                  setChatRailOpen(true);
+                }}
+                className="group relative inline-flex h-11 w-11 items-center justify-center rounded-[18px] border border-zinc-200/90 bg-white text-zinc-500 shadow-[0_12px_26px_rgba(15,23,42,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-300 hover:text-zinc-950 hover:shadow-[0_18px_34px_rgba(15,23,42,0.12)]"
+                title="Open assistant"
+                aria-label="Open assistant"
+              >
+                <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M6.75 6.75A2.75 2.75 0 0 1 9.5 4h2A2.75 2.75 0 0 1 14.25 6.75v3.5A2.75 2.75 0 0 1 11.5 13h-1.15L7.5 15.5V13A2.75 2.75 0 0 1 4.75 10.25v-3.5A2.75 2.75 0 0 1 7.5 4" />
+                  <path d="M8 8.25h3.5" />
+                  <path d="M8 10.75h2.25" />
+                </svg>
+                <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white transition-transform duration-200 group-hover:scale-110" />
+              </button>
+            </div>
+          </aside>
+        ) : null}
+
         {showChatRail ? (
           <div
             style={{
@@ -20465,18 +20694,30 @@ export function FunnelEditorClient({
               onPointerDown={(event) => {
                 event.preventDefault();
                 chatRailResizePointerIdRef.current = event.pointerId;
-                event.currentTarget.setPointerCapture(event.pointerId);
+                try {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                } catch {
+                  // Some environments reject pointer capture for synthetic or degraded pointer flows.
+                }
                 updateChatRailWidthFromClientX(event.clientX);
                 setChatRailResizing(true);
               }}
               onPointerUp={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  event.currentTarget.releasePointerCapture(event.pointerId);
+                try {
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  }
+                } catch {
+                  // Ignore pointer-capture release failures when capture was never established.
                 }
               }}
               onPointerCancel={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  event.currentTarget.releasePointerCapture(event.pointerId);
+                try {
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  }
+                } catch {
+                  // Ignore pointer-capture release failures when capture was never established.
                 }
               }}
               className="absolute inset-y-0 left-0 z-20 hidden w-3 -translate-x-1/2 touch-none cursor-col-resize lg:block"
@@ -20599,11 +20840,11 @@ export function FunnelEditorClient({
                     <button
                       type="button"
                       onClick={() => setChatRailMode("threads")}
-                      className="-ml-2 flex min-w-0 flex-1 items-center gap-2 rounded-full px-2 py-1.5 text-left transition hover:bg-zinc-100"
+                      className="-ml-2 flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-transparent px-2 py-1.5 text-left transition hover:border-zinc-200 hover:bg-zinc-50"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-(--color-brand-blue)" />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page assistant</span>
+                        <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Assistant</span>
                         <span className="mt-0.5 flex min-w-0 items-center gap-2">
                           <span className="truncate text-sm font-medium text-zinc-950">{selectedThreadDisplayTitle}</span>
                           <span className="truncate text-[11px] text-zinc-500">{selectedThreadMeta}</span>
@@ -20611,18 +20852,6 @@ export function FunnelEditorClient({
                       </span>
                     </button>
                     <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setChatRailOpen(false)}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950"
-                        title="Hide the page assistant"
-                        aria-label="Hide the page assistant"
-                      >
-                        <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="3.5" width="14" height="13" rx="2.2" />
-                          <path d="M8 3.5v13" />
-                        </svg>
-                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -20635,7 +20864,14 @@ export function FunnelEditorClient({
                         }}
                           className="rounded-full px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
                       >
-                          New thread
+                          New chat
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setChatRailOpen(false)}
+                        className="rounded-full px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
+                      >
+                        Hide
                       </button>
                     </div>
                   </div>
@@ -20670,7 +20906,15 @@ export function FunnelEditorClient({
                   conversationKey={selectedThread?.id || `draft:${draftThreadPageId || selectedPage?.id || "page"}`}
                   embedded
                   onOpenBrief={() => setBriefPanelOpen(true)}
-                  onAsk={(prompt) => { void runAiChat(prompt); }}
+                  onAsk={(prompt) => {
+                    setChatRailMode("chat");
+                    setChatRailOpen(true);
+                    void runAiChat(prompt);
+                  }}
+                  onModeChange={() => {
+                    setChatRailMode("chat");
+                    setChatRailOpen(true);
+                  }}
                   onAttach={() => setAiContextOpen(true)}
                   onPaste={handleAiContextPaste}
                   attachCount={aiReferenceCount}
@@ -20756,6 +21000,8 @@ export function FunnelEditorClient({
                     return null;
                   })()}
                   onPrepareDraft={(promptHint, displayPrompt, opts) => {
+                    setChatRailMode("chat");
+                    setChatRailOpen(true);
                     if (opts?.sourceActionPlan) {
                       void runAi(promptHint, { sourceActionPlan: opts.sourceActionPlan, displayPrompt: displayPrompt || promptHint });
                       return;
