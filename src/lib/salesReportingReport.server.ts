@@ -971,7 +971,7 @@ async function fetchBraintreeReport(
 }
 
 export type ConnectCredentialsInput =
-  | { provider: "stripe"; secretKey: string }
+  | { provider: "stripe"; secretKey?: string; webhookSigningSecret?: string }
   | { provider: "authorizenet"; apiLoginId: string; transactionKey: string; environment?: "production" | "sandbox" }
   | { provider: "braintree"; merchantId: string; publicKey: string; privateKey: string; environment?: "production" | "sandbox" }
   | { provider: "razorpay"; keyId: string; keySecret: string }
@@ -984,7 +984,7 @@ export async function validateSalesCredentials(input: ConnectCredentialsInput): 
   switch (input.provider) {
     case "stripe": {
       // Validation happens in stripe integration setter.
-      return { displayHint: maskSecret(input.secretKey) };
+      return { displayHint: input.secretKey ? maskSecret(input.secretKey) : undefined };
     }
     case "razorpay": {
       const auth = Buffer.from(`${input.keyId}:${input.keySecret}`).toString("base64");

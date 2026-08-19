@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { decryptStringV1, encryptStringV1, isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
-import { clearStripeIntegration, getStripeIntegrationStatus, setStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
+import { clearStripeIntegration, getStripeIntegrationStatus, hasStripeWebhookSigningSecretForOwner, setStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { SalesReportingProvider } from "@prisma/client";
 import type { SalesReportingProviderKey } from "@/lib/salesReportingProviders";
 
@@ -13,6 +13,7 @@ export type SalesReportingIntegrationStatus = {
     prefix: string | null;
     accountId: string | null;
     connectedAtIso: string | null;
+    webhookSigningSecretConfigured: boolean;
   };
 };
 
@@ -65,7 +66,7 @@ export function fromProviderEnum(p: SalesReportingProvider | null | undefined): 
 export async function getSalesReportingStatus(userId: string): Promise<SalesReportingIntegrationStatus> {
   const encryptionConfigured = isPortalEncryptionConfigured();
 
-  const [settings, creds, stripe] = await Promise.all([
+  const [settings, creds, stripe, webhookSigningSecretConfigured] = await Promise.all([
     prisma.salesReportingSettings.findUnique({ where: { userId }, select: { activeProvider: true } }).catch(() => null),
     prisma.salesReportingCredential
       .findMany({ where: { userId }, select: { provider: true, displayHint: true, connectedAt: true } })
@@ -77,6 +78,7 @@ export async function getSalesReportingStatus(userId: string): Promise<SalesRepo
       connectedAtIso: null,
       encryptionConfigured,
     })),
+    hasStripeWebhookSigningSecretForOwner(userId).catch(() => false),
   ]);
 
   const activeProvider = fromProviderEnum(settings?.activeProvider ?? null);
@@ -124,6 +126,7 @@ export async function getSalesReportingStatus(userId: string): Promise<SalesRepo
       prefix: stripe?.prefix ?? null,
       accountId: stripe?.accountId ?? null,
       connectedAtIso: stripe?.connectedAtIso ?? null,
+      webhookSigningSecretConfigured,
     },
   };
 }

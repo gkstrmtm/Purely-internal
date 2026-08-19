@@ -21,6 +21,7 @@ import {
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { useToast } from "@/components/ToastProvider";
 import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
 import {
@@ -29,13 +30,13 @@ import {
   FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
 } from "@/components/funnel/funnelButtonMotion";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
-import { toPurelyHostedUrl, toRuntimeHostedUrl } from "@/lib/publicHostedOrigin";
+import { toRuntimeHostedUrl } from "@/lib/publicHostedOrigin";
 import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
 
 import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTemplate, type CreditFormTemplateKey } from "@/lib/creditFormTemplates";
 import { CREDIT_FORM_THEMES, coerceCreditFormThemeKey, getCreditFormTheme, type CreditFormThemeKey } from "@/lib/creditFormThemes";
-import { CREDIT_FUNNEL_TEMPLATES, coerceCreditFunnelTemplateKey, getCreditFunnelTemplate, type CreditFunnelTemplateKey } from "@/lib/creditFunnelTemplates";
-import { CREDIT_FUNNEL_THEMES, coerceCreditFunnelThemeKey, getCreditFunnelTheme, type CreditFunnelThemeKey } from "@/lib/creditFunnelThemes";
+import { coerceCreditFunnelTemplateKey, getCreditFunnelTemplate, type CreditFunnelTemplateKey } from "@/lib/creditFunnelTemplates";
+import { coerceCreditFunnelThemeKey, type CreditFunnelThemeKey } from "@/lib/creditFunnelThemes";
 
 import { buildSuggestedFunnelNaming, inferFunnelPageIntentProfile, type FunnelPageIntentType, type FunnelPageMediaMode } from "@/lib/funnelPageIntent";
 import { resolveBusinessProfileRuntimeSnapshot } from "@/lib/businessProfileRuntimeSnapshot";
@@ -86,6 +87,8 @@ type StripeIntegrationStatus = {
   configured: boolean;
   accountId: string | null;
   connectedAtIso: string | null;
+  webhookUrl?: string | null;
+  webhookSigningSecretConfigured?: boolean;
 };
 
 type CreateFunnelInterviewStage = "business" | "audience" | "conversion";
@@ -180,6 +183,18 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+const builderActionMenuLabelClass = "px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500";
+const builderActionMenuSectionClass = "px-2 pb-2";
+const builderActionMenuItemClass =
+  "flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/55";
+const builderActionMenuIconClass =
+  "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-2xl bg-white/70 text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]";
+const builderActionMenuTitleClass = "min-w-0 flex-1 truncate";
+const builderActionMenuMutedClass = "text-zinc-500 hover:bg-transparent";
+const builderActionMenuSuccessClass = "text-emerald-700";
+const builderActionMenuDangerClass = "text-red-600";
+const builderActionMenuSeparatorClass = "my-2 h-px bg-white/55";
+
 function normalizeBusinessProfileGoals(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -213,11 +228,11 @@ function getCreateSpeechRecognitionCtor(source: Window & typeof globalThis): Cre
 
 function friendlyCreateSpeechError(event: CreateSpeechRecognitionErrorEventLike) {
   const code = String(event.error || "").trim().toLowerCase();
-  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied.";
-  if (code === "no-speech") return "No speech was detected. Try again and speak a little closer to the mic.";
-  if (code === "audio-capture") return "This browser could not access a working microphone.";
-  if (code === "network") return "Speech recognition hit a network issue. Try again.";
-  return "Speech recognition stopped unexpectedly.";
+  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied. Allow access and retry here, or keep typing.";
+  if (code === "no-speech") return "No speech was detected. Retry here and speak a little closer to the mic, or keep typing.";
+  if (code === "audio-capture") return "This browser could not access a working microphone. Retry here or keep typing.";
+  if (code === "network") return "Speech recognition hit a network issue. Retry here or keep typing.";
+  return "Speech recognition stopped unexpectedly. Retry here or keep typing.";
 }
 
 function parseFunnelCreateDraft(raw: unknown): FunnelCreateDraft | null {
@@ -296,14 +311,6 @@ function normalizeSlug(raw: string) {
   return cleaned;
 }
 
-function buildSuggestedFormSlug(nameRaw: string, templateKey: CreditFormTemplateKey, explicitSlugRaw: string) {
-  return (
-    normalizeSlug(explicitSlugRaw) ||
-    normalizeSlug(nameRaw) ||
-    normalizeSlug(getCreditFormTemplate(templateKey)?.content?.displayTitle || getCreditFormTemplate(templateKey)?.label || "")
-  );
-}
-
 function normalizeFunnelBuilderError(action: string, error: unknown, status?: number) {
   const raw = typeof error === "string"
     ? error
@@ -336,18 +343,27 @@ function normalizeFunnelBuilderError(action: string, error: unknown, status?: nu
   if (normalized.includes("invalid domain")) return "Enter a valid domain before saving.";
   if (normalized.includes("verification failed")) return "We could not verify that domain yet. Check the DNS records and try again.";
   if (normalized.includes("stripe is not connected")) return "Connect Stripe before using product-linked funnel actions.";
-  if (normalized.includes("failed to load")) return `We couldn't ${action} right now. Refresh and try again.`;
+  if (action.includes("load builder settings")) {
+    return "Builder settings are still syncing. Retry this tab, open integrations, or ask Pura for help.";
+  }
+  if (action.includes("save builder settings")) {
+    return "Builder settings did not save. Retry here or open integrations if the source account still needs attention.";
+  }
+  if (action.includes("save funnel draft")) {
+    return "Your funnel draft did not save. Keep editing here, then save it again from the builder.";
+  }
+  if (normalized.includes("failed to load")) return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish loading. Retry here or reopen the builder.`;
   if (normalized.includes("failed to save") || normalized.includes("failed to update") || normalized.includes("failed to delete")) {
-    return `We couldn't ${action} right now. Please try again.`;
+    return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
   }
   if (normalized.includes("create failed") || normalized.includes("failed to create")) {
-    return `We couldn't ${action} right now. Please try again.`;
+    return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
   }
   if (normalized.includes("enter a valid slug")) return "Use letters, numbers, and dashes for the path.";
   if (normalized.includes("enter the service, offer, or funnel concept first")) {
     return "Describe the offer or service first so the builder can create the funnel.";
   }
-  if (!message) return `We couldn't ${action} right now. Please try again.`;
+  if (!message) return `${action[0]?.toUpperCase() || "That"}${action.slice(1)} did not finish. Retry here.`;
   return message;
 }
 
@@ -557,7 +573,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createThemeKey, setCreateThemeKey] = useState<CreditFormThemeKey>("royal-indigo");
   const [createFunnelTemplateKey, setCreateFunnelTemplateKey] = useState<CreditFunnelTemplateKey>("credit-audit-leadgen");
   const [createFunnelThemeKey, setCreateFunnelThemeKey] = useState<CreditFunnelThemeKey>("royal-indigo");
-  const [createFunnelPreviewOpen, setCreateFunnelPreviewOpen] = useState(false);
   const [createFunnelUseTemplate, setCreateFunnelUseTemplate] = useState(false);
   const [createFunnelPreferCustomMode, setCreateFunnelPreferCustomMode] = useState(false);
   const [createFunnelPageType, setCreateFunnelPageType] = useState<FunnelPageIntentType>("lead-capture");
@@ -799,7 +814,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       createIntakeRecognitionRef.current = null;
       setCreateIntakeDictatingFieldKey(null);
       createIntakeDictationFieldKeyRef.current = null;
-      setCreateIntakeDictationError("Speech-to-text could not start in this browser session.");
+      setCreateIntakeDictationError("Speech-to-text did not start in this browser session. Retry here or keep typing.");
     }
   }, [createIntakeDictatingFieldKey, stopCreateIntakeDictation, updateCreateIntakeFieldValue]);
 
@@ -920,6 +935,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         configured: Boolean(json.stripe.configured),
         accountId: json.stripe.accountId ? String(json.stripe.accountId) : null,
         connectedAtIso: json.stripe.connectedAtIso ? String(json.stripe.connectedAtIso) : null,
+        webhookUrl: json.stripe.webhookUrl ? String(json.stripe.webhookUrl) : null,
+        webhookSigningSecretConfigured: json.stripe.webhookSigningSecretConfigured === true,
       });
     } finally {
       setStripeStatusBusy(false);
@@ -931,7 +948,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     try {
       const res = await fetch("/api/portal/funnel-builder/settings", { cache: "no-store" });
       const json = await readFunnelBuilderJson<any>(res, "load builder settings");
-      if (!json.settings) throw new Error("We couldn't load builder settings right now. Refresh and try again.");
+      if (!json.settings) {
+        throw new Error("Builder settings are still syncing. Retry this tab, open integrations, or ask Pura for help.");
+      }
 
       const nextSettings: FunnelBuilderSettings = {
         metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
@@ -967,7 +986,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         body: JSON.stringify({ metaPixelId: metaPixelIdInput }),
       });
       const json = await readFunnelBuilderJson<any>(res, "save builder settings");
-      if (!json.settings) throw new Error("We couldn't save builder settings right now. Please try again.");
+      if (!json.settings) {
+        throw new Error("Builder settings did not save. Retry here or open integrations if the source account still needs attention.");
+      }
 
       const nextSettings: FunnelBuilderSettings = {
         metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
@@ -994,7 +1015,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         body: JSON.stringify({ createFunnelDraft: draft }),
       });
       const json = await readFunnelBuilderJson<any>(res, "save funnel draft");
-      if (!json.settings) throw new Error("We couldn't save the funnel draft right now.");
+      if (!json.settings) {
+        throw new Error("Your funnel draft did not save. Keep editing here, then save it again from the builder.");
+      }
 
       const nextSettings: FunnelBuilderSettings = {
         metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
@@ -1101,7 +1124,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     return opts;
   }, [domains]);
 
-  const funnelPreviewBase = useMemo(() => toPurelyHostedUrl("/f"), []);
   const normalizedMetaPixelIdInput = useMemo(
     () => String(metaPixelIdInput || "").trim().replace(/[^0-9]/g, "").slice(0, 32),
     [metaPixelIdInput],
@@ -1114,18 +1136,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     return h === "localhost" || h.endsWith(".local") || h === "127.0.0.1";
   }, [platformTargetHost]);
 
-  const [runtimeHostedOrigin, setRuntimeHostedOrigin] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setRuntimeHostedOrigin(window.location.origin || null);
+  const runtimeHostedOrigin = useMemo(() => {
+    if (typeof window !== "undefined") return window.location.origin || null;
+    return null;
   }, []);
 
   const formPublicBase = useMemo(() => toRuntimeHostedUrl("/forms", runtimeHostedOrigin), [runtimeHostedOrigin]);
-  const suggestedFormSlug = useMemo(
-    () => buildSuggestedFormSlug(createName, createTemplateKey, createSlug),
-    [createName, createSlug, createTemplateKey],
-  );
 
   const getFunnelLiveHref = useCallback(
     (assignedDomain: string | null | undefined, slug: string, funnelId: string) => {
@@ -1580,7 +1596,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     setCreateThemeKey("royal-indigo");
     setCreateFunnelTemplateKey("credit-audit-leadgen");
     setCreateFunnelThemeKey("royal-indigo");
-    setCreateFunnelPreviewOpen(false);
     setCreateFunnelUseTemplate(false);
     setCreateFunnelPreferCustomMode(false);
     setCreateFunnelPageType(seededIntent.pageType);
@@ -1691,6 +1706,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     createFunnelStage,
     createName,
     createSlug,
+    createFunnelDraftSavedAt,
     saveCreateFunnelDraft,
     creatingKind,
   ]);
@@ -1726,7 +1742,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     createRequestIdRef.current = "";
     stopCreateIntakeDictation();
     setCreatingKind(null);
-    setCreateFunnelPreviewOpen(false);
     setBusy(false);
   };
 
@@ -1744,10 +1759,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         fallbackName: createName.trim() || undefined,
         templateLabel: creatingKind === "funnel" && createFunnelUseTemplate ? getCreditFunnelTemplate(createFunnelTemplateKey)?.label : undefined,
       });
-      const slug =
-        creatingKind === "funnel"
-          ? normalizeSlug(createSlug) || funnelNaming.slug
-          : buildSuggestedFormSlug(createName, createTemplateKey, createSlug);
+      const slug = creatingKind === "funnel" ? normalizeSlug(createSlug) || funnelNaming.slug : normalizeSlug(createSlug);
       if (!slug) throw new Error("Enter a valid slug (letters, numbers, hyphens)");
 
       const endpoint = creatingKind === "funnel" ? "/api/portal/funnel-builder/funnels" : "/api/portal/funnel-builder/forms";
@@ -1932,7 +1944,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 if (!current) return;
                 const normalized = normalizeSlug(current.slug);
                 if (!normalized) {
-                  setFormSettingsError("Public link ending is required.");
+                  setFormSettingsError("Slug is required.");
                   return;
                 }
                 const base = (forms || []).find((item) => item.id === current.id);
@@ -1957,7 +1969,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       >
         <div className="space-y-4">
           <label className="block">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Public link ending</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
             <input
               value={formSettingsDialog?.slug || ""}
               onChange={(e) => {
@@ -1992,7 +2004,55 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             />
           </label>
 
-          {formSettingsError ? <div className="text-sm font-semibold text-red-700">{formSettingsError}</div> : null}
+          {formSettingsError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div className="font-semibold text-red-900">Form settings need attention</div>
+              <div className="mt-1">{formSettingsError}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current = formSettingsDialog;
+                    if (!current) return;
+                    const normalized = normalizeSlug(current.slug);
+                    if (!normalized) {
+                      setFormSettingsError("Slug is required.");
+                      return;
+                    }
+                    const base = (forms || []).find((item) => item.id === current.id);
+                    if (!base) {
+                      setFormSettingsDialog(null);
+                      return;
+                    }
+                    void (async () => {
+                      const ok = await patchForm(base, { slug: normalized, status: current.status });
+                      if (ok) {
+                        setFormSettingsDialog(null);
+                        setFormSettingsError(null);
+                        toast.success("Form updated.");
+                      }
+                    })();
+                  }}
+                  className="rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Try save again
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormSettingsError(null)}
+                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                >
+                  Keep editing
+                </button>
+                <Link
+                  href={`${basePath}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  Ask Pura
+                </Link>
+              </div>
+            </div>
+          ) : null}
         </div>
       </AppModal>
 
@@ -2009,9 +2069,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <button
               type="button"
               onClick={() => openCreate("funnel")}
-              className="group flex min-h-40 flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-300 bg-white p-6 text-left transition-colors duration-150 hover:bg-zinc-50"
+              className="pa-funnel-builder-create-card group flex min-h-40 flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-300 bg-white p-6 text-left transition-colors duration-150 hover:bg-zinc-50"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-xl font-bold text-zinc-700">
+              <div className="pa-funnel-builder-create-icon flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-xl font-bold text-zinc-700">
                 +
               </div>
               <div className="mt-3 text-base font-semibold text-brand-ink">Create funnel</div>
@@ -2040,7 +2100,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               return (
                 <div
                   key={f.id}
-                  className="group rounded-3xl border border-zinc-200 bg-white p-6 transition-[transform,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                  className="pa-funnel-builder-card group rounded-3xl border border-zinc-200 bg-white p-6 transition-[transform,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
                 >
                   <div className="text-base font-semibold text-brand-ink">{f.name}</div>
                   <div className="mt-1 text-sm text-zinc-600">/{f.slug}</div>
@@ -2049,7 +2109,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     <Link
                       href={builderHref}
                       className={classNames(
-                        "inline-flex items-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95",
+                        "pa-funnel-builder-primary-action inline-flex items-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95",
                         FUNNEL_BUTTON_MOTION_CLASS,
                         FUNNEL_BUTTON_RAISE_CLASS,
                       )}
@@ -2061,7 +2121,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       href={previewHref}
                       target="_blank"
                       className={classNames(
-                        "inline-flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50",
+                        "pa-funnel-builder-secondary-action inline-flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50",
                         FUNNEL_BUTTON_MOTION_CLASS,
                         FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
                       )}
@@ -2073,30 +2133,41 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         href={liveHref}
                         target="_blank"
                         className={classNames(
-                          "inline-flex items-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100",
+                          "pa-funnel-builder-live-action inline-flex items-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100",
                           FUNNEL_BUTTON_MOTION_CLASS,
                           FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
                         )}
                       >
                         Open live
                       </Link>
+                    ) : f.status !== "ACTIVE" ? (
+                      <button
+                        type="button"
+                        disabled={!!funnelStatusBusy[f.id]}
+                        onClick={() => void patchFunnelStatus(f, "ACTIVE")}
+                        className={classNames(
+                          "pa-funnel-builder-live-disabled inline-flex items-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100",
+                          funnelStatusBusy[f.id] ? "opacity-60" : "",
+                        )}
+                      >
+                        {funnelStatusBusy[f.id] ? "Updating..." : "Set live"}
+                      </button>
                     ) : (
-                      <span
-                        className="inline-flex items-center rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-500"
+                      <Link
+                        href="#funnel-builder-domains"
+                        className="pa-funnel-builder-live-disabled inline-flex items-center rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
                         title={
-                          f.status !== "ACTIVE"
-                            ? "Set this funnel to Live to enable the public link."
-                            : assignedDomainClean
-                              ? "This domain is pending DNS verification. Verify DNS to enable the live link."
-                              : "Live link is currently unavailable."
+                          assignedDomainClean
+                            ? "This domain is pending DNS verification. Open domains to finish DNS and verification."
+                            : "Assign or verify a domain to enable the live link."
                         }
                       >
-                        Live unavailable
-                      </span>
+                        Open domains
+                      </Link>
                     )}
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+                  <div className="pa-funnel-builder-delivery-panel mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delivery</div>
                     <div className="mt-3 flex flex-col gap-3">
                       <PortalListboxDropdown
@@ -2104,7 +2175,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         disabled={!!funnelDomainBusy[f.id] || !domains}
                         options={funnelDomainOptions}
                         onChange={(v) => patchFunnelDomain(f, v ? v : null)}
-                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+                        buttonClassName="pa-funnel-builder-delivery-select flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
                         placeholder="Default (not assigned)"
                       />
 
@@ -2113,7 +2184,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         <div className="mt-1 flex min-w-0 items-start gap-2">
                           <div
                             className={classNames(
-                              "min-w-0 flex-1 truncate rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono leading-5",
+                              "pa-funnel-builder-delivery-url min-w-0 flex-1 truncate rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono leading-5",
                               assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? "text-zinc-400" : "text-zinc-700",
                             )}
                             title={liveUrlDisplay}
@@ -2123,7 +2194,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           <button
                             type="button"
                             onClick={() => copyText(liveUrlDisplay)}
-                            className="rounded-xl border border-zinc-200 bg-white p-2 text-zinc-600 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-900"
+                            className="pa-funnel-builder-delivery-copy rounded-xl border border-zinc-200 bg-white p-2 text-zinc-600 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-900"
                             aria-label="Copy funnel URL"
                             title="Copy URL"
                           >
@@ -2170,16 +2241,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             e.stopPropagation();
                             setOpenFunnelMenuId((prev) => (prev === f.id ? null : f.id));
                           }}
-                          className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
+                          className="pa-portal-glass-button grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
                         >
                           <DotsIcon className="h-5 w-5" />
                         </button>
 
                         {openFunnelMenuId === f.id ? (
-                          <div
+                          <LiquidGlassPopupSurface
                             ref={funnelMenuElRef}
                             className={classNames(
-                              "fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
+                              "fixed z-40 w-60 overflow-hidden rounded-[26px]",
                               funnelMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
                             )}
                             style={
@@ -2188,59 +2259,76 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 : undefined
                             }
                           >
-                            <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                              Actions
-                            </div>
+                            <div>
+                            <div className={builderActionMenuLabelClass}>Actions</div>
 
-                            <div className="px-2 pb-2">
+                            <div className={builderActionMenuSectionClass}>
                               <Link
                                 href={builderHref}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
+                                className={builderActionMenuItemClass}
                                 onClick={() => setOpenFunnelMenuId(null)}
                                 aria-label="Edit"
                                 title="Edit"
                               >
-                                <span className="inline-flex items-center" aria-hidden="true">
+                                <span className={builderActionMenuIconClass} aria-hidden="true">
                                   <IconEdit size={16} />
                                 </span>
-                                <span className="sr-only">Edit</span>
+                                <span className={builderActionMenuTitleClass}>Edit</span>
                               </Link>
 
                               <Link
                                 href={previewHref}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
+                                className={builderActionMenuItemClass}
                                 onClick={() => setOpenFunnelMenuId(null)}
                               >
-                                Preview
+                                <span className={builderActionMenuIconClass} aria-hidden="true">↗</span>
+                                <span className={builderActionMenuTitleClass}>Preview</span>
                               </Link>
 
                               {liveHref ? (
                                 <Link
                                   href={liveHref}
                                   target="_blank"
-                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
+                                  className={builderActionMenuItemClass}
                                   onClick={() => setOpenFunnelMenuId(null)}
                                 >
-                                  Live
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                  <span className={builderActionMenuTitleClass}>Open live</span>
                                 </Link>
+                              ) : f.status !== "ACTIVE" ? (
+                                <button
+                                  type="button"
+                                  disabled={!!funnelStatusBusy[f.id]}
+                                  onClick={() => {
+                                    void (async () => {
+                                      const ok = await patchFunnelStatus(f, "ACTIVE");
+                                      if (ok) setOpenFunnelMenuId(null);
+                                    })();
+                                  }}
+                                  className={classNames(builderActionMenuItemClass, builderActionMenuSuccessClass, funnelStatusBusy[f.id] ? "opacity-60" : "")}
+                                >
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                  <span className={builderActionMenuTitleClass}>{funnelStatusBusy[f.id] ? "Setting live..." : "Set live"}</span>
+                                </button>
                               ) : (
-                                <div
-                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400"
+                                <Link
+                                  href="#funnel-builder-domains"
+                                  className={builderActionMenuItemClass}
+                                  onClick={() => setOpenFunnelMenuId(null)}
                                   title={
-                                    f.status !== "ACTIVE"
-                                      ? "Set this funnel to Live to enable the live link."
-                                      : assignedDomainClean
-                                        ? "This domain is pending DNS verification. Verify DNS to enable the Live link."
-                                        : "Live link is currently unavailable."
+                                    assignedDomainClean
+                                      ? "This domain is pending DNS verification. Open domains to finish DNS and verification."
+                                      : "Assign or verify a domain to enable the live link."
                                   }
                                 >
-                                  Live
-                                </div>
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                  <span className={builderActionMenuTitleClass}>Open domains</span>
+                                </Link>
                               )}
 
-                              <div className="my-2 h-px bg-zinc-100" />
+                                <div className={builderActionMenuSeparatorClass} />
 
                               {f.status !== "ARCHIVED" ? (
                                 <button
@@ -2254,20 +2342,22 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                     })();
                                   }}
                                   className={classNames(
-                                    "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors duration-100 hover:bg-zinc-50",
-                                    f.status === "ACTIVE" ? "text-zinc-700" : "text-green-700",
+                                    builderActionMenuItemClass,
+                                    f.status === "ACTIVE" ? "" : builderActionMenuSuccessClass,
                                     funnelStatusBusy[f.id] ? "opacity-60" : "",
                                   )}
                                 >
-                                  {f.status === "ACTIVE" ? "Set status: Draft" : "Set status: Live"}
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">⇄</span>
+                                  <span className={builderActionMenuTitleClass}>{f.status === "ACTIVE" ? "Set status: Draft" : "Set status: Live"}</span>
                                 </button>
                               ) : (
-                                <div className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400">
-                                  Status: Archived
+                                <div className={classNames(builderActionMenuItemClass, builderActionMenuMutedClass)}>
+                                  <span className={builderActionMenuIconClass} aria-hidden="true">•</span>
+                                  <span className={builderActionMenuTitleClass}>Status: Archived</span>
                                 </div>
                               )}
 
-                              <div className="my-2 h-px bg-zinc-100" />
+                              <div className={builderActionMenuSeparatorClass} />
 
                               <button
                                 type="button"
@@ -2278,14 +2368,17 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                   setOpenFunnelMenuId(null);
                                 }}
                                 className={classNames(
-                                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-100 hover:bg-zinc-50",
+                                  builderActionMenuItemClass,
+                                  builderActionMenuDangerClass,
                                   funnelDeleteBusy[f.id] ? "opacity-60" : "",
                                 )}
                               >
-                                Delete
+                                <span className={builderActionMenuIconClass} aria-hidden="true">×</span>
+                                <span className={builderActionMenuTitleClass}>Delete</span>
                               </button>
                             </div>
-                          </div>
+                            </div>
+                          </LiquidGlassPopupSurface>
                         ) : null}
                       </div>
                     </div>
@@ -2298,7 +2391,25 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           {funnels === null ? (
             <div className="mt-6 text-sm text-zinc-600">Loading funnels…</div>
           ) : funnels.length === 0 ? (
-            <div className="mt-6 text-sm text-zinc-600">No funnels yet. Create the first funnel to start from a guided structure instead of a blank page.</div>
+            <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-600">
+              <div className="font-semibold text-zinc-900">Your funnel workspace is ready for the first build</div>
+              <div className="mt-1">Create the first funnel to start from a guided structure, shape the offer, and publish from something stronger than a blank page.</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openCreate("funnel")}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-150 hover:opacity-95"
+                >
+                  Create funnel
+                </button>
+                <Link
+                  href={`${basePath}/tutorials/funnel-builder`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                >
+                  Open walkthrough
+                </Link>
+              </div>
+            </div>
           ) : null}
         </section>
       ) : null}
@@ -2346,16 +2457,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           e.stopPropagation();
                           setOpenFormMenuId((prev) => (prev === f.id ? null : f.id));
                         }}
-                        className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
+                        className="pa-portal-glass-button grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
                       >
                         <DotsIcon className="h-5 w-5" />
                       </button>
 
                       {openFormMenuId === f.id ? (
-                        <div
+                        <LiquidGlassPopupSurface
                           ref={formMenuElRef}
                           className={classNames(
-                            "fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
+                            "fixed z-40 w-60 overflow-hidden rounded-[26px]",
                             formMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
                           )}
                           style={
@@ -2364,57 +2475,73 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               : undefined
                           }
                         >
-                          <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Actions</div>
-                          <div className="px-2 pb-2">
+                          <div>
+                          <div className={builderActionMenuLabelClass}>Actions</div>
+                          <div className={builderActionMenuSectionClass}>
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                              className={builderActionMenuItemClass}
                               onClick={() => setOpenFormMenuId(null)}
                               aria-label="Edit"
                               title="Edit"
                             >
-                              <span className="inline-flex items-center" aria-hidden="true">
+                              <span className={builderActionMenuIconClass} aria-hidden="true">
                                 <IconEdit size={16} />
                               </span>
-                              <span className="sr-only">Edit</span>
+                              <span className={builderActionMenuTitleClass}>Edit</span>
                             </Link>
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                              className={builderActionMenuItemClass}
                               onClick={() => setOpenFormMenuId(null)}
                             >
-                              Responses
+                              <span className={builderActionMenuIconClass} aria-hidden="true">#</span>
+                              <span className={builderActionMenuTitleClass}>Responses</span>
                             </Link>
                             <Link
                               href={getFormPreviewHref(f.slug, f.id) || toRuntimeHostedUrl(`/forms/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
+                              className={builderActionMenuItemClass}
                               onClick={() => setOpenFormMenuId(null)}
                             >
-                              Preview
+                              <span className={builderActionMenuIconClass} aria-hidden="true">↗</span>
+                              <span className={builderActionMenuTitleClass}>Preview</span>
                             </Link>
 
                             {f.status === "ACTIVE" ? (
                               <Link
                                 href={getFormLiveHref(f.slug, f.id) || toRuntimeHostedUrl(`/forms/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
+                                className={builderActionMenuItemClass}
                                 onClick={() => setOpenFormMenuId(null)}
                               >
-                                Live
+                                <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                <span className={builderActionMenuTitleClass}>Open live</span>
                               </Link>
                             ) : (
-                              <div
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400"
-                                title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Set this form to Live to enable the public hosted link."}
+                              <button
+                                type="button"
+                                disabled={!!formSaveBusy[f.id]}
+                                onClick={() => {
+                                  setFormSettingsError(null);
+                                  setFormSettingsDialog({ id: f.id, name: f.name, slug: f.slug, status: f.status });
+                                  setOpenFormMenuId(null);
+                                }}
+                                className={classNames(
+                                  builderActionMenuItemClass,
+                                  f.status === "ARCHIVED" ? "" : builderActionMenuSuccessClass,
+                                  formSaveBusy[f.id] ? "opacity-60" : "",
+                                )}
+                                title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Open route and status to make this form live."}
                               >
-                                Live
-                              </div>
+                                <span className={builderActionMenuIconClass} aria-hidden="true">●</span>
+                                <span className={builderActionMenuTitleClass}>{f.status === "ARCHIVED" ? "Open route & status" : "Set live"}</span>
+                              </button>
                             )}
 
-                            <div className="my-2 h-px bg-zinc-100" />
+                            <div className={builderActionMenuSeparatorClass} />
 
                             <button
                               type="button"
@@ -2425,11 +2552,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-700 transition-colors duration-150 hover:bg-zinc-50",
+                                builderActionMenuItemClass,
                                 formSaveBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
-                              Route & status
+                              <span className={builderActionMenuIconClass} aria-hidden="true">⇄</span>
+                              <span className={builderActionMenuTitleClass}>Route & status</span>
                             </button>
 
                             <button
@@ -2441,14 +2569,17 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-150 hover:bg-zinc-50",
+                                builderActionMenuItemClass,
+                                builderActionMenuDangerClass,
                                 formDeleteBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
-                              Delete
+                              <span className={builderActionMenuIconClass} aria-hidden="true">×</span>
+                              <span className={builderActionMenuTitleClass}>Delete</span>
                             </button>
                           </div>
-                        </div>
+                          </div>
+                        </LiquidGlassPopupSurface>
                       ) : null}
                     </div>
                   </div>
@@ -2460,7 +2591,25 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           {forms === null ? (
             <div className="mt-6 text-sm text-zinc-600">Loading forms…</div>
           ) : forms.length === 0 ? (
-            <div className="mt-6 text-sm text-zinc-600">No forms yet. Click the plus card to create one.</div>
+            <div className="mt-6 rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-600">
+              <div className="font-semibold text-zinc-900">Your hosted forms are ready for the first capture flow</div>
+              <div className="mt-1">Create a form to collect leads, surveys, or intake details on a hosted route that is ready to share once the fields are in place.</div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openCreate("form")}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-150 hover:opacity-95"
+                >
+                  Create form
+                </button>
+                <Link
+                  href={`${basePath}/tutorials/funnel-builder`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                >
+                  Open walkthrough
+                </Link>
+              </div>
+            </div>
           ) : null}
         </section>
       ) : null}
@@ -2506,6 +2655,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 ) : null}
               </div>
             </div>
+
+            {!stripeStatusBusy && stripeStatus?.configured && !stripeStatus.webhookSigningSecretConfigured ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                Stripe can already start checkout here, but completed payment webhooks are not configured yet. Open Stripe settings, add the webhook endpoint, and save the signing secret before treating checkout analytics as complete.
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
@@ -2517,7 +2672,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 </p>
               </div>
               <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">
-                {builderSettingsBusy ? "Loading…" : normalizedMetaPixelIdInput ? "Configured" : "Not configured"}
+                {builderSettingsBusy ? "Loading…" : normalizedMetaPixelIdInput ? "Configured" : "Pixel ID not added yet"}
               </div>
             </div>
 
@@ -2537,14 +2692,31 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 Leave this blank to disable Meta pixel emission across hosted funnel pages. Only numeric pixel IDs are accepted.
               </div>
 
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs text-zinc-500">
-                  {builderSettingsBusy
-                    ? "Loading current tracking settings…"
-                    : normalizedMetaPixelIdInput
-                      ? `Current default pixel: ${normalizedMetaPixelIdInput}`
-                      : "No default Meta pixel is configured."}
-                </div>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {builderSettingsBusy ? (
+                  <div className="text-xs text-zinc-500">Loading current tracking settings…</div>
+                ) : normalizedMetaPixelIdInput ? (
+                  <div className="text-xs text-zinc-500">Current default pixel: {normalizedMetaPixelIdInput}</div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">Add the default Meta pixel</div>
+                    <div className="mt-1">Add the numeric pixel ID here when this workspace is ready to track hosted funnel traffic, open integrations if the source account still needs to be connected, or ask Pura to walk you through the setup.</div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`${basePath}/app/settings/integrations`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                      >
+                        Open integrations
+                      </Link>
+                      <Link
+                        href={`${basePath}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                      >
+                        Ask Pura for help
+                      </Link>
+                    </div>
+                  </div>
+                )}
                 <button
                   type="button"
                   disabled={builderSettingsBusy || builderSettingsSaveBusy || !metaPixelDirty}
@@ -2562,7 +2734,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             </div>
           </div>
 
-          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div id="funnel-builder-domains" className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6 scroll-mt-24">
             <div className="text-base font-semibold text-brand-ink">Custom domains</div>
             <p className="mt-1 text-sm text-zinc-600">
               Save the domain you want to use for funnels/forms. DNS verification + automatic provisioning is the next step.
@@ -2592,7 +2764,24 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               {domains === null ? (
                 <div className="text-sm text-zinc-600">Loading domains…</div>
               ) : domains.length === 0 ? (
-                <div className="text-sm text-zinc-600">No domains saved yet.</div>
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    <div className="font-semibold text-zinc-900">Save the first custom domain</div>
+                    <div className="mt-1">Save a domain here when you want funnels and forms to publish on your own brand instead of the default hosted route, then come back for DNS verification and launch prep.</div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`${basePath}/tutorials/funnel-builder`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                      >
+                        Domain walkthrough
+                      </Link>
+                      <Link
+                        href={`${basePath}/app/ai-chat?onboarding=1`}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                      >
+                        Ask Pura for help
+                      </Link>
+                    </div>
+                  </div>
               ) : (
                 <div className="space-y-2">
                   {domains.map((d) => (
@@ -2968,7 +3157,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 <p className="mt-1 text-sm text-zinc-600">
                   {creatingKind === "funnel"
                     ? "Shape a quick working brief now, close it if you need to, and only lock it in when you hit Create."
-                    : "Choose the public link ending, or leave it blank and we will generate one from the form name or template."}
+                    : "Choose a URL slug. You can rename it later."}
                 </p>
               </div>
               <button
@@ -2987,7 +3176,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               {creatingKind === "form" ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Public link ending</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
                     <input
                       value={createSlug}
                       onChange={(e) => setCreateSlug(e.target.value)}
@@ -2995,9 +3184,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
                     />
                     <div className="mt-1 text-xs text-zinc-500">
-                      Public page link: {formPublicBase}/<span className="font-semibold">{suggestedFormSlug || "…"}</span>
+                      Public slug: {formPublicBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
                     </div>
-                    <div className="mt-1 text-xs text-zinc-500">After creation, you get a private preview link with a short access key. Switch the form to Live when you want the public page link to open it.</div>
+                    <div className="mt-1 text-xs text-zinc-500">After creation, Preview and Live use the exact hosted link with the form key.</div>
                   </div>
 
                   <div>
@@ -3016,7 +3205,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Public link ending (optional)</div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug (optional)</div>
                       <input
                         value={createSlug}
                         onChange={(e) => setCreateSlug(e.target.value)}
@@ -3047,7 +3236,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         <div className="mt-1 text-sm leading-6 text-zinc-600">
                           {createBusinessProfileSummary
                             ? "Saved company context is already loaded. Add only what is specific to this funnel, offer, or audience shift."
-                            : "If there is no formal brief yet, answer this like a strategist is interviewing the owner. The builder can work from plain-language answers, and you can pick this back up later."}
+                            : "If a formal brief is not ready yet, answer this like a strategist is interviewing the owner. The builder can work from plain-language answers, and you can come back to refine it later."}
                         </div>
                       </div>
                       <div className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700">
@@ -3193,7 +3382,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               onClick={() => startCreateIntakeDictation("companyContext", createFunnelCompanyContext)}
                               disabled={!createIntakeDictationSupported && createIntakeDictatingFieldKey !== "companyContext"}
                               className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
-                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "companyContext" ? "Stop dictation" : "Use the mic for business context") : "Speech-to-text is not available in this browser"}
+                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "companyContext" ? "Stop dictation" : "Use the mic for business context") : "Speech-to-text is not available in this browser. Try Chrome or Safari."}
                             >
                               {createIntakeDictatingFieldKey === "companyContext" ? "Stop mic" : "Use mic"}
                             </button>
@@ -3264,7 +3453,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               onClick={() => startCreateIntakeDictation("qualificationFields", createFunnelQualificationFields)}
                               disabled={!createIntakeDictationSupported && createIntakeDictatingFieldKey !== "qualificationFields"}
                               className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
-                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "qualificationFields" ? "Stop dictation" : "Use the mic for qualification notes") : "Speech-to-text is not available in this browser"}
+                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "qualificationFields" ? "Stop dictation" : "Use the mic for qualification notes") : "Speech-to-text is not available in this browser. Try Chrome or Safari."}
                             >
                               {createIntakeDictatingFieldKey === "qualificationFields" ? "Stop mic" : "Use mic"}
                             </button>

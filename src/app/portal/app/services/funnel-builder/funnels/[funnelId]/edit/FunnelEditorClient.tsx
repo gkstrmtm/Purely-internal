@@ -6767,6 +6767,7 @@ type PageExecutionMetrics = {
   validation_failed: number;
   booking_created: number;
   checkout_started: number;
+  checkout_completed: number;
   checkout_failed: number;
   add_to_cart: number;
   save_failed: number;
@@ -15593,7 +15594,7 @@ export function FunnelEditorClient({
             </div>
             <div className="mt-1 text-xs leading-5 text-zinc-500">
               {funnelAnalytics
-                ? `Views ${funnelAnalytics.totals.page_view} • CTA ${funnelAnalytics.totals.cta_click} • Forms ${funnelAnalytics.totals.form_submitted} • Bookings ${funnelAnalytics.totals.booking_created} • Checkout ${funnelAnalytics.totals.checkout_started} • Checkout fail ${funnelAnalytics.totals.checkout_failed}`
+                ? `Views ${funnelAnalytics.totals.page_view} • CTA ${funnelAnalytics.totals.cta_click} • Forms ${funnelAnalytics.totals.form_submitted} • Bookings ${funnelAnalytics.totals.booking_created} • Checkout start ${funnelAnalytics.totals.checkout_started} • Checkout done ${funnelAnalytics.totals.checkout_completed} • Checkout fail ${funnelAnalytics.totals.checkout_failed}`
                 : "Builder-side reporting reads from the same first-party event table used by the hosted funnel."}
             </div>
           </div>
@@ -15640,7 +15641,7 @@ export function FunnelEditorClient({
             <div key={page.pageId} className="flex items-start justify-between gap-3 text-xs leading-5 text-zinc-600">
               <div className="min-w-0">
                 <div className="font-semibold text-zinc-800">{page.title}</div>
-                <div>{page.metrics.page_view} views • {page.metrics.cta_click} CTA • {page.metrics.form_submitted + page.metrics.booking_created + page.metrics.checkout_started} downstream actions</div>
+                <div>{page.metrics.page_view} views • {page.metrics.cta_click} CTA • {page.metrics.form_submitted + page.metrics.booking_created + Math.max(page.metrics.checkout_started, page.metrics.checkout_completed)} downstream actions</div>
               </div>
               <div className="shrink-0 text-right text-zinc-500">{formatTrackingPercent(page.rates.ctaPerViewPct)}</div>
             </div>

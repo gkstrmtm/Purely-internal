@@ -22,7 +22,7 @@ function toPct(numerator: number, denominator: number) {
 }
 
 function describePageDropOff(input: ReturnType<typeof createEmptyCreditFunnelEventMetrics>) {
-  const leadActions = input.form_submitted + input.booking_created + input.checkout_started;
+  const leadActions = input.form_submitted + input.booking_created + Math.max(input.checkout_started, input.checkout_completed);
   if (input.page_view > 0 && input.cta_click === 0) return "Traffic is landing here without any CTA engagement yet.";
   if (input.form_started > input.form_submitted) return "Visitors are starting the form here, but some are dropping before submission.";
   if (input.validation_failed > 0) return "Validation failures are blocking completion on this page.";
@@ -67,11 +67,15 @@ function buildHighlights(input: {
     highlights.push(`Checkout failures were recorded ${input.totals.checkout_failed} time${input.totals.checkout_failed === 1 ? "" : "s"} in this window.`);
   }
 
+  if (input.totals.checkout_completed > 0) {
+    highlights.push(`Completed checkouts were recorded ${input.totals.checkout_completed} time${input.totals.checkout_completed === 1 ? "" : "s"} in this window.`);
+  }
+
   if (input.totals.save_failed > 0 || input.totals.publish_failed > 0) {
     highlights.push(`Builder friction is visible too: ${input.totals.save_failed} save failure${input.totals.save_failed === 1 ? "" : "s"} and ${input.totals.publish_failed} publish failure${input.totals.publish_failed === 1 ? "" : "s"}.`);
   }
 
-  const leadActions = input.totals.form_submitted + input.totals.booking_created + input.totals.checkout_started;
+  const leadActions = input.totals.form_submitted + input.totals.booking_created + Math.max(input.totals.checkout_started, input.totals.checkout_completed);
   if (input.totals.cta_click > 0 && leadActions === 0) {
     highlights.push("CTA clicks are happening, but nobody is making it to form submit, booking, or checkout.");
   }
@@ -126,7 +130,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ funnelId: strin
   const pageSummaries = pages.map((page) => {
     const metrics = analytics.pageMetrics.get(page.id) || createEmptyCreditFunnelEventMetrics();
     const sessionCount = analytics.pageSessions.get(page.id) || 0;
-    const leadActions = metrics.form_submitted + metrics.booking_created + metrics.checkout_started;
+    const leadActions = metrics.form_submitted + metrics.booking_created + Math.max(metrics.checkout_started, metrics.checkout_completed);
     return {
       pageId: page.id,
       title: String(page.title || "").trim() || page.slug,
@@ -138,6 +142,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ funnelId: strin
         ctaPerViewPct: toPct(metrics.cta_click, metrics.page_view),
         leadPerViewPct: toPct(leadActions, metrics.page_view),
         checkoutPerViewPct: toPct(metrics.checkout_started, metrics.page_view),
+        checkoutCompletedPerViewPct: toPct(metrics.checkout_completed, metrics.page_view),
       },
       biggestDropOff: describePageDropOff(metrics),
     };

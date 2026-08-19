@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db";
+import { getCreditFunnelBuilderSettings, mutateCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
 import { decryptStringV1, encryptStringV1, isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
 import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
+
+const STRIPE_WEBHOOK_SIGNING_SECRET_KEY = "stripeWebhookSigningSecretEnvelope";
 
 function normalizeStripeSecretKey(raw: string): string {
   const k = String(raw || "").trim();
@@ -23,6 +26,31 @@ function stripeKeyPrefix(secretKey: string): string {
   if (k.startsWith("sk_live_")) return "sk_live";
   if (k.startsWith("rk_live_")) return "rk_live";
   return k.slice(0, 6);
+}
+
+function normalizeStripeWebhookSigningSecret(raw: string): string {
+  const secret = String(raw || "").trim();
+  if (!secret) throw new Error("Stripe webhook signing secret is required");
+  if (!secret.startsWith("whsec_")) {
+    throw new Error("That doesn’t look like a Stripe webhook signing secret (expected whsec_...)");
+  }
+  if (secret.length < 20 || secret.length > 300) {
+    throw new Error("Stripe webhook signing secret length looks invalid");
+  }
+  return secret;
+}
+
+function parseEncryptedSecretEnvelope(raw: unknown): { version: 1; ciphertextB64: string; ivB64: string; authTagB64: string } | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  return rec.version === 1 && typeof rec.ciphertextB64 === "string" && typeof rec.ivB64 === "string" && typeof rec.authTagB64 === "string"
+    ? {
+        version: 1,
+        ciphertextB64: rec.ciphertextB64,
+        ivB64: rec.ivB64,
+        authTagB64: rec.authTagB64,
+      }
+    : null;
 }
 
 export type StripeIntegrationStatus = {
@@ -69,6 +97,7 @@ export async function clearStripeIntegration(ownerId: string): Promise<void> {
       stripeConnectedAt: null,
     },
   });
+  await clearStripeWebhookSigningSecretForOwner(ownerId).catch(() => null);
 }
 
 export async function setStripeSecretKeyForOwner(ownerId: string, rawSecretKey: string) {
@@ -112,4 +141,48 @@ export async function getStripeSecretKeyForOwner(ownerId: string): Promise<strin
 
   const secretKey = decryptStringV1({ version: 1, ciphertextB64, ivB64, authTagB64 });
   return secretKey || null;
+}
+
+export async function hasStripeWebhookSigningSecretForOwner(ownerId: string): Promise<boolean> {
+  if (!ownerId || !isPortalEncryptionConfigured()) return false;
+  const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => null);
+  const envelope = parseEncryptedSecretEnvelope(settings?.[STRIPE_WEBHOOK_SIGNING_SECRET_KEY]);
+  return Boolean(envelope);
+}
+
+export async function getStripeWebhookSigningSecretForOwner(ownerId: string): Promise<string | null> {
+  if (!ownerId || !isPortalEncryptionConfigured()) return null;
+  const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => null);
+  const envelope = parseEncryptedSecretEnvelope(settings?.[STRIPE_WEBHOOK_SIGNING_SECRET_KEY]);
+  if (!envelope) return null;
+  try {
+    return decryptStringV1(envelope);
+  } catch {
+    return null;
+  }
+}
+
+export async function setStripeWebhookSigningSecretForOwner(ownerId: string, rawSigningSecret: string): Promise<void> {
+  if (!isPortalEncryptionConfigured()) {
+    throw new Error("Server is missing PORTAL_ENCRYPTION_MASTER_KEY; cannot store Stripe webhook secrets safely.");
+  }
+
+  const signingSecret = normalizeStripeWebhookSigningSecret(rawSigningSecret);
+  const envelope = encryptStringV1(signingSecret);
+
+  await mutateCreditFunnelBuilderSettings(ownerId, (existing) => ({
+    next: {
+      ...existing,
+      [STRIPE_WEBHOOK_SIGNING_SECRET_KEY]: envelope,
+    },
+    value: null,
+  }));
+}
+
+export async function clearStripeWebhookSigningSecretForOwner(ownerId: string): Promise<void> {
+  await mutateCreditFunnelBuilderSettings(ownerId, (existing) => {
+    const next = { ...existing };
+    delete next[STRIPE_WEBHOOK_SIGNING_SECRET_KEY];
+    return { next, value: null };
+  }).catch(() => null);
 }

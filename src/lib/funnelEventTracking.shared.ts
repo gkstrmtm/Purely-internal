@@ -6,6 +6,7 @@ export const CREDIT_FUNNEL_EVENT_TYPES = [
   "validation_failed",
   "booking_created",
   "checkout_started",
+  "checkout_completed",
   "checkout_failed",
   "add_to_cart",
   "save_failed",

@@ -201,12 +201,23 @@ function buildColumnsBlock(id: string, columns: Array<{ title: string; body: str
   };
 }
 
-function buildStencilSectionBlock(page: StencilPage, section: StencilSection | undefined, index: number, primaryCta: string): CreditFunnelBlock {
+type FunnelInitializationInteractiveDefaults = {
+  starterFormSlug?: string | null;
+};
+
+function buildStencilSectionBlock(
+  page: StencilPage,
+  section: StencilSection | undefined,
+  index: number,
+  primaryCta: string,
+  interactiveDefaults?: FunnelInitializationInteractiveDefaults,
+): CreditFunnelBlock {
   const sectionId = section?.id || `section-${index + 1}`;
   const label = section?.name || humanizePascal(sectionId) || `Section ${index + 1}`;
   const purpose = section?.purpose || "Placeholder section ready for focused editing.";
   const archetype = String(section?.archetype || "").trim().toLowerCase();
   const placeholderCta = inferPlaceholderCta(sectionId, label, primaryCta);
+  const starterFormSlug = String(interactiveDefaults?.starterFormSlug || "").trim();
   const headingText = archetype === "confirmation" ? "Booking confirmed" : archetype === "checkout" ? "Choose the best option" : label;
   const introText = purpose;
 
@@ -310,6 +321,56 @@ function buildStencilSectionBlock(page: StencilPage, section: StencilSection | u
     ]);
   }
 
+  if (archetype === "form") {
+    return buildSectionFrame(sectionId, [
+      { id: `heading_${page.id}_${sectionId}`, type: "heading", props: { level: 2, text: label } },
+      { id: `paragraph_${page.id}_${sectionId}`, type: "paragraph", props: { text: introText } },
+      {
+        id: `form_${page.id}_${sectionId}`,
+        type: "formEmbed",
+        props: {
+          formSlug: starterFormSlug,
+          height: 640,
+          style: { marginTopPx: 12 },
+        },
+      },
+      {
+        id: `paragraph_${page.id}_${sectionId}_detail`,
+        type: "paragraph",
+        props: {
+          text: starterFormSlug
+            ? "This starter form is live now. Tighten the fields, confirmation state, and follow-up copy as you refine the funnel."
+            : "Select this form block and connect a form to make this step live.",
+          style: { marginTopPx: 12, maxWidthPx: 760 },
+        },
+      },
+    ], { backgroundColor: "#ffffff", paddingPx: 36, borderRadiusPx: 28 });
+  }
+
+  if (archetype === "booking") {
+    return buildSectionFrame(sectionId, [
+      { id: `heading_${page.id}_${sectionId}`, type: "heading", props: { level: 2, text: label } },
+      { id: `paragraph_${page.id}_${sectionId}`, type: "paragraph", props: { text: introText } },
+      {
+        id: `calendar_${page.id}_${sectionId}`,
+        type: "calendarEmbed",
+        props: {
+          calendarId: "",
+          height: 760,
+          style: { marginTopPx: 12 },
+        },
+      },
+      {
+        id: `paragraph_${page.id}_${sectionId}_detail`,
+        type: "paragraph",
+        props: {
+          text: "This booking step uses the funnel's linked calendar route. You can refine the calendar details and routing after the funnel boots.",
+          style: { marginTopPx: 12, maxWidthPx: 760 },
+        },
+      },
+    ], { backgroundColor: "#ffffff", paddingPx: 36, borderRadiusPx: 28 });
+  }
+
   if (archetype === "booking" || archetype === "form" || archetype === "cta" || archetype === "next_step" || archetype === "guarantee" || archetype === "confirmation") {
     return buildSectionFrame(sectionId, [
       { id: `heading_${page.id}_${sectionId}`, type: "heading", props: { level: archetype === "confirmation" ? 1 : 2, text: headingText } },
@@ -353,8 +414,13 @@ function buildStencilSectionBlock(page: StencilPage, section: StencilSection | u
   ]);
 }
 
-function buildSectionPlaceholderBlocks(page: StencilPage, sectionsById: Map<string, StencilSection>, primaryCta: string): CreditFunnelBlock[] {
-  return page.sections.map((sectionId, index) => buildStencilSectionBlock(page, sectionsById.get(sectionId), index, primaryCta));
+function buildSectionPlaceholderBlocks(
+  page: StencilPage,
+  sectionsById: Map<string, StencilSection>,
+  primaryCta: string,
+  interactiveDefaults?: FunnelInitializationInteractiveDefaults,
+): CreditFunnelBlock[] {
+  return page.sections.map((sectionId, index) => buildStencilSectionBlock(page, sectionsById.get(sectionId), index, primaryCta, interactiveDefaults));
 }
 
 async function readStencilManifest(stencilId: FunnelStencilId): Promise<StencilManifest> {
@@ -428,6 +494,7 @@ function buildCustomSeed(input: {
   offer: string;
   shellConcept: string;
   sectionPlan: string;
+  interactiveDefaults?: FunnelInitializationInteractiveDefaults;
 }): FunnelInitializationSeed {
   const firstPageNaming = buildSuggestedPageNaming({
     pageType: input.pageType,
@@ -438,6 +505,7 @@ function buildCustomSeed(input: {
   });
   const title = firstPageNaming.title || input.funnelName || "Home";
   const primaryCta = input.primaryCta.trim() || "Start the next step";
+  const starterFormSlug = String(input.interactiveDefaults?.starterFormSlug || "").trim();
   const starterGoal = input.pageGoal.trim()
     ? `${input.pageGoal.trim()} Use this opening pass to tighten the promise, stage proof close to the ask, and make the next step feel obvious.`
     : "Use this opening pass to name the audience, clarify the offer, stage concrete proof, and make the next step feel obvious.";
@@ -588,6 +656,43 @@ function buildCustomSeed(input: {
               style: { maxWidthPx: 760 },
             },
           },
+          ...(
+            input.pageType === "lead-capture" || input.pageType === "application" || input.pageType === "webinar"
+              ? [
+                  {
+                    id: "form_home_next_step",
+                    type: "formEmbed",
+                    props: { formSlug: starterFormSlug, height: 640, style: { marginTopPx: 12 } },
+                  } as CreditFunnelBlock,
+                  {
+                    id: "paragraph_home_next_step_form_detail",
+                    type: "paragraph",
+                    props: {
+                      text: starterFormSlug
+                        ? "This starter form is already live. Adjust the fields and response experience instead of rebuilding the handoff from scratch."
+                        : "Connect a form here to make this starter handoff live.",
+                      style: { marginTopPx: 12, maxWidthPx: 760 },
+                    },
+                  } as CreditFunnelBlock,
+                ]
+              : input.pageType === "booking"
+                ? [
+                    {
+                      id: "calendar_home_next_step",
+                      type: "calendarEmbed",
+                      props: { calendarId: "", height: 760, style: { marginTopPx: 12 } },
+                    } as CreditFunnelBlock,
+                    {
+                      id: "paragraph_home_next_step_booking_detail",
+                      type: "paragraph",
+                      props: {
+                        text: "This starter booking step will use the funnel's linked calendar route once the funnel is created.",
+                        style: { marginTopPx: 12, maxWidthPx: 760 },
+                      },
+                    } as CreditFunnelBlock,
+                  ]
+                : []
+          ),
           {
             id: "button_home_next_step",
             type: "button",
@@ -616,6 +721,7 @@ export async function buildFunnelInitializationScaffold(input: {
   preferCustomMode?: boolean;
   shellConcept: string;
   sectionPlan: string;
+  interactiveDefaults?: FunnelInitializationInteractiveDefaults;
   decisionInput: {
     pageType?: unknown;
     funnelGoal?: unknown;
@@ -637,6 +743,7 @@ export async function buildFunnelInitializationScaffold(input: {
       offer: input.offer,
       shellConcept: input.shellConcept,
       sectionPlan: input.sectionPlan,
+      interactiveDefaults: input.interactiveDefaults,
     });
     return {
       decision,
@@ -668,7 +775,7 @@ export async function buildFunnelInitializationScaffold(input: {
       editorMode: "BLOCKS",
       contentMarkdown: "",
       customHtml: "",
-      blocksJson: buildSectionPlaceholderBlocks(page, sectionsById, input.primaryCta),
+      blocksJson: buildSectionPlaceholderBlocks(page, sectionsById, input.primaryCta, input.interactiveDefaults),
       briefSeed: {
         pageType: inferPageTypeFromStencilPage(stencilId, page),
         pageGoal: page.goal || input.pageGoal,

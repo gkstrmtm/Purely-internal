@@ -5,9 +5,12 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import {
   clearStripeIntegration,
   getStripeIntegrationStatus,
+  hasStripeWebhookSigningSecretForOwner,
   setStripeSecretKeyForOwner,
+  setStripeWebhookSigningSecretForOwner,
 } from "@/lib/stripeIntegration.server";
 import { isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
+import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,11 +29,16 @@ function looksLikeMissingStripeColumns(e: unknown): boolean {
   );
 }
 
-const putSchema = z.object({
-  secretKey: z.string().trim().min(10).max(300),
-});
+const putSchema = z
+  .object({
+    secretKey: z.string().trim().min(10).max(300).optional(),
+    webhookSigningSecret: z.string().trim().min(10).max(300).optional(),
+  })
+  .refine((value) => Boolean(value.secretKey || value.webhookSigningSecret), {
+    message: "Provide a Stripe secret key or webhook signing secret",
+  });
 
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await requireClientSessionForService("profile", "view");
   if (!auth.ok) {
     return NextResponse.json(
@@ -41,10 +49,23 @@ export async function GET() {
 
   const ownerId = auth.session.user.id;
   const vercelEnv = (process.env.VERCEL_ENV ?? "").trim() || null;
+  const webhookUrl = webhookUrlFromRequest(req, "/api/public/stripe/webhook");
 
   try {
-    const status = await getStripeIntegrationStatus(ownerId);
-    return NextResponse.json({ ok: true, stripe: status, vercelEnv, expectedEnvVar: "PORTAL_ENCRYPTION_MASTER_KEY" });
+    const [status, webhookSigningSecretConfigured] = await Promise.all([
+      getStripeIntegrationStatus(ownerId),
+      hasStripeWebhookSigningSecretForOwner(ownerId),
+    ]);
+    return NextResponse.json({
+      ok: true,
+      stripe: {
+        ...status,
+        webhookUrl,
+        webhookSigningSecretConfigured,
+      },
+      vercelEnv,
+      expectedEnvVar: "PORTAL_ENCRYPTION_MASTER_KEY",
+    });
   } catch {
     const encryptionConfigured = isPortalEncryptionConfigured();
 
@@ -56,6 +77,8 @@ export async function GET() {
         accountId: null,
         connectedAtIso: null,
         encryptionConfigured,
+        webhookUrl,
+        webhookSigningSecretConfigured: false,
       },
       vercelEnv,
       expectedEnvVar: "PORTAL_ENCRYPTION_MASTER_KEY",
@@ -91,8 +114,26 @@ export async function PUT(req: Request) {
   const ownerId = auth.session.user.id;
 
   try {
-    const res = await setStripeSecretKeyForOwner(ownerId, parsed.data.secretKey);
-    return NextResponse.json({ ok: true, stripe: { configured: true, ...res } });
+    if (parsed.data.secretKey) {
+      await setStripeSecretKeyForOwner(ownerId, parsed.data.secretKey);
+    }
+    if (parsed.data.webhookSigningSecret) {
+      await setStripeWebhookSigningSecretForOwner(ownerId, parsed.data.webhookSigningSecret);
+    }
+
+    const [status, webhookSigningSecretConfigured] = await Promise.all([
+      getStripeIntegrationStatus(ownerId),
+      hasStripeWebhookSigningSecretForOwner(ownerId),
+    ]);
+
+    return NextResponse.json({
+      ok: true,
+      stripe: {
+        ...status,
+        webhookUrl: webhookUrlFromRequest(req, "/api/public/stripe/webhook"),
+        webhookSigningSecretConfigured,
+      },
+    });
   } catch (e) {
     if (looksLikeMissingStripeColumns(e)) {
       return NextResponse.json(

@@ -2,14 +2,18 @@ import { NextResponse } from "next/server";
 
 import type { Prisma } from "@prisma/client";
 
+import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
+import { normalizeCreditFormSchema } from "@/lib/creditFormSchema";
+import { getCreditFormTheme } from "@/lib/creditFormThemes";
 import { prisma } from "@/lib/db";
 import { buildCreditFunnelPagesFromTemplateAndTheme, coerceCreditFunnelTemplateKey, getCreditFunnelTemplate } from "@/lib/creditFunnelTemplates";
 import { coerceCreditFunnelThemeKey, getCreditFunnelTheme } from "@/lib/creditFunnelThemes";
 import { mutateCreditFunnelBuilderSettingsTx } from "@/lib/creditFunnelBuilderSettingsStore";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import { ensureFunnelBookingCalendar } from "@/lib/funnelBookingCalendars";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { applyDraftHtmlWriteCompat, dbHasCreditFunnelPageDraftHtmlColumn } from "@/lib/funnelPageDbCompat";
-import { buildSuggestedFunnelNaming, buildSuggestedPageNaming, inferFunnelBriefProfile, inferFunnelPageIntentProfile, writeFunnelBrief, writeFunnelPageBrief } from "@/lib/funnelPageIntent";
+import { buildSuggestedFunnelNaming, buildSuggestedPageNaming, inferFunnelBriefProfile, inferFunnelPageIntentProfile, writeFunnelBrief, writeFunnelPageBrief, type FunnelPageIntentType } from "@/lib/funnelPageIntent";
 import { buildFunnelInitializationScaffold } from "@/lib/funnelStencilRegistry.server";
 import { createFunnelPageMirroredHtmlUpdate } from "@/lib/funnelPageState";
 import { consumeCredits, consumeCreditsOnce } from "@/lib/credits";
@@ -99,6 +103,252 @@ function hasStructuredInitializationIntent(body: Record<string, unknown> | null)
   return signalKeys.some((key) => {
     const value = body[key];
     return typeof value === "string" ? Boolean(value.trim()) : value != null;
+  });
+}
+
+type FunnelCreatePageSeed = {
+  slug: string;
+  title: string;
+  sortOrder: number;
+  editorMode: "BLOCKS" | "CUSTOM_HTML" | "MARKDOWN";
+  contentMarkdown: string;
+  customHtml: string;
+  blocksJson: CreditFunnelBlock[];
+  customChatJson?: Prisma.InputJsonValue;
+};
+
+function blockTreeSome(blocks: CreditFunnelBlock[], predicate: (block: CreditFunnelBlock) => boolean): boolean {
+  for (const block of blocks) {
+    if (!block || typeof block !== "object") continue;
+    if (predicate(block)) return true;
+
+    if (block.type === "section") {
+      const props: any = block.props;
+      const nestedGroups = [props?.children, props?.leftChildren, props?.rightChildren];
+      for (const nested of nestedGroups) {
+        if (Array.isArray(nested) && blockTreeSome(nested as CreditFunnelBlock[], predicate)) return true;
+      }
+    }
+
+    if (block.type === "columns") {
+      const columns = Array.isArray((block.props as any)?.columns) ? ((block.props as any).columns as Array<{ children?: CreditFunnelBlock[] }>) : [];
+      for (const column of columns) {
+        if (Array.isArray(column?.children) && blockTreeSome(column.children, predicate)) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function replaceStarterFormSlug(blocks: CreditFunnelBlock[], starterFormSlug: string): CreditFunnelBlock[] {
+  return blocks.map((block) => {
+    if (!block || typeof block !== "object") return block;
+
+    if (block.type === "formLink" || block.type === "formEmbed") {
+      const currentSlug = String((block.props as any)?.formSlug || "").trim().toLowerCase();
+      if (!currentSlug || currentSlug === "intake") {
+        return {
+          ...block,
+          props: {
+            ...(block.props as any),
+            formSlug: starterFormSlug,
+          },
+        } as CreditFunnelBlock;
+      }
+      return block;
+    }
+
+    if (block.type === "section") {
+      const props: any = block.props;
+      return {
+        ...block,
+        props: {
+          ...props,
+          ...(Array.isArray(props?.children) ? { children: replaceStarterFormSlug(props.children, starterFormSlug) } : null),
+          ...(Array.isArray(props?.leftChildren) ? { leftChildren: replaceStarterFormSlug(props.leftChildren, starterFormSlug) } : null),
+          ...(Array.isArray(props?.rightChildren) ? { rightChildren: replaceStarterFormSlug(props.rightChildren, starterFormSlug) } : null),
+        },
+      } as CreditFunnelBlock;
+    }
+
+    if (block.type === "columns") {
+      const props: any = block.props;
+      const columns = Array.isArray(props?.columns) ? props.columns : [];
+      return {
+        ...block,
+        props: {
+          ...props,
+          columns: columns.map((column: any) => ({
+            ...column,
+            ...(Array.isArray(column?.children) ? { children: replaceStarterFormSlug(column.children, starterFormSlug) } : null),
+          })),
+        },
+      } as CreditFunnelBlock;
+    }
+
+    return block;
+  });
+}
+
+function buildStarterFormDraft(opts: {
+  pageType: FunnelPageIntentType;
+  funnelName: string;
+  funnelSlug: string;
+  offer: string;
+}) {
+  const theme = getCreditFormTheme("platinum-blue");
+  const offer = typeof opts.offer === "string" ? opts.offer.trim() : "";
+  const funnelName = opts.funnelName.trim() || "New funnel";
+
+  if (opts.pageType === "webinar") {
+    return {
+      slugBase: normalizeSlug(`${opts.funnelSlug}-register`) || "register",
+      name: `${funnelName} registration`,
+      schemaJson: normalizeCreditFormSchema({
+        fields: [
+          { name: "fullName", label: "Full name", type: "text", required: true },
+          { name: "email", label: "Email", type: "email", required: true },
+          { name: "phone", label: "Phone", type: "tel" },
+        ],
+        content: {
+          displayTitle: `Register for ${funnelName}`,
+          description: "Save your spot and we will send the access details and reminders here.",
+        },
+        success: {
+          title: "You're registered",
+          message: "We saved your registration and will send the next details shortly.",
+          buttonLabel: "Register another",
+          buttonAction: "reset",
+          ...(theme?.successColors || {}),
+        },
+        ...(theme ? { style: theme.style } : null),
+      }) as Prisma.InputJsonValue,
+    };
+  }
+
+  if (opts.pageType === "application") {
+    return {
+      slugBase: normalizeSlug(`${opts.funnelSlug}-apply`) || "apply",
+      name: `${funnelName} application`,
+      schemaJson: normalizeCreditFormSchema({
+        fields: [
+          { name: "fullName", label: "Full name", type: "text", required: true },
+          { name: "email", label: "Email", type: "email", required: true },
+          { name: "phone", label: "Phone", type: "tel", required: true },
+          { name: "goal", label: "What are you trying to accomplish?", type: "short_answer", required: true },
+          { name: "timeline", label: "Timeline", type: "radio", options: ["ASAP", "30-60 days", "60-90 days", "Not sure"] },
+          { name: "details", label: "Anything we should know before we review this?", type: "long_answer" },
+        ],
+        content: {
+          displayTitle: `${funnelName} application`,
+          description: "Share the core details now so the next routing step can happen without back-and-forth.",
+        },
+        success: {
+          title: "Application received",
+          message: "We saved your application and the next step can now be routed from this funnel.",
+          buttonLabel: "Submit another",
+          buttonAction: "reset",
+          ...(theme?.successColors || {}),
+        },
+        ...(theme ? { style: theme.style } : null),
+      }) as Prisma.InputJsonValue,
+    };
+  }
+
+  return {
+    slugBase: normalizeSlug(`${opts.funnelSlug}-intake`) || "intake",
+    name: `${funnelName} intake`,
+    schemaJson: normalizeCreditFormSchema({
+      fields: [
+        { name: "fullName", label: "Full name", type: "text", required: true },
+        { name: "email", label: "Email", type: "email", required: true },
+        { name: "phone", label: "Phone", type: "tel", required: true },
+        {
+          name: "goal",
+          label: offer ? `What do you need help with around ${offer}?` : "What do you need help with?",
+          type: "short_answer",
+          required: true,
+        },
+        { name: "details", label: "Anything else we should know?", type: "long_answer" },
+      ],
+      content: {
+        displayTitle: offer ? `Get started with ${offer}` : `Get started with ${funnelName}`,
+        description: "Send the key details here so this funnel can capture and route the lead immediately.",
+      },
+      success: {
+        title: "You're all set",
+        message: "We received your details and the next follow-up can move from here.",
+        buttonLabel: "Submit another",
+        buttonAction: "reset",
+        ...(theme?.successColors || {}),
+      },
+      ...(theme ? { style: theme.style } : null),
+    }) as Prisma.InputJsonValue,
+  };
+}
+
+async function createStarterFormTx(
+  tx: Prisma.TransactionClient,
+  opts: { ownerId: string; funnelSlug: string; funnelName: string; pageType: FunnelPageIntentType; offer: string },
+) {
+  const draft = buildStarterFormDraft(opts);
+  let candidate = draft.slugBase;
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const created = await tx.creditForm
+      .create({
+        data: {
+          ownerId: opts.ownerId,
+          slug: candidate,
+          name: draft.name,
+          schemaJson: draft.schemaJson,
+        },
+        select: { id: true, slug: true, name: true },
+      })
+      .catch((error) => {
+        const message = String((error as any)?.message || "");
+        if (message.includes("CreditForm_slug_key") || message.toLowerCase().includes("unique")) return null;
+        throw error;
+      });
+
+    if (created) return created;
+    candidate = withRandomSuffix(draft.slugBase);
+  }
+
+  throw new Error("Unable to create starter form");
+}
+
+function materializeStarterPages(opts: {
+  pages: FunnelCreatePageSeed[];
+  starterFormSlug?: string | null;
+  ownerId: string;
+  basePath: string;
+  hasDraftHtml: boolean;
+  fallbackTitle: string;
+}) {
+  return opts.pages.map((page) => {
+    const nextBlocks = opts.starterFormSlug ? replaceStarterFormSlug(page.blocksJson, opts.starterFormSlug) : page.blocksJson;
+    const nextHtml = page.editorMode === "BLOCKS"
+      ? blocksToCustomHtmlDocument({
+          blocks: nextBlocks,
+          pageId: page.slug,
+          ownerId: opts.ownerId,
+          basePath: opts.basePath,
+          title: page.title || opts.fallbackTitle,
+        })
+      : page.customHtml || "";
+
+    return {
+      slug: page.slug,
+      title: page.title,
+      sortOrder: page.sortOrder,
+      editorMode: page.editorMode,
+      contentMarkdown: page.contentMarkdown,
+      blocksJson: nextBlocks as unknown as Prisma.InputJsonValue,
+      ...applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(nextHtml), opts.hasDraftHtml),
+      ...(page.customChatJson !== undefined && page.customChatJson !== null ? { customChatJson: page.customChatJson } : {}),
+    };
   });
 }
 
@@ -206,6 +456,7 @@ export async function POST(req: Request) {
       askClarifyingQuestions: body?.askClarifyingQuestions,
     });
     const shouldForceMinimalCustomScaffold = !template && !hasStructuredInitializationIntent(body);
+    const starterFormEligible = firstPageIntent.pageType === "lead-capture" || firstPageIntent.pageType === "application" || firstPageIntent.pageType === "webinar";
     const initializationScaffold = template
       ? null
       : await buildFunnelInitializationScaffold({
@@ -227,18 +478,19 @@ export async function POST(req: Request) {
             slug,
             preferCustomMode: shouldForceMinimalCustomScaffold || body?.preferCustomMode === true,
           },
+          ...(starterFormEligible ? { interactiveDefaults: { starterFormSlug: "intake" } } : null),
         });
 
     const pageTemplates = template && theme ? buildCreditFunnelPagesFromTemplateAndTheme(template, theme) : null;
-    const pagesCreate = pageTemplates
+    const basePagesCreate: FunnelCreatePageSeed[] = pageTemplates
       ? pageTemplates.map((p) => ({
           slug: p.slug,
           title: p.title,
           sortOrder: p.sortOrder,
           editorMode: p.editorMode,
           contentMarkdown: p.contentMarkdown,
-          blocksJson: p.blocksJson as unknown as Prisma.InputJsonValue,
-          ...applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(p.customHtml || ""), hasDraftHtml),
+          blocksJson: p.blocksJson,
+          customHtml: p.customHtml || "",
           ...(p.customChatJson !== undefined && p.customChatJson !== null
             ? { customChatJson: p.customChatJson as unknown as Prisma.InputJsonValue }
             : {}),
@@ -250,8 +502,8 @@ export async function POST(req: Request) {
             sortOrder: seed.sortOrder,
             editorMode: seed.editorMode,
             contentMarkdown: seed.contentMarkdown,
-            blocksJson: seed.blocksJson as unknown as Prisma.InputJsonValue,
-            ...applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(seed.customHtml || ""), hasDraftHtml),
+            blocksJson: seed.blocksJson,
+            customHtml: seed.customHtml || "",
           }))
         : [
             {
@@ -260,10 +512,13 @@ export async function POST(req: Request) {
               sortOrder: 0,
               editorMode: "BLOCKS" as const,
               contentMarkdown: "",
-              blocksJson: [] as unknown as Prisma.InputJsonValue,
-              ...applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(""), hasDraftHtml),
+              blocksJson: [],
+              customHtml: "",
             },
           ];
+    const starterNeedsForm = basePagesCreate.some((page) => blockTreeSome(page.blocksJson, (block) => block.type === "formLink" || block.type === "formEmbed"));
+    const starterNeedsBooking = basePagesCreate.some((page) => blockTreeSome(page.blocksJson, (block) => block.type === "calendarEmbed"));
+    const bookingStarterPageTitle = basePagesCreate.find((page) => blockTreeSome(page.blocksJson, (block) => block.type === "calendarEmbed"))?.title || name;
 
     const existingBySlug = await prisma.creditFunnel.findFirst({
       where: { ownerId, slug },
@@ -281,10 +536,30 @@ export async function POST(req: Request) {
     }
 
     let funnel: any = null;
+    let starterFormSlug: string | null = null;
     let candidate = slug;
     try {
       for (let i = 0; i < 8; i += 1) {
         funnel = await prisma.$transaction(async (tx) => {
+          const starterForm = starterNeedsForm
+            ? await createStarterFormTx(tx, {
+                ownerId,
+                funnelSlug: candidate,
+                funnelName: name,
+                pageType: firstPageIntent.pageType,
+                offer: String(body?.offerSummary ?? body?.offer || ""),
+              })
+            : null;
+          starterFormSlug = starterForm?.slug || null;
+          const pagesCreate = materializeStarterPages({
+            pages: basePagesCreate,
+            starterFormSlug,
+            ownerId,
+            basePath,
+            hasDraftHtml,
+            fallbackTitle: name,
+          });
+
           const created = await tx.creditFunnel
             .create({
               data: {
@@ -435,19 +710,48 @@ export async function POST(req: Request) {
       throw e;
     }
 
+    let bookingProvisionWarning: string | null = null;
+    if (funnel && starterNeedsBooking) {
+      const bookingResult = await ensureFunnelBookingCalendar({
+        ownerId,
+        funnelId: funnel.id,
+        funnelName: funnel.name,
+        pageTitle: bookingStarterPageTitle,
+      });
+      if (!bookingResult.ok) {
+        bookingProvisionWarning = bookingResult.error;
+      }
+    }
+
+    const initialization = template
+      ? {
+          mode: "template",
+          confidence: "high",
+          label: template.label,
+          summary: `Loaded the ${template.label.toLowerCase()} template.`,
+          pageCount: pageTemplates?.length || 0,
+          pageTitles: (pageTemplates || []).map((page) => page.title),
+        }
+      : initializationScaffold?.summary || null;
+
+    const initializationSummaryAdditions = [
+      starterFormSlug ? "a live starter form" : "",
+      starterNeedsBooking && !bookingProvisionWarning ? "a linked booking route" : "",
+    ].filter(Boolean);
+    const nextInitialization = initialization
+      ? {
+          ...initialization,
+          summary: initializationSummaryAdditions.length
+            ? `${initialization.summary.replace(/[.]$/, "")}, plus ${initializationSummaryAdditions.join(" and ")}.`
+            : initialization.summary,
+          ...(bookingProvisionWarning ? { warning: bookingProvisionWarning } : null),
+        }
+      : null;
+
     return NextResponse.json({
       ok: true,
       funnel,
-      initialization: template
-        ? {
-            mode: "template",
-            confidence: "high",
-            label: template.label,
-            summary: `Loaded the ${template.label.toLowerCase()} template.`,
-            pageCount: pageTemplates?.length || 0,
-            pageTitles: (pageTemplates || []).map((page) => page.title),
-          }
-        : initializationScaffold?.summary || null,
+      initialization: nextInitialization,
     });
   } catch (e) {
     console.error("[funnel POST error]", e);

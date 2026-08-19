@@ -119,6 +119,12 @@ type StripePrice = {
   recurring?: unknown;
 };
 
+function assignStripeMetadataField(params: Record<string, unknown>, key: string, value: string | null | undefined, max = 500) {
+  const next = typeof value === "string" ? value.trim().slice(0, max) : "";
+  if (!next) return;
+  params[`metadata[${key}]`] = next;
+}
+
 async function inferCheckoutModeFromPrices(secretKey: string, priceIds: string[]): Promise<"payment" | "subscription"> {
   const uniq = Array.from(new Set(priceIds.map((p) => String(p || "").trim()).filter(Boolean)));
   if (!uniq.length) return "payment";
@@ -283,10 +289,19 @@ export async function POST(req: Request) {
       success_url: successUrl.toString(),
       cancel_url: cancelUrl.toString(),
       client_reference_id: page.id,
-      "metadata[funnel_page_id]": page.id,
-      "metadata[funnel_id]": page.funnelId,
-      "metadata[source]": "credit_funnel",
     };
+
+    assignStripeMetadataField(stripeParams, "funnel_page_id", page.id, 64);
+    assignStripeMetadataField(stripeParams, "funnel_id", page.funnelId, 64);
+    assignStripeMetadataField(stripeParams, "source", "credit_funnel", 64);
+    assignStripeMetadataField(stripeParams, "tracking_source", trackingContext?.source || "checkout_session", 80);
+    assignStripeMetadataField(stripeParams, "tracking_session_id", trackingContext?.sessionId || null, 120);
+    assignStripeMetadataField(stripeParams, "tracking_path", trackingContext?.path || null, 400);
+    assignStripeMetadataField(stripeParams, "utm_source", trackingContext?.utmSource || null, 200);
+    assignStripeMetadataField(stripeParams, "utm_medium", trackingContext?.utmMedium || null, 200);
+    assignStripeMetadataField(stripeParams, "utm_campaign", trackingContext?.utmCampaign || null, 200);
+    assignStripeMetadataField(stripeParams, "utm_content", trackingContext?.utmContent || null, 200);
+    assignStripeMetadataField(stripeParams, "utm_term", trackingContext?.utmTerm || null, 200);
 
     requestedItems.forEach((it, idx) => {
       stripeParams[`line_items[${idx}][price]`] = it.priceId;

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -22,7 +22,6 @@ import {
   providerLabel,
   type SalesReportingProviderKey,
 } from "@/lib/salesReportingProviders";
-import { normalizeBookingMeetingIntegrationStatus, type BookingMeetingIntegrationStatus } from "@/lib/bookingMeetingIntegrations.shared";
 import { SuggestedSetupSection } from "./SuggestedSetupSection";
 import { IconChevron, IconCopy, IconEyeGlyph, IconEyeOffGlyph } from "@/app/portal/PortalIcons";
 
@@ -72,6 +71,8 @@ type SalesIntegrationPayload =
         prefix: string | null;
         accountId: string | null;
         connectedAtIso: string | null;
+        webhookSigningSecretConfigured: boolean;
+        webhookUrl?: string | null;
       };
       note?: string;
     }
@@ -161,7 +162,7 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
   return (
     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
       <div className="text-xs font-semibold text-zinc-600">{label}</div>
-      <div className="mt-2 break-all font-mono text-xs text-zinc-800">{v ?? "N/A"}</div>
+      <div className="mt-2 break-all font-mono text-xs text-zinc-800">{v ?? "Not added yet"}</div>
       <div className="mt-3 flex items-center justify-end">
         <button
           type="button"
@@ -240,8 +241,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationPayload | null>(null);
   const [salesStatusLoaded, setSalesStatusLoaded] = useState(false);
-  const [bookingIntegrations, setBookingIntegrations] = useState<BookingMeetingIntegrationStatus | null>(null);
-  const [bookingIntegrationsLoaded, setBookingIntegrationsLoaded] = useState(false);
   const [funnelDomains, setFunnelDomains] = useState<FunnelBuilderDomain[]>([]);
   const [funnelDomainsLoaded, setFunnelDomainsLoaded] = useState(false);
   const [domainComposerOpen, setDomainComposerOpen] = useState(false);
@@ -251,6 +250,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const [expandedDomains, setExpandedDomains] = useState<Record<string, boolean>>({});
   const [salesProvider, setSalesProvider] = useState<SalesReportingProviderKey>("stripe");
   const [stripeSecretKey, setStripeSecretKey] = useState<string>("");
+  const [stripeWebhookSigningSecret, setStripeWebhookSigningSecret] = useState<string>("");
   const [stripeSaving, setStripeSaving] = useState(false);
   const [stripeError, setStripeError] = useState<string | null>(null);
   const [stripeNote, setStripeNote] = useState<string | null>(null);
@@ -327,6 +327,30 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     if (mailboxError) toast.error(mailboxError);
   }, [mailboxError, toast]);
 
+  const loadMailbox = useCallback(async () => {
+    setMailboxLoading(true);
+    setMailboxError(null);
+    const res = await fetch("/api/portal/mailbox", { cache: "no-store" }).catch(() => null as any);
+
+    if (!res?.ok) {
+      const json = (await res?.json().catch(() => ({}))) as { error?: string };
+      setMailbox(null);
+      setMailboxError(json.error ?? "Business email is still syncing. Retry here, open inbox, or ask Pura to help.");
+      setMailboxLoading(false);
+      return;
+    }
+
+    const json = ((await res.json().catch(() => null)) as MailboxRes | null) ?? null;
+    if (json?.ok) {
+      setMailbox(json.mailbox ?? null);
+      setMailboxLocalPart(json.mailbox?.localPart ?? "");
+    } else {
+      setMailbox(null);
+      setMailboxError((json as any)?.error ?? "Business email is still syncing. Retry here, open inbox, or ask Pura to help.");
+    }
+    setMailboxLoading(false);
+  }, []);
+
   useEffect(() => {
     if (apiKeysError) toast.error(apiKeysError);
   }, [apiKeysError, toast]);
@@ -348,7 +372,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const showSuggestedSetup = mode === "all" || mode === "profile";
   const showContactSection = mode === "all" || mode === "profile";
   const showIntegrationSections = mode === "all" || mode === "integrations";
-  const showIntegrationOverview = mode === "integrations";
   const showBusinessSections = mode === "all" || mode === "business";
   const showAdvancedToggle = mode === "all";
 
@@ -509,23 +532,28 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     );
   }, [pwCurrent, pwNext, pwConfirm]);
 
+  const loadProfile = useCallback(async () => {
+    setError(null);
+    const res = await fetch("/api/portal/profile", { cache: "no-store" });
+    if (res.ok) {
+      const json = (await res.json()) as Me;
+      setMe(json);
+      setName(json.user?.name ?? "");
+      setEmail(json.user?.email ?? "");
+      setPhone(formatPhoneForDisplay(json.user?.phone ?? ""));
+      setCity(json.user?.city ?? "");
+      setState(json.user?.state ?? "");
+      return;
+    }
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    setError(json.error ?? "Profile details are still syncing. Retry here or ask Pura to help.");
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/profile", { cache: "no-store" });
+      await loadProfile();
       if (!mounted) return;
-      if (res.ok) {
-        const json = (await res.json()) as Me;
-        setMe(json);
-        setName(json.user?.name ?? "");
-        setEmail(json.user?.email ?? "");
-        setPhone(formatPhoneForDisplay(json.user?.phone ?? ""));
-        setCity(json.user?.city ?? "");
-        setState(json.user?.state ?? "");
-      } else {
-        const json = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(json.error ?? "Unable to load profile");
-      }
       setLoading(false);
     })();
 
@@ -543,7 +571,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [loadProfile]);
 
   useEffect(() => {
     let mounted = true;
@@ -603,235 +631,14 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       }
     })();
 
-    (async () => {
-      const res = await fetch("/api/portal/booking/settings", { cache: "no-store" }).catch(() => null as any);
-      if (!mounted) return;
-      setBookingIntegrationsLoaded(true);
-      if (!res?.ok) return;
-      const json = (await res.json().catch(() => null)) as { ok?: boolean; site?: { meetingIntegrations?: unknown } } | null;
-      if (json?.ok) {
-        setBookingIntegrations(normalizeBookingMeetingIntegrationStatus(json.site?.meetingIntegrations));
-      }
-    })();
-
-    (async () => {
-      setMailboxLoading(true);
-      setMailboxError(null);
-      const res = await fetch("/api/portal/mailbox", { cache: "no-store" }).catch(() => null as any);
-      if (!mounted) return;
-
-      if (!res?.ok) {
-        const json = res ? (((await res.json().catch(() => ({}))) as { error?: string }) ?? {}) : {};
-        setMailbox(null);
-        setMailboxError(json.error ?? "Unable to load business email");
-        setMailboxLoading(false);
-        return;
-      }
-
-      const json = ((await res.json().catch(() => null)) as MailboxRes | null) ?? null;
-      if (json?.ok) {
-        setMailbox(json.mailbox ?? null);
-        setMailboxLocalPart(json.mailbox?.localPart ?? "");
-      } else {
-        setMailbox(null);
-        setMailboxError((json as any)?.error ?? "Unable to load business email");
-      }
-      setMailboxLoading(false);
-    })();
+    void loadMailbox();
 
     void loadApiKeys();
 
     return () => {
       mounted = false;
     };
-  }, [portalMe, canViewWebhooks, canViewTwilio]);
-
-  const fullAccessApiKey = apiKeysState?.fullAccessKey ?? null;
-  const scopedApiKeys = apiKeysState?.scopedKeys ?? [];
-
-  const integrationOverviewCards = useMemo(() => {
-    if (!showIntegrationOverview) return [] as Array<{
-      title: string;
-      status: string;
-      tone: "success" | "warning" | "neutral";
-      description: string;
-    }>;
-
-    const salesCard = (() => {
-      if (!salesStatusLoaded) {
-        return {
-          title: "Payments & sales reporting",
-          status: "Checking setup",
-          tone: "neutral" as const,
-          description: "Connect Stripe or another supported processor so Sales Reporting can read real transaction data.",
-        };
-      }
-      if (!salesStatus?.ok) {
-        return {
-          title: "Payments & sales reporting",
-          status: "Setup required",
-          tone: "warning" as const,
-          description: "No payment provider is active yet for sales reporting.",
-        };
-      }
-      if (!salesStatus.encryptionConfigured) {
-        return {
-          title: "Payments & sales reporting",
-          status: "Support required",
-          tone: "warning" as const,
-          description: "Secure credential storage is not enabled on this deployment yet.",
-        };
-      }
-      if (salesStatus.activeProvider) {
-        return {
-          title: "Payments & sales reporting",
-          status: `${providerLabel(salesStatus.activeProvider)} connected`,
-          tone: "success" as const,
-          description: "Sales Reporting will pull gross, refunds, and net directly from the connected processor.",
-        };
-      }
-      return {
-        title: "Payments & sales reporting",
-        status: "Setup required",
-        tone: "warning" as const,
-        description: "Choose a processor below, then paste the credentials needed for reporting.",
-      };
-    })();
-
-    const twilioCard = (() => {
-      if (!canViewTwilio && !canViewWebhooks) {
-        return {
-          title: "Twilio, SMS & voice",
-          status: "Access limited",
-          tone: "neutral" as const,
-          description: "An owner or admin needs to grant access before you can inspect or edit Twilio setup.",
-        };
-      }
-      if (twilioMasked?.configured) {
-        return {
-          title: "Twilio, SMS & voice",
-          status: "Connected",
-          tone: "success" as const,
-          description: twilioMasked.fromNumberE164
-            ? `Inbound and outbound messaging is tied to ${twilioMasked.fromNumberE164}.`
-            : "Twilio credentials are configured for calling and texting.",
-        };
-      }
-      return {
-        title: "Twilio, SMS & voice",
-        status: "Setup required",
-        tone: "warning" as const,
-        description: "Receptionist, missed-call text back, and SMS features need Twilio credentials here.",
-      };
-    })();
-
-    const bookingCard = (() => {
-      if (!bookingIntegrationsLoaded) {
-        return {
-          title: "Booking providers",
-          status: "Checking setup",
-          tone: "neutral" as const,
-          description: "Zoom and Google Meet connections are reused by Booking and Funnel Builder.",
-        };
-      }
-      if (!bookingIntegrations?.encryptionConfigured) {
-        return {
-          title: "Booking providers",
-          status: "Support required",
-          tone: "warning" as const,
-          description: "Secure meeting-provider storage is not enabled on this deployment yet.",
-        };
-      }
-      const connectedProviders = Object.values(bookingIntegrations.providers).filter((provider) => provider.connected).length;
-      const oauthConfiguredProviders = Object.values(bookingIntegrations.providers).filter((provider) => provider.oauthConfigured).length;
-      if (connectedProviders > 0) {
-        return {
-          title: "Booking providers",
-          status: connectedProviders === 1 ? "1 provider connected" : `${connectedProviders} providers connected`,
-          tone: "success" as const,
-          description: "Booking pages and funnel booking blocks can create meeting links automatically.",
-        };
-      }
-      return {
-        title: "Booking providers",
-        status: oauthConfiguredProviders > 0 ? "Setup required" : "Support required",
-        tone: "warning" as const,
-        description: oauthConfiguredProviders > 0
-          ? "Open Booking to connect Zoom or Google Meet before using automatic meeting links."
-          : "Zoom or Google Meet OAuth is not configured on this deployment yet.",
-      };
-    })();
-
-    const apiKeysCard = (() => {
-      if (!apiKeysLoaded) {
-        return {
-          title: "API keys",
-          status: "Checking setup",
-          tone: "neutral" as const,
-          description: "Manage the full-access key and any scoped keys for external integrations.",
-        };
-      }
-      const keyCount = (fullAccessApiKey ? 1 : 0) + scopedApiKeys.length;
-      if (keyCount > 0) {
-        return {
-          title: "API keys",
-          status: keyCount === 1 ? "1 key active" : `${keyCount} keys active`,
-          tone: "success" as const,
-          description: "Use scoped keys when a workflow should only access a narrow part of the portal.",
-        };
-      }
-      return {
-        title: "API keys",
-        status: "Setup optional",
-        tone: "neutral" as const,
-        description: "Create an API key only when another tool needs authenticated access to portal data.",
-      };
-    })();
-
-    const emailCard = (() => {
-      if (mailboxLoading) {
-        return {
-          title: "Business email",
-          status: "Checking setup",
-          tone: "neutral" as const,
-          description: "This address is used for mailbox replies and other business-email flows.",
-        };
-      }
-      if (mailbox?.emailAddress) {
-        return {
-          title: "Business email",
-          status: mailbox.emailAddress,
-          tone: "success" as const,
-          description: mailbox.canChange
-            ? "You can update the mailbox local part below if this address should change."
-            : "This mailbox is locked for this workspace and already configured.",
-        };
-      }
-      return {
-        title: "Business email",
-        status: mailboxError ? "Setup required" : "Not configured",
-        tone: "warning" as const,
-        description: mailboxError || "Set the business mailbox so team and contact email flows have a clear sender identity.",
-      };
-    })();
-
-    return [salesCard, twilioCard, bookingCard, apiKeysCard, emailCard];
-  }, [
-    apiKeysLoaded,
-    bookingIntegrations,
-    bookingIntegrationsLoaded,
-    canViewTwilio,
-    canViewWebhooks,
-    fullAccessApiKey,
-    mailbox,
-    mailboxError,
-    mailboxLoading,
-    salesStatus,
-    salesStatusLoaded,
-    scopedApiKeys.length,
-    showIntegrationOverview,
-    twilioMasked,
-  ]);
+  }, [portalMe, canViewWebhooks, canViewTwilio, loadMailbox]);
 
   async function reloadDomains() {
     setFunnelDomainsLoaded(false);
@@ -852,7 +659,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       await navigator.clipboard.writeText(text);
       toast.success("Copied");
     } catch {
-      toast.error("Unable to copy");
+      toast.error("That value did not copy. Retry here.");
     }
   }
 
@@ -868,7 +675,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null) : null) ?? null;
     setDomainBusy(false);
     if (!res?.ok || !json?.ok) {
-      toast.error(json?.error || "Unable to add domain");
+      toast.error(json?.error || "That domain did not add. Retry here in domains.");
       return;
     }
     setDomainInput("");
@@ -887,7 +694,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; verified?: boolean; error?: string } | null) : null) ?? null;
     setDomainVerifyBusy((current) => ({ ...current, [domain.id]: false }));
     if (!res?.ok || !json?.ok) {
-      toast.error(json?.error || "Unable to verify domain");
+      toast.error(json?.error || "That domain did not verify. Retry here in domains.");
       return;
     }
     if (json.verified) toast.success(`${domain.domain} is ready.`);
@@ -910,13 +717,13 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     if (!res?.ok) {
       const json = ((await res?.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
       setApiKeysState(null);
-      setApiKeysError(json && "error" in json ? json.error ?? "Unable to load API keys" : "Unable to load API keys");
+      setApiKeysError(json && "error" in json ? json.error ?? "API keys are still syncing. Retry here, create a new key, or ask Pura to help." : "API keys are still syncing. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     const json = ((await res.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
     if (!json?.ok) {
       setApiKeysState(null);
-      setApiKeysError((json as any)?.error ?? "Unable to load API keys");
+      setApiKeysError((json as any)?.error ?? "API keys are still syncing. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     setApiKeysState(json);
@@ -935,12 +742,17 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     let data: any = null;
     if (salesProvider === "stripe") {
       const key = stripeSecretKey.trim();
-      if (!key) {
+      const webhookSigningSecret = stripeWebhookSigningSecret.trim();
+      if (!key && !webhookSigningSecret) {
         setStripeSaving(false);
-        setStripeError("Paste your Stripe secret key first.");
+        setStripeError("Paste your Stripe secret key or webhook signing secret first.");
         return;
       }
-      data = { provider: "stripe", secretKey: key };
+      data = {
+        provider: "stripe",
+        ...(key ? { secretKey: key } : {}),
+        ...(webhookSigningSecret ? { webhookSigningSecret } : {}),
+      };
     } else if (salesProvider === "authorizenet") {
       data = { provider: "authorizenet", apiLoginId: authNetLoginId.trim(), transactionKey: authNetTxKey.trim(), environment: authNetEnv };
     } else if (salesProvider === "braintree") {
@@ -967,12 +779,13 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setStripeSaving(false);
 
     if (!res?.ok || !json?.ok) {
-      setStripeError(json?.error ?? "Unable to connect");
+      setStripeError(json?.error ?? "Sales reporting did not connect. Retry here, open the sales dashboard, or ask Pura to help.");
       return;
     }
 
     setStripeNote(json?.note ?? "Connected.");
     setStripeSecretKey("");
+    setStripeWebhookSigningSecret("");
     setAuthNetLoginId("");
     setAuthNetTxKey("");
     setBraintreeMerchantId("");
@@ -1008,12 +821,13 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setStripeSaving(false);
 
     if (!res?.ok || !json?.ok) {
-      setStripeError(json?.error ?? "Unable to disconnect");
+      setStripeError(json?.error ?? "Sales reporting did not disconnect. Retry here, open the sales dashboard, or ask Pura to help.");
       return;
     }
 
     setStripeNote(json?.note ?? "Disconnected.");
     setStripeSecretKey("");
+    setStripeWebhookSigningSecret("");
     await refreshSalesStatus();
   }
 
@@ -1060,7 +874,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setSavingApiKey(false);
     if (!res?.ok || !json?.ok) {
-      setApiKeysError(json?.error ?? (editingApiKeyId ? "Unable to update API key" : "Unable to create API key"));
+      setApiKeysError(json?.error ?? (editingApiKeyId ? "That API key did not update. Retry here, create a new key, or ask Pura to help." : "That API key did not create. Retry here, create a new key, or ask Pura to help."));
       return;
     }
 
@@ -1082,7 +896,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setDeletingApiKeyId(null);
     if (!res?.ok || !json?.ok) {
-      setApiKeysError(json?.error ?? "Unable to delete API key");
+      setApiKeysError(json?.error ?? "That API key did not delete. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     setRevealedApiKeyValues((current) => {
@@ -1111,7 +925,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setRevealingApiKeyId(null);
     if (!res?.ok || !json?.ok || typeof json?.value !== "string") {
-      setApiKeysError(json?.error ?? "Unable to reveal API key");
+      setApiKeysError(json?.error ?? "That API key did not reveal. Retry here, create a new key, or ask Pura to help.");
       return;
     }
     setRevealedApiKeyValues((current) => ({ ...current, [keyId]: json.value }));
@@ -1139,7 +953,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const salesProviderFormReady = useMemo(() => {
     switch (salesProvider) {
       case "stripe":
-        return stripeSecretKey.trim().length > 0;
+        return stripeSecretKey.trim().length > 0 || stripeWebhookSigningSecret.trim().length > 0;
       case "authorizenet":
         return authNetLoginId.trim().length > 0 && authNetTxKey.trim().length > 0;
       case "braintree":
@@ -1171,13 +985,14 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     razorpayKeySecret,
     salesProvider,
     stripeSecretKey,
+    stripeWebhookSigningSecret,
   ]);
 
   const salesProviderDirty = useMemo(() => {
     if (salesProvider !== activeSalesProvider) return true;
     switch (salesProvider) {
       case "stripe":
-        return stripeSecretKey.trim().length > 0;
+        return stripeSecretKey.trim().length > 0 || stripeWebhookSigningSecret.trim().length > 0;
       case "authorizenet":
         return authNetLoginId.trim().length > 0 || authNetTxKey.trim().length > 0;
       case "braintree":
@@ -1210,7 +1025,11 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     razorpayKeySecret,
     salesProvider,
     stripeSecretKey,
+    stripeWebhookSigningSecret,
   ]);
+
+  const fullAccessApiKey = apiKeysState?.fullAccessKey ?? null;
+  const scopedApiKeys = apiKeysState?.scopedKeys ?? [];
 
   const canCreateApiKey = useMemo(() => {
     if (newApiKeyName.trim().length < 2) return false;
@@ -1240,7 +1059,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setMailboxSaving(false);
 
     if (!res.ok || !json?.ok) {
-      setMailboxError(json?.error ?? "Unable to update business email");
+      setMailboxError(json?.error ?? "Business email did not update. Retry here, open inbox, or ask Pura to help.");
       return;
     }
 
@@ -1274,7 +1093,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const data = (await res.json().catch(() => null)) as TwilioApiPayload | null;
     if (!res.ok || !data?.ok) {
       setSavingTwilio(false);
-      setTwilioError(data?.error || "Failed to save Twilio.");
+      setTwilioError(data?.error || "Twilio settings did not save. Check the credentials and try again.");
       return;
     }
 
@@ -1305,7 +1124,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const data = (await res.json().catch(() => null)) as TwilioApiPayload | null;
     if (!res.ok || !data?.ok) {
       setSavingTwilio(false);
-      setTwilioError(data?.error || "Failed to clear Twilio.");
+      setTwilioError(data?.error || "Twilio settings did not clear. Retry this panel.");
       return;
     }
 
@@ -1400,7 +1219,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setSavingContact(false);
 
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to save contact info");
+      setError(json.error ?? "Contact info did not save. Retry here or ask Pura to help.");
       return;
     }
 
@@ -1449,7 +1268,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setSavingPassword(false);
 
     if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to update password");
+      setError(json.error ?? "Your password did not update. Retry here.");
       return;
     }
 
@@ -1493,31 +1312,26 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
         </div>
       ) : (
         <div className="mt-6 space-y-4">
-          {showIntegrationOverview ? (
-            <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="text-base font-semibold text-brand-ink">What this page controls</div>
-              <div className="mt-1 text-sm text-zinc-600">
-                Related services should send you here for provider setup. Use the status cards below to see what is already connected, what still needs setup, and what is handled inside Booking.
-              </div>
-              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                {integrationOverviewCards.map((card) => (
-                  <div key={card.title} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="text-sm font-semibold text-zinc-900">{card.title}</div>
-                      <span
-                        className={classNames(
-                          "rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
-                          card.tone === "success" && "bg-emerald-100 text-emerald-800",
-                          card.tone === "warning" && "bg-amber-100 text-amber-800",
-                          card.tone === "neutral" && "bg-zinc-200 text-zinc-700",
-                        )}
-                      >
-                        {card.status}
-                      </span>
-                    </div>
-                    <div className="mt-2 text-sm text-zinc-600">{card.description}</div>
-                  </div>
-                ))}
+          {error ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <div className="font-semibold">Profile needs attention</div>
+              <div className="mt-1">{error}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void loadProfile();
+                  }}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Retry
+                </button>
+                <Link
+                  href={`${portalBase}/app/ai-chat?onboarding=1`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Ask Pura
+                </Link>
               </div>
             </div>
           ) : null}
@@ -1742,7 +1556,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       ) : null}
 
                       {!funnelDomainsLoaded ? (
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">Loading domains</div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">Loading domains…</div>
                       ) : funnelDomains.length ? (
                         <div className="space-y-3">
                           {funnelDomains.map((domain) => {
@@ -1890,7 +1704,25 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           })}
                         </div>
                       ) : (
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">No custom domains have been added yet.</div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">Custom domains have not been added yet</div>
+                          <div className="mt-1">Add a domain here when you want booking pages, funnels, or hosted experiences to use your own brand.</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setDomainComposerOpen(true)}
+                              className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                            >
+                              Add domain
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                            >
+                              Ask Pura for help
+                            </Link>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </PortalSettingsSection>
@@ -1898,7 +1730,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               ) : null}
 
               {showIntegrationSections && (canViewTwilio || canViewWebhooks) ? (
-                <div id="twilio-controls" ref={twilioRef} className="scroll-mt-24">
+                <div ref={twilioRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Twilio & webhooks"
                     description="Connection status up front, with Twilio credentials and webhook copy/paste tools tucked under the same dropdown."
@@ -1923,7 +1755,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                               <div className="text-sm font-semibold text-zinc-900">Twilio connection</div>
                               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                                 <span>
-                                  Status: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Connected" : "Not connected"}</span>
+                                  Status: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Connected" : "Setup needed"}</span>
                                 </span>
                                 <span>•</span>
                                 <span>
@@ -1968,10 +1800,10 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                     Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span>
                                   </div>
                                   <div className="mt-1">
-                                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "N/A"}</span>
+                                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "Account not linked yet"}</span>
                                   </div>
                                   <div className="mt-1">
-                                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "N/A"}</span>
+                                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "Sender number not added yet"}</span>
                                   </div>
                                 </div>
 
@@ -2069,7 +1901,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               ) : null}
 
               {showIntegrationSections ? (
-                <div id="sales-reporting-controls" ref={salesReportingRef} className="scroll-mt-24">
+                <div ref={salesReportingRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Sales Reporting"
                     description="Connect your payment processor to unlock a sales dashboard."
@@ -2084,12 +1916,53 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       ) : null}
 
                       {stripeError ? (
-                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{stripeError}</div>
+                        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                          <div className="font-semibold text-red-900">Sales reporting needs attention</div>
+                          <div className="mt-1">{stripeError}</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void refreshSalesStatus();
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                            >
+                              Retry
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/services/reporting/sales`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Open sales dashboard
+                            </Link>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Ask Pura
+                            </Link>
+                          </div>
+                        </div>
                       ) : null}
 
                       {salesStatusLoaded && salesStatus?.ok === true && !salesStatus.encryptionConfigured ? (
                         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                          Sales reporting setup is temporarily unavailable. Please contact support.
+                          <div className="font-semibold text-amber-950">Sales reporting is waiting on encryption setup</div>
+                          <div className="mt-1">You can still confirm the provider connection now, then use Pura or the sales dashboard once the account is fully ready.</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <Link
+                              href={`${portalBase}/app/services/reporting/sales`}
+                              className="inline-flex items-center justify-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-100/60"
+                            >
+                              Open sales dashboard
+                            </Link>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-100/60"
+                            >
+                              Ask Pura for help
+                            </Link>
+                          </div>
                         </div>
                       ) : null}
 
@@ -2112,7 +1985,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                 </span>
                                 <span>•</span>
                                 <span>
-                                  Status: <span className="font-semibold text-zinc-900">{selectedSalesConfigured ? "Connected" : "Not connected"}</span>
+                                  Status: <span className="font-semibold text-zinc-900">{selectedSalesConfigured ? "Connected" : "Setup needed"}</span>
                                 </span>
                               </div>
                             </div>
@@ -2158,15 +2031,18 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                               {salesProvider === "stripe" ? (
                                 <>
                                   <div className="mt-1">
-                                    Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "N/A" : "N/A"}</span>
+                                    Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "Key type not available yet" : "Key type not available yet"}</span>
                                   </div>
                                   <div className="mt-1">
-                                    Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "N/A" : "N/A"}</span>
+                                    Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "Account not linked yet" : "Account not linked yet"}</span>
+                                  </div>
+                                  <div className="mt-1">
+                                    Webhook signing secret: <span className="font-mono">{salesStatus?.ok === true && salesStatus.stripe.webhookSigningSecretConfigured ? "Configured" : "Setup needed"}</span>
                                   </div>
                                 </>
                               ) : (
                                 <div className="mt-1">
-                                  Details: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "N/A" : "N/A"}</span>
+                                  Details: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "Provider details not available yet" : "Provider details not available yet"}</span>
                                 </div>
                               )}
                             </div>
@@ -2188,6 +2064,41 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                 Find it in Stripe: <span className="font-semibold">Dashboard → Developers → API keys</span> → copy your Secret key.
                               </div>
                               <div className="mt-2 text-xs text-zinc-500">We store it encrypted and never show the full key back to you.</div>
+
+                              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-700">
+                                <div className="font-semibold text-zinc-900">Stripe webhook endpoint</div>
+                                <div className="mt-2 flex items-start gap-2">
+                                  <div className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-[11px] leading-5 text-zinc-800">
+                                    {salesStatus?.ok === true ? salesStatus.stripe.webhookUrl || "Webhook URL unavailable" : "Webhook URL unavailable"}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => void copyText(salesStatus?.ok === true ? salesStatus.stripe.webhookUrl || "" : "")}
+                                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-600 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-900"
+                                    disabled={!(salesStatus?.ok === true && salesStatus.stripe.webhookUrl)}
+                                    aria-label="Copy Stripe webhook URL"
+                                    title="Copy Stripe webhook URL"
+                                  >
+                                    <IconCopy size={16} />
+                                  </button>
+                                </div>
+                                <div className="mt-2">Add this endpoint in Stripe and subscribe it to <span className="font-semibold">checkout.session.completed</span>, <span className="font-semibold">checkout.session.async_payment_succeeded</span>, <span className="font-semibold">checkout.session.async_payment_failed</span>, and <span className="font-semibold">checkout.session.expired</span>.</div>
+                              </div>
+
+                              <div className="mt-4">
+                                <label className="text-xs font-semibold text-zinc-700">Stripe webhook signing secret</label>
+                                <input
+                                  value={stripeWebhookSigningSecret}
+                                  onChange={(e) => setStripeWebhookSigningSecret(e.target.value)}
+                                  type="password"
+                                  placeholder={salesStatus?.ok === true && salesStatus.stripe.webhookSigningSecretConfigured ? "•••••• (paste to replace)" : "whsec_…"}
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                  autoComplete="off"
+                                />
+                                <div className="mt-2 text-xs text-zinc-500">Find it in Stripe after creating the endpoint: <span className="font-semibold">Developers → Webhooks → select endpoint → Signing secret</span>.</div>
+                                <div className="mt-2 text-xs text-zinc-500">We store this encrypted too so checkout completion and failure webhooks can be verified before analytics update.</div>
+                              </div>
                             </div>
                           ) : null}
 
@@ -2428,7 +2339,37 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                   >
                     <div className="space-y-4">
                       {apiKeysError ? (
-                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{apiKeysError}</div>
+                        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                          <div className="font-semibold text-red-900">API keys need attention</div>
+                          <div className="mt-1">{apiKeysError}</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void loadApiKeys();
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                            >
+                              Retry
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                resetApiKeyComposer();
+                                setApiKeyModalOpen(true);
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Create API Key
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Ask Pura
+                            </Link>
+                          </div>
+                        </div>
                       ) : null}
 
                       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -2598,7 +2539,28 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           ))}
                         </div>
                             ) : apiKeysLoaded ? (
-                              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No scoped API keys yet.</div>
+                              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                                <div className="font-semibold text-zinc-900">Scoped API keys have not been created yet</div>
+                                <div className="mt-1">Create a scoped key when another app, workflow, or teammate only needs limited portal access.</div>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      resetApiKeyComposer();
+                                      setApiKeyModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                                  >
+                                    Create API Key
+                                  </button>
+                                  <Link
+                                    href={`${portalBase}/app/ai-chat?onboarding=1`}
+                                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                                  >
+                                    Ask Pura for help
+                                  </Link>
+                                </div>
+                              </div>
                             ) : null}
                           </div>
                         ) : null}
@@ -2628,7 +2590,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               ) : null}
 
               {showBusinessSections && portalMe?.ok === true ? (
-                <div id="business-email-controls" ref={businessEmailRef} className="scroll-mt-24">
+                <div ref={businessEmailRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Business email"
                     description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."
@@ -2643,7 +2605,33 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       ) : null}
 
                       {mailboxError ? (
-                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{mailboxError}</div>
+                        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                          <div className="font-semibold text-red-900">Business email needs attention</div>
+                          <div className="mt-1">{mailboxError}</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void loadMailbox();
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                            >
+                              Retry
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/services/inbox`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Open inbox
+                            </Link>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-100"
+                            >
+                              Ask Pura
+                            </Link>
+                          </div>
+                        </div>
                       ) : null}
 
                       {mailboxLoading ? (
@@ -2653,7 +2641,27 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       {mailbox ? (
                         <CopyRow label="Business email" value={mailbox.emailAddress} />
                       ) : mailboxLoading ? null : (
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Business email unavailable.</div>
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                          <div className="font-semibold text-zinc-900">Business email not ready yet</div>
+                          <div className="mt-1">
+                            Your managed mailbox has not loaded for this account yet. Retry here, or ask Pura to walk you through the setup path.
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void loadMailbox()}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                            >
+                              Retry business email
+                            </button>
+                            <Link
+                              href={`${portalBase}/app/ai-chat?onboarding=1`}
+                              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                            >
+                              Ask Pura for help
+                            </Link>
+                          </div>
+                        </div>
                       )}
 
                       {mailbox?.canChange ? (
