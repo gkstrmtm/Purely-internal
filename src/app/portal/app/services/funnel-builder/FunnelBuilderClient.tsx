@@ -170,13 +170,6 @@ type FunnelCreateDraft = {
   qualificationFields: string;
   preferCustomMode: boolean;
 };
-
-const FUNNEL_CREATE_CONTEXT_PROMPTS = [
-  "What problem do we solve, and why does it matter right now?",
-  "What makes this offer easier to say yes to than the obvious alternatives?",
-  "What should a qualified buyer believe before they click the CTA?",
-  "What should happen internally after someone converts?",
-];
 const FUNNEL_CREATE_STAGE_ORDER: CreateFunnelInterviewStage[] = ["business", "audience", "conversion"];
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -423,12 +416,6 @@ function formatInitializationConfidence(confidence: "high" | "medium" | "low") {
   return "Needs clarification";
 }
 
-function formatInitializationActionLabel(decision: ReturnType<typeof decideFunnelInitialization> | null) {
-  if (!decision) return "Create funnel";
-  if (decision.mode === "stencil" && decision.label) return `Create with ${decision.label}`;
-  return "Create custom funnel";
-}
-
 function pageTypeFromStencilId(stencilId: string): FunnelPageIntentType {
   if (stencilId === "lead_capture") return "lead-capture";
   if (stencilId === "multi_step") return "application";
@@ -582,7 +569,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createFunnelOffer, setCreateFunnelOffer] = useState("");
   const [createFunnelGoal, setCreateFunnelGoal] = useState(defaultFunnelGoalForCreate("lead-capture"));
   const [createFunnelShellFrameId, setCreateFunnelShellFrameId] = useState("");
-  const [createFunnelCompanyContext, setCreateFunnelCompanyContext] = useState("");
   const [createFunnelQualificationFields, setCreateFunnelQualificationFields] = useState("");
   const [createFunnelStage, setCreateFunnelStage] = useState<CreateFunnelInterviewStage>("business");
   const [createBusinessProfileSummary, setCreateBusinessProfileSummary] = useState<FunnelCreateBusinessProfileSummary | null>(null);
@@ -590,12 +576,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createFunnelDraftHydrated, setCreateFunnelDraftHydrated] = useState(false);
   const [createIntakeDictationSupported, setCreateIntakeDictationSupported] = useState(false);
   const [createIntakeDictationError, setCreateIntakeDictationError] = useState<string | null>(null);
-  const [createIntakeDictatingFieldKey, setCreateIntakeDictatingFieldKey] = useState<"companyContext" | "qualificationFields" | null>(null);
+  const [createIntakeDictatingFieldKey, setCreateIntakeDictatingFieldKey] = useState<"qualificationFields" | null>(null);
   const [busy, setBusy] = useState(false);
   const createRequestIdRef = useRef<string>("");
   const createIntakeRecognitionRef = useRef<CreateSpeechRecognitionLike | null>(null);
   const createIntakeDictationBaseRef = useRef("");
-  const createIntakeDictationFieldKeyRef = useRef<"companyContext" | "qualificationFields" | null>(null);
+  const createIntakeDictationFieldKeyRef = useRef<"qualificationFields" | null>(null);
   const createFunnelDraftSerializedRef = useRef<string>("null");
 
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
@@ -672,42 +658,44 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   const funnelCreateInterviewSignals = useMemo(
     () => [
-      { label: "Business context loaded", done: Boolean(createBusinessProfileSummary || createFunnelCompanyContext.trim()) },
-      { label: "Offer defined", done: Boolean(createFunnelOffer.trim()) },
-      { label: "Audience defined", done: Boolean(createFunnelAudience.trim() || createBusinessProfileSummary?.targetCustomer) },
-      { label: "Conversion path defined", done: Boolean(createFunnelGoal.trim() && createFunnelPrimaryCta.trim()) },
+      { label: "Page type", done: Boolean(createFunnelPageType) },
+      { label: "Offer", done: Boolean(createFunnelOffer.trim()) },
+      { label: "Audience", done: Boolean(createFunnelAudience.trim() || createBusinessProfileSummary?.targetCustomer) },
+      { label: "Next action", done: Boolean(createFunnelGoal.trim() && createFunnelPrimaryCta.trim()) },
     ],
-    [createBusinessProfileSummary, createFunnelAudience, createFunnelCompanyContext, createFunnelGoal, createFunnelOffer, createFunnelPrimaryCta],
+    [createBusinessProfileSummary, createFunnelAudience, createFunnelGoal, createFunnelOffer, createFunnelPageType, createFunnelPrimaryCta],
   );
 
   const funnelCreateStageItems = useMemo(
     () => [
       {
         key: "business" as const,
-        label: "Business snapshot",
-        hint: "Business context, offer, and structural posture",
-        done: Boolean((createBusinessProfileSummary || createFunnelCompanyContext.trim()) && createFunnelOffer.trim()),
+        label: "Basics",
+        hint: "Name it, choose the page type, and define the offer",
+        done: Boolean(createFunnelOffer.trim()),
       },
       {
         key: "audience" as const,
-        label: "Fit and routing",
-        hint: "Audience, intake detail, and qualification logic",
+        label: "Audience",
+        hint: "Who it is for and what to collect",
         done: Boolean(createFunnelAudience.trim() || createBusinessProfileSummary?.targetCustomer || createFunnelQualificationFields.trim()),
       },
       {
         key: "conversion" as const,
-        label: "Conversion path",
-        hint: "Goal, CTA, and first-draft recommendation",
+        label: "Next step",
+        hint: "Goal, CTA, and starting draft",
         done: Boolean(createFunnelGoal.trim() && createFunnelPrimaryCta.trim()),
       },
     ],
-    [createBusinessProfileSummary, createFunnelAudience, createFunnelCompanyContext, createFunnelGoal, createFunnelOffer, createFunnelPrimaryCta, createFunnelQualificationFields],
+    [createBusinessProfileSummary, createFunnelAudience, createFunnelGoal, createFunnelOffer, createFunnelPrimaryCta, createFunnelQualificationFields],
   );
 
   const activeCreateFunnelStageIndex = useMemo(
     () => Math.max(0, FUNNEL_CREATE_STAGE_ORDER.indexOf(createFunnelStage)),
     [createFunnelStage],
   );
+
+  const activeCreateFunnelStageItem = funnelCreateStageItems[activeCreateFunnelStageIndex] ?? funnelCreateStageItems[0];
 
   const activeCreateFunnelStageComplete = funnelCreateStageItems[activeCreateFunnelStageIndex]?.done ?? false;
 
@@ -724,20 +712,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     [createBusinessProfileSummary],
   );
 
-  const appendCreateContextPrompt = useCallback((prompt: string) => {
-    setCreateFunnelCompanyContext((prev) => {
-      const nextPrompt = prompt.trim();
-      if (!nextPrompt) return prev;
-      if (prev.includes(nextPrompt)) return prev;
-      return prev.trim() ? `${prev.trim()}\n${nextPrompt}` : `${nextPrompt}\n`;
-    });
-  }, []);
-
-  const updateCreateIntakeFieldValue = useCallback((fieldKey: "companyContext" | "qualificationFields", value: string) => {
-    if (fieldKey === "companyContext") {
-      setCreateFunnelCompanyContext(value);
-      return;
-    }
+  const updateCreateQualificationValue = useCallback((value: string) => {
     setCreateFunnelQualificationFields(value);
   }, []);
 
@@ -749,7 +724,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     }
   }, []);
 
-  const startCreateIntakeDictation = useCallback((fieldKey: "companyContext" | "qualificationFields", currentValue: string) => {
+  const startCreateIntakeDictation = useCallback((fieldKey: "qualificationFields", currentValue: string) => {
     if (createIntakeDictatingFieldKey === fieldKey) {
       stopCreateIntakeDictation();
       return;
@@ -791,7 +766,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
       const transcript = segments.join(" ").replace(/\s+/g, " ").trim();
       const nextValue = transcript ? `${createIntakeDictationBaseRef.current}${transcript}` : createIntakeDictationBaseRef.current.trimEnd();
-      updateCreateIntakeFieldValue(fieldKey, nextValue.trimEnd());
+      updateCreateQualificationValue(nextValue.trimEnd());
     };
     recognition.onerror = (event) => {
       setCreateIntakeDictationError(friendlyCreateSpeechError(event));
@@ -816,7 +791,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       createIntakeDictationFieldKeyRef.current = null;
       setCreateIntakeDictationError("Speech-to-text did not start in this browser session. Retry here or keep typing.");
     }
-  }, [createIntakeDictatingFieldKey, stopCreateIntakeDictation, updateCreateIntakeFieldValue]);
+  }, [createIntakeDictatingFieldKey, stopCreateIntakeDictation, updateCreateQualificationValue]);
 
   const funnelCreateNeedsDirectionChoice = Boolean(
     creatingKind === "funnel" &&
@@ -1605,7 +1580,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     setCreateFunnelOffer("");
     setCreateFunnelGoal(defaultFunnelGoalForCreate(seededIntent.pageType));
     setCreateFunnelShellFrameId(seededIntent.shellFrameId);
-    setCreateFunnelCompanyContext("");
     setCreateFunnelQualificationFields("");
     setCreateFunnelStage("business");
     setCreateIntakeDictationError(null);
@@ -1626,7 +1600,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setCreateFunnelOffer(draft.offer);
         setCreateFunnelGoal(draft.goal || defaultFunnelGoalForCreate(draft.pageType));
         setCreateFunnelShellFrameId(draft.shellFrameId);
-        setCreateFunnelCompanyContext(draft.companyContext);
         setCreateFunnelQualificationFields(draft.qualificationFields);
         setCreateFunnelStage(draft.stage || "business");
         setCreateFunnelDraftSavedAt(draft.updatedAt || null);
@@ -1667,13 +1640,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       offer: createFunnelOffer,
       goal: createFunnelGoal,
       shellFrameId: createFunnelShellFrameId,
-      companyContext: createFunnelCompanyContext,
+      companyContext: "",
       qualificationFields: createFunnelQualificationFields,
       preferCustomMode: createFunnelPreferCustomMode,
     };
 
     const meaningfulDraft =
-      Boolean(createSlug.trim() || createName.trim() || createFunnelOffer.trim() || createFunnelAudience.trim() || createFunnelCompanyContext.trim() || createFunnelQualificationFields.trim())
+      Boolean(createSlug.trim() || createName.trim() || createFunnelOffer.trim() || createFunnelAudience.trim() || createFunnelQualificationFields.trim())
       || createFunnelPageType !== "lead-capture"
       || createFunnelPrimaryCta.trim() !== (buildPrimaryCtaSuggestions("lead-capture", "")[0] || "Get started")
       || createFunnelGoal.trim() !== defaultFunnelGoalForCreate("lead-capture")
@@ -1693,7 +1666,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     };
   }, [
     createFunnelAudience,
-    createFunnelCompanyContext,
     createFunnelDraftHydrated,
     createFunnelGoal,
     createFunnelHeroAssetMode,
@@ -1724,7 +1696,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     setCreateFunnelOffer("");
     setCreateFunnelGoal(defaultFunnelGoalForCreate(seededIntent.pageType));
     setCreateFunnelShellFrameId(seededIntent.shellFrameId);
-    setCreateFunnelCompanyContext("");
     setCreateFunnelQualificationFields("");
     setCreateFunnelStage("business");
     setCreateFunnelDraftSavedAt(null);
@@ -1768,9 +1739,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       const trimmedFunnelAudience = createFunnelAudience.trim();
       const trimmedFunnelOffer = createFunnelOffer.trim();
       const trimmedPrimaryCta = createFunnelPrimaryCta.trim();
-      const trimmedCompanyContext = createFunnelCompanyContext.trim();
       const trimmedQualificationFields = createFunnelQualificationFields.trim();
-      const resolvedCompanyContext = [funnelCreateBusinessContextSeed, trimmedCompanyContext].filter(Boolean).join("\n\n");
+      const resolvedCompanyContext = funnelCreateBusinessContextSeed.trim();
       const resolvedFunnelAudience = trimmedFunnelAudience || createBusinessProfileSummary?.targetCustomer || "";
       if (creatingKind === "funnel" && !trimmedFunnelOffer) {
         throw new Error("Enter the service, offer, or funnel concept first");
@@ -3150,13 +3120,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
       {creatingKind ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 pa-modal-safe-pad">
-          <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl bg-white p-5 shadow-xl sm:p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-bold text-brand-ink">{creatingKind === "funnel" ? "Create funnel" : "Create form"}</div>
                 <p className="mt-1 text-sm text-zinc-600">
                   {creatingKind === "funnel"
-                    ? "Shape a quick working brief now, close it if you need to, and only lock it in when you hit Create."
+                    ? "Answer three short steps. The builder will draft the first version after you create it."
                     : "Choose a URL slug. You can rename it later."}
                 </p>
               </div>
@@ -3202,70 +3172,10 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               ) : null}
 
               {creatingKind === "funnel" ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug (optional)</div>
-                      <input
-                        value={createSlug}
-                        onChange={(e) => setCreateSlug(e.target.value)}
-                        placeholder={funnelCreateNamingPreview?.slug || "my-funnel"}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                      />
-                      <div className="mt-1 text-xs text-zinc-500">
-                        Suggested path: /<span className="font-semibold">{normalizeSlug(createSlug) || funnelCreateNamingPreview?.slug || "…"}</span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name (optional)</div>
-                      <input
-                        value={createName}
-                        onChange={(e) => setCreateName(e.target.value)}
-                        placeholder={funnelCreateNamingPreview?.name || "Lead capture funnel"}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="rounded-[28px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fafaf9_100%)] p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Business intake</div>
-                        <div className="mt-1 text-base font-semibold text-zinc-950">Turn rough business context into a usable first brief.</div>
-                        <div className="mt-1 text-sm leading-6 text-zinc-600">
-                          {createBusinessProfileSummary
-                            ? "Saved company context is already loaded. Add only what is specific to this funnel, offer, or audience shift."
-                            : "If a formal brief is not ready yet, answer this like a strategist is interviewing the owner. The builder can work from plain-language answers, and you can come back to refine it later."}
-                        </div>
-                      </div>
-                      <div className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700">
-                        {funnelCreateInterviewSignals.filter((item) => item.done).length}/{funnelCreateInterviewSignals.length} signals loaded
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white/80 px-4 py-3 text-sm text-zinc-600">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-zinc-900">This is a working intake, not a locked survey.</div>
-                        <div className="mt-1 leading-6">Your notes sync to this workspace while you work. Nothing becomes effective until you submit the funnel creation.</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700">
-                          {formatRelativeAutosaveLabel(createFunnelDraftSavedAt)}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={clearCreateFunnelDraft}
-                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
-                        >
-                          Clear saved draft
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-4">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Soft checkpoints</div>
-                      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="space-y-4">
+                    <div className="rounded-[28px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fafaf9_100%)] p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                         {funnelCreateStageItems.map((stage, index) => {
                           const active = createFunnelStage === stage.key;
                           return (
@@ -3284,7 +3194,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Step {index + 1}</span>
-                                <span className="text-[11px] font-semibold">{stage.done ? "Ready" : active ? "In progress" : "Open"}</span>
+                                <span className="text-[11px] font-semibold">{stage.done ? "Ready" : active ? "Here" : "Open"}</span>
                               </div>
                               <div className="mt-2 text-sm font-semibold">{stage.label}</div>
                               <div className="mt-1 text-xs leading-5 opacity-80">{stage.hint}</div>
@@ -3292,334 +3202,395 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           );
                         })}
                       </div>
+
+                      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-4">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                          Step {activeCreateFunnelStageIndex + 1} of {FUNNEL_CREATE_STAGE_ORDER.length}
+                        </div>
+                        <div className="mt-1 text-base font-semibold text-zinc-950">{activeCreateFunnelStageItem?.label || "Create funnel"}</div>
+                        <div className="mt-1 text-sm leading-6 text-zinc-600">
+                          {createFunnelStage === "business"
+                            ? "Name the funnel, describe this page's offer, and choose how the first draft should start."
+                            : createFunnelStage === "audience"
+                              ? "Say who this page is for and what it should qualify or collect."
+                              : "Confirm the result you want and the next action visitors should take."}
+                        </div>
+                      </div>
+
+                      {createFunnelStage === "business" ? (
+                        <>
+                          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name (optional)</div>
+                              <input
+                                value={createName}
+                                onChange={(e) => setCreateName(e.target.value)}
+                                placeholder={funnelCreateNamingPreview?.name || "Lead capture funnel"}
+                                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                              />
+                            </div>
+
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug (optional)</div>
+                              <input
+                                value={createSlug}
+                                onChange={(e) => setCreateSlug(e.target.value)}
+                                placeholder={funnelCreateNamingPreview?.slug || "my-funnel"}
+                                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                              />
+                              <div className="mt-1 text-xs text-zinc-500">
+                                Hosted path: /<span className="font-semibold">{normalizeSlug(createSlug) || funnelCreateNamingPreview?.slug || "…"}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What kind of page are you making?</div>
+                              <PortalListboxDropdown<FunnelPageIntentType>
+                                value={createFunnelPageType}
+                                onChange={(value) => applyFunnelCreatePageType(value)}
+                                options={FUNNEL_PAGE_TYPE_OPTIONS.map((option) => ({ value: option.value, label: option.label, hint: option.hint }))}
+                                buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                              />
+                            </div>
+
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">How should the first draft start?</div>
+                              <div className="mt-1 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setCreateFunnelPreferCustomMode(false)}
+                                  className={classNames(
+                                    "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
+                                    !createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
+                                  )}
+                                >
+                                  Let Purely draft it
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setCreateFunnelPreferCustomMode(true)}
+                                  className={classNames(
+                                    "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
+                                    createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
+                                  )}
+                                >
+                                  Start simple
+                                </button>
+                              </div>
+                              <div className="mt-1 text-xs leading-5 text-zinc-500">
+                                {createFunnelPreferCustomMode
+                                  ? "Purely will open one simple internal page for you to shape yourself. It does not import outside code here."
+                                  : "Purely will draft the first pass from your offer and page type."}
+                              </div>
+                            </div>
+                          </div>
+
+                          <label className="mt-4 block">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                              What is this page offering, promising, or inviting people into? <span className="text-red-500">*</span>
+                            </div>
+                            <textarea
+                              autoFocus
+                              value={createFunnelOffer}
+                              onChange={(e) => setCreateFunnelOffer(e.target.value)}
+                              rows={4}
+                              placeholder="Describe the page-specific offer in a few sentences. Example: A free strategy call for local service businesses that need more booked jobs without hiring an internal marketer. We review their current lead flow, show the biggest drop-off points, and give them a concrete next-step plan."
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                            <div className="mt-1 text-xs text-zinc-500">
+                              A short page-specific brief is better than a headline fragment here. Use 1-4 sentences about the actual offer, promise, who it is for, and why somebody would care. If broader business context is still missing overall, fix that in Business settings instead of writing a full company brief here.
+                            </div>
+                          </label>
+
+                          <div className="mt-4">
+                            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                              Business-level context belongs in <Link href={`${basePath}/app/settings/business`} className="font-semibold text-zinc-900 underline underline-offset-2">Business settings</Link>. This wizard should only capture what this specific page needs.
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
+
+                      {createFunnelStage === "audience" ? (
+                        <>
+                          <label className="mt-4 block">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Who is this for?</div>
+                            <input
+                              value={createFunnelAudience}
+                              onChange={(e) => setCreateFunnelAudience(e.target.value)}
+                              placeholder="e.g. local business owners, warm leads, people who already know the offer"
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                            <div className="mt-1 text-xs text-zinc-500">
+                              {createBusinessProfileSummary?.targetCustomer
+                                ? `Saved audience signal: ${createBusinessProfileSummary.targetCustomer}`
+                                : "Use plain language so the first screen knows who should feel like this is for them."}
+                            </div>
+                          </label>
+
+                          <label className="mt-4 block">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should this funnel qualify, collect, or decide?</div>
+                              <button
+                                type="button"
+                                onClick={() => startCreateIntakeDictation("qualificationFields", createFunnelQualificationFields)}
+                                disabled={!createIntakeDictationSupported && createIntakeDictatingFieldKey !== "qualificationFields"}
+                                className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
+                                title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "qualificationFields" ? "Stop dictation" : "Use the mic for qualification notes") : "Speech-to-text is not available in this browser. Try Chrome or Safari."}
+                              >
+                                {createIntakeDictatingFieldKey === "qualificationFields" ? "Stop mic" : "Use mic"}
+                              </button>
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-500">Examples: budget, readiness, location, timeline, booking handoff, tags, or routing rules.</div>
+                            <textarea
+                              value={createFunnelQualificationFields}
+                              onChange={(e) => {
+                                setCreateFunnelQualificationFields(e.target.value);
+                                if (createIntakeDictationError) setCreateIntakeDictationError(null);
+                              }}
+                              rows={5}
+                              placeholder="Examples: budget range, readiness, service type, location, timeline, team size, booking handoff, tags to apply, or any routing logic."
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </label>
+                        </>
+                      ) : null}
+
+                      {createFunnelStage === "conversion" ? (
+                        <>
+                          <label className="mt-4 block">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should happen when this funnel works?</div>
+                            <textarea
+                              value={createFunnelGoal}
+                              onChange={(e) => setCreateFunnelGoal(e.target.value)}
+                              rows={3}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </label>
+
+                          <label className="mt-4 block">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should people click or do next?</div>
+                            <input
+                              value={createFunnelPrimaryCta}
+                              onChange={(e) => setCreateFunnelPrimaryCta(e.target.value)}
+                              placeholder="e.g. Book a call, Get the guide, Reserve your seat"
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </label>
+
+                          <div className="mt-4">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Suggested CTA text</div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {buildPrimaryCtaSuggestions(createFunnelPageType, createFunnelPrimaryCta).slice(0, 3).map((suggestion) => (
+                                <button
+                                  key={suggestion}
+                                  type="button"
+                                  onClick={() => setCreateFunnelPrimaryCta(suggestion)}
+                                  className={classNames(
+                                    "rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
+                                    createFunnelPrimaryCta.trim() === suggestion
+                                      ? "border-blue-200 bg-blue-50 text-blue-900"
+                                      : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300",
+                                  )}
+                                >
+                                  {suggestion}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
+
+                      {createFunnelStage !== "conversion" ? (
+                        <div className="mt-4 flex flex-col gap-1 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+                          <div>{createIntakeDictatingFieldKey ? "Listening now. Speak naturally and the notes will be appended into the active field." : "Keep this quick. You can refine the deeper details after the first draft exists."}</div>
+                          <div>
+                            {createIntakeDictationSupported
+                              ? "Mic input helps when details are easier to say than type."
+                              : "Speech-to-text depends on browser support and microphone permission."}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {createIntakeDictationError ? (
+                        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{createIntakeDictationError}</div>
+                      ) : null}
+
+                      <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={goToPreviousCreateFunnelStage}
+                          disabled={activeCreateFunnelStageIndex === 0}
+                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-40"
+                        >
+                          Back
+                        </button>
+                        {activeCreateFunnelStageIndex < FUNNEL_CREATE_STAGE_ORDER.length - 1 ? (
+                          <button
+                            type="button"
+                            onClick={goToNextCreateFunnelStage}
+                            className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
+                          >
+                            {activeCreateFunnelStageComplete ? "Continue" : "Continue anyway"}
+                          </button>
+                        ) : (
+                          <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700">
+                            Ready to create
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Draft status</div>
+                          <div className="mt-1 text-sm font-semibold text-zinc-900">{formatRelativeAutosaveLabel(createFunnelDraftSavedAt)}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={clearCreateFunnelDraft}
+                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+                        >
+                          Clear draft
+                        </button>
+                      </div>
+                      <div className="mt-3 text-sm leading-6 text-zinc-600">
+                        Nothing becomes live from this popup. This is just the setup used to create the first draft.
+                      </div>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {funnelCreateInterviewSignals.map((item) => (
-                        <div
-                          key={item.label}
-                          className={classNames(
-                            "rounded-full border px-3 py-1.5 text-xs font-semibold",
-                            item.done ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-zinc-200 bg-white text-zinc-500",
-                          )}
-                        >
-                          {item.done ? "Ready" : "Need signal"} · {item.label}
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Signals ready</div>
+                        <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-700">
+                          {funnelCreateInterviewSignals.filter((item) => item.done).length}/{funnelCreateInterviewSignals.length}
                         </div>
-                      ))}
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {funnelCreateInterviewSignals.map((item) => (
+                          <div
+                            key={item.label}
+                            className={classNames(
+                              "flex items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-sm",
+                              item.done ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-zinc-200 bg-zinc-50 text-zinc-600",
+                            )}
+                          >
+                            <span>{item.label}</span>
+                            <span className="text-xs font-semibold">{item.done ? "Ready" : "Missing"}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
 
                     {createBusinessProfileSummary ? (
-                      <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-950">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-700">Using saved business profile</div>
-                        <div className="mt-1 font-semibold">{createBusinessProfileSummary.businessName || "Business context loaded"}</div>
-                        <div className="mt-1 leading-6 text-blue-900/80">
+                      <div className="rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-4 text-sm text-blue-950">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-700">Saved business profile</div>
+                            <div className="mt-1 font-semibold">{createBusinessProfileSummary.businessName || "Business context loaded"}</div>
+                          </div>
+                          <Link
+                            href={`${basePath}/app/settings/business`}
+                            className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-900 hover:bg-blue-100"
+                          >
+                            Edit business intake
+                          </Link>
+                        </div>
+                        <div className="mt-2 leading-6 text-blue-900/80">
                           {[
                             createBusinessProfileSummary.industry,
                             createBusinessProfileSummary.businessModel,
                             createBusinessProfileSummary.targetCustomer,
                             createBusinessProfileSummary.brandVoice,
-                          ].filter(Boolean).join(" · ") || "The builder will inherit the stored company context from your business profile."}
+                          ].filter(Boolean).join(" · ") || "Saved business context will be reused automatically for this page."}
                         </div>
                         {createBusinessProfileSummary.primaryGoals.length ? (
                           <div className="mt-2 text-xs leading-5 text-blue-900/75">Goals: {createBusinessProfileSummary.primaryGoals.join("; ")}</div>
                         ) : null}
                       </div>
                     ) : (
-                      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
-                        No saved company brief was found. Use the questions below to give the builder the raw material it needs.
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-4 text-sm text-amber-950">
+                        <div className="font-semibold">No shared business intake is saved yet.</div>
+                        <div className="mt-1">This page can still be created, but if Purely does not understand the offer or business well enough, fix that in Business settings instead of stuffing a full company brief into funnel setup.</div>
+                        <div className="mt-3">
+                          <Link
+                            href={`${basePath}/app/settings/business`}
+                            className="inline-flex items-center justify-center rounded-2xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                          >
+                            Open business settings
+                          </Link>
+                        </div>
                       </div>
                     )}
-                    {createFunnelStage === "business" ? (
-                      <>
-                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should this funnel do?</div>
-                            <PortalListboxDropdown<FunnelPageIntentType>
-                              value={createFunnelPageType}
-                              onChange={(value) => applyFunnelCreatePageType(value)}
-                              options={FUNNEL_PAGE_TYPE_OPTIONS.map((option) => ({ value: option.value, label: option.label, hint: option.hint }))}
-                              buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
-                            />
-                          </div>
 
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">First draft path</div>
-                            <div className="mt-1 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
-                              <button
-                                type="button"
-                                onClick={() => setCreateFunnelPreferCustomMode(false)}
-                                className={classNames(
-                                  "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
-                                  !createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
-                                )}
-                              >
-                                Guided scaffold
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setCreateFunnelPreferCustomMode(true)}
-                                className={classNames(
-                                  "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
-                                  createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
-                                )}
-                              >
-                                Custom draft
-                              </button>
-                            </div>
-                            <div className="mt-1 text-xs text-zinc-500">
-                              {createFunnelPreferCustomMode
-                                ? "Start with a simple draft page and shape the structure yourself from chat or source."
-                                : "Let the builder seed the first draft with the strongest scaffold it can infer from the offer."}
-                            </div>
-                          </div>
-                        </div>
-
-                        <label className="mt-4 block">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should the builder understand about this business before it chooses structure?</div>
-                            <button
-                              type="button"
-                              onClick={() => startCreateIntakeDictation("companyContext", createFunnelCompanyContext)}
-                              disabled={!createIntakeDictationSupported && createIntakeDictatingFieldKey !== "companyContext"}
-                              className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
-                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "companyContext" ? "Stop dictation" : "Use the mic for business context") : "Speech-to-text is not available in this browser. Try Chrome or Safari."}
-                            >
-                              {createIntakeDictatingFieldKey === "companyContext" ? "Stop mic" : "Use mic"}
-                            </button>
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-500">Use the mic when typing would flatten detail. Speaking usually gives clearer nuance about delivery, objections, proof, and why buyers move.</div>
-                          <textarea
-                            value={createFunnelCompanyContext}
-                            onChange={(e) => {
-                              setCreateFunnelCompanyContext(e.target.value);
-                              if (createIntakeDictationError) setCreateIntakeDictationError(null);
-                            }}
-                            rows={5}
-                            placeholder="Describe the business in plain language: what you sell, who it works best for, what makes it credible, where leads usually get stuck, and anything this funnel should respect."
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </label>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {FUNNEL_CREATE_CONTEXT_PROMPTS.map((prompt) => (
-                            <button
-                              key={prompt}
-                              type="button"
-                              onClick={() => appendCreateContextPrompt(prompt)}
-                              className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
-                            >
-                              {prompt}
-                            </button>
-                          ))}
-                        </div>
-
-                        <label className="mt-4 block">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                            What are you offering? <span className="text-red-500">*</span>
-                          </div>
-                          <input
-                            autoFocus
-                            value={createFunnelOffer}
-                            onChange={(e) => setCreateFunnelOffer(e.target.value)}
-                            placeholder="e.g. Free strategy call, credit audit, marketing consultation"
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </label>
-                      </>
-                    ) : null}
-
-                    {createFunnelStage === "audience" ? (
-                      <>
-                        <label className="mt-4 block">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Who is this for?</div>
-                          <input
-                            value={createFunnelAudience}
-                            onChange={(e) => setCreateFunnelAudience(e.target.value)}
-                            placeholder="e.g. local business owners, warm leads, people who already know the offer"
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                          <div className="mt-1 text-xs text-zinc-500">
-                            {createBusinessProfileSummary?.targetCustomer
-                              ? `Saved audience signal: ${createBusinessProfileSummary.targetCustomer}`
-                              : "Use this to tell the builder who should feel seen by the first screen."}
-                          </div>
-                        </label>
-
-                        <label className="mt-4 block">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should this funnel qualify, collect, or decide before someone moves forward?</div>
-                            <button
-                              type="button"
-                              onClick={() => startCreateIntakeDictation("qualificationFields", createFunnelQualificationFields)}
-                              disabled={!createIntakeDictationSupported && createIntakeDictatingFieldKey !== "qualificationFields"}
-                              className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
-                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "qualificationFields" ? "Stop dictation" : "Use the mic for qualification notes") : "Speech-to-text is not available in this browser. Try Chrome or Safari."}
-                            >
-                              {createIntakeDictatingFieldKey === "qualificationFields" ? "Stop mic" : "Use mic"}
-                            </button>
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-500">Use the mic here if routing or qualification logic is easier to explain out loud than to structure as a list.</div>
-                          <textarea
-                            value={createFunnelQualificationFields}
-                            onChange={(e) => {
-                              setCreateFunnelQualificationFields(e.target.value);
-                              if (createIntakeDictationError) setCreateIntakeDictationError(null);
-                            }}
-                            rows={4}
-                            placeholder="Examples: budget range, readiness, service type, location, timeline, team size, booking handoff, tags to apply, or any routing logic."
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </label>
-                      </>
-                    ) : null}
-
-                    {createFunnelStage === "conversion" ? (
-                      <>
-                        <label className="mt-4 block">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What outcome should this funnel win?</div>
-                          <textarea
-                            value={createFunnelGoal}
-                            onChange={(e) => setCreateFunnelGoal(e.target.value)}
-                            rows={3}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </label>
-
-                        <label className="mt-4 block">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should the visitor do next?</div>
-                          <input
-                            value={createFunnelPrimaryCta}
-                            onChange={(e) => setCreateFunnelPrimaryCta(e.target.value)}
-                            placeholder="e.g. Book a call, Get the guide, Reserve your seat"
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </label>
-
-                        <div className="mt-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Suggested next-step language</div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {buildPrimaryCtaSuggestions(createFunnelPageType, createFunnelPrimaryCta).slice(0, 3).map((suggestion) => (
-                              <button
-                                key={suggestion}
-                                type="button"
-                                onClick={() => setCreateFunnelPrimaryCta(suggestion)}
-                                className={classNames(
-                                  "rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
-                                  createFunnelPrimaryCta.trim() === suggestion
-                                    ? "border-blue-200 bg-blue-50 text-blue-900"
-                                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300",
-                                )}
-                              >
-                                {suggestion}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    ) : null}
-
-                    <div className="mt-4 flex flex-col gap-1 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
-                      <div>{createIntakeDictatingFieldKey ? "Listening now. Speak naturally and the notes will be appended into the active field." : "Keep this quick. Save the precise logic that changes how the funnel should be built."}</div>
-                      <div>
-                        {createIntakeDictationSupported
-                          ? "Mic input is best when you need richer detail, not longer copy."
-                          : "Speech-to-text depends on browser support and microphone permission."}
-                      </div>
-                    </div>
-
-                    {createIntakeDictationError ? (
-                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{createIntakeDictationError}</div>
-                    ) : null}
-
-                    <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={goToPreviousCreateFunnelStage}
-                        disabled={activeCreateFunnelStageIndex === 0}
-                        className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-40"
+                    {createFunnelStage === "conversion" && funnelInitializationDecision ? (
+                      <div
+                        className={classNames(
+                          "rounded-2xl border px-4 py-4",
+                          funnelInitializationDecision.confidence === "low"
+                            ? "border-amber-200 bg-amber-50/80"
+                            : funnelInitializationDecision.mode === "stencil"
+                              ? "border-blue-200 bg-blue-50/80"
+                              : "border-zinc-200 bg-zinc-50",
+                        )}
                       >
-                        Back
-                      </button>
-                      {activeCreateFunnelStageIndex < FUNNEL_CREATE_STAGE_ORDER.length - 1 ? (
-                        <button
-                          type="button"
-                          onClick={goToNextCreateFunnelStage}
-                          className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
-                        >
-                          {activeCreateFunnelStageComplete ? "Continue" : "Keep this rough and continue"}
-                        </button>
-                      ) : (
-                        <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700">
-                          Final checkpoint before create
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {createFunnelStage === "conversion" && funnelInitializationDecision ? (
-                    <div
-                      className={classNames(
-                        "rounded-2xl border px-4 py-3",
-                        funnelInitializationDecision.confidence === "low"
-                          ? "border-amber-200 bg-amber-50/80"
-                          : funnelInitializationDecision.mode === "stencil"
-                            ? "border-blue-200 bg-blue-50/80"
-                            : "border-zinc-200 bg-zinc-50",
-                      )}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Recommended first draft</div>
-                          <div className="mt-1 text-sm font-semibold text-zinc-900">
-                            {funnelInitializationDecision.mode === "stencil"
-                              ? `Seed the draft with the ${funnelInitializationDecision.label} scaffold`
-                              : "Start from a custom draft"}
-                          </div>
-                          <div className="mt-1 text-sm text-zinc-700">
-                            {funnelInitializationDecision.mode === "stencil"
-                              ? `When you click Create, the builder will open with a ${(funnelInitializationDecision.label || "guided").toLowerCase()} first draft already seeded.`
-                              : "When you click Create, the builder will open with one simple page and leave the structure decisions to you."}
-                          </div>
-                          <div className="mt-1 text-sm text-zinc-600">Until then, this stays a resumable workspace draft you can return to.</div>
-                          <div className="mt-1 text-sm text-zinc-600">{funnelInitializationDecision.reason}</div>
-                          {funnelInitializationDecision.question ? (
-                            <div className="mt-2 text-sm font-medium text-amber-900">Before we lock that in: {funnelInitializationDecision.question}</div>
-                          ) : null}
-                          {funnelCreateNeedsDirectionChoice ? (
-                            <div className="mt-2 text-sm font-medium text-amber-900">
-                              Pick the closest scaffold below, or switch to Custom draft if you want to shape the first page yourself.
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Recommended first draft</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-900">
+                              {funnelInitializationDecision.mode === "stencil"
+                                ? `${funnelInitializationDecision.label} scaffold`
+                                : "Simple custom page"}
                             </div>
-                          ) : null}
-                          {funnelInitializationDecision.suggestions.length ? (
-                            <div className="mt-3">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                                {funnelCreateNeedsDirectionChoice ? "Pick the closest one" : "Other good starting points"}
-                              </div>
-                              <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-600">
-                              {funnelInitializationDecision.suggestions.map((suggestion) => (
-                                <button
-                                  key={suggestion.stencilId}
-                                  type="button"
-                                  onClick={() => {
-                                    applyFunnelCreatePageType(pageTypeFromStencilId(suggestion.stencilId));
-                                    setCreateFunnelPreferCustomMode(false);
-                                  }}
-                                  className="rounded-full border border-white/80 bg-white/80 px-2.5 py-1 font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-white"
-                                  title={suggestion.reason}
-                                >
-                                  {funnelCreateNeedsDirectionChoice ? suggestion.label : `Try ${suggestion.label}`}
-                                </button>
-                              ))}
-                              </div>
+                            <div className="mt-1 text-sm text-zinc-700">
+                              {funnelInitializationDecision.mode === "stencil"
+                                ? `Create will open the editor with a ${(funnelInitializationDecision.label || "guided").toLowerCase()} first draft already seeded.`
+                                : "Create will open the editor with one simple page so you can shape the structure yourself."}
                             </div>
-                          ) : null}
-                        </div>
-                        <div className="rounded-full border border-white/80 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
-                          {formatInitializationConfidence(funnelInitializationDecision.confidence)}
+                            <div className="mt-1 text-sm text-zinc-600">{funnelInitializationDecision.reason}</div>
+                            {funnelInitializationDecision.question ? (
+                              <div className="mt-2 text-sm font-medium text-amber-900">Before you lock that in: {funnelInitializationDecision.question}</div>
+                            ) : null}
+                            {funnelCreateNeedsDirectionChoice ? (
+                              <div className="mt-2 text-sm font-medium text-amber-900">
+                                Pick the closest scaffold below, or switch to Start simple if you want to shape the first page yourself.
+                              </div>
+                            ) : null}
+                            {funnelInitializationDecision.suggestions.length ? (
+                              <div className="mt-3">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                                  {funnelCreateNeedsDirectionChoice ? "Pick the closest one" : "Other good starting points"}
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-600">
+                                  {funnelInitializationDecision.suggestions.map((suggestion) => (
+                                    <button
+                                      key={suggestion.stencilId}
+                                      type="button"
+                                      onClick={() => {
+                                        applyFunnelCreatePageType(pageTypeFromStencilId(suggestion.stencilId));
+                                        setCreateFunnelPreferCustomMode(false);
+                                      }}
+                                      className="rounded-full border border-white/80 bg-white/80 px-2.5 py-1 font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-white"
+                                      title={suggestion.reason}
+                                    >
+                                      {funnelCreateNeedsDirectionChoice ? suggestion.label : `Try ${suggestion.label}`}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="rounded-full border border-white/80 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
+                            {formatInitializationConfidence(funnelInitializationDecision.confidence)}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 
@@ -3687,7 +3658,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                   : creatingKind === "funnel"
                     ? funnelCreateNeedsDirectionChoice
                       ? "Pick a starting point first"
-                      : formatInitializationActionLabel(funnelInitializationDecision)
+                      : "Create funnel"
                     : "Create"}
               </button>
             </div>

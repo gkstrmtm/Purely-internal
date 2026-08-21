@@ -199,14 +199,6 @@ function cleanTextList(value: unknown, maxItems = 4, maxLen = 120) {
   return out;
 }
 
-function formatListSummary(items: string[], maxItems = 2) {
-  const cleanItems = items.filter(Boolean).slice(0, maxItems + 1);
-  if (!cleanItems.length) return "";
-  if (cleanItems.length === 1) return cleanItems[0];
-  if (cleanItems.length === 2) return `${cleanItems[0]} and ${cleanItems[1]}`;
-  return `${cleanItems.slice(0, maxItems).join(", ")} +${cleanItems.length - maxItems} more`;
-}
-
 function lowerFirst(value: string) {
   if (!value) return value;
   return value.charAt(0).toLowerCase() + value.slice(1);
@@ -508,7 +500,7 @@ export function buildSuggestedFunnelNaming(input?: {
   const fallbackName = cleanText(input?.fallbackName, 120);
   const templateLabel = cleanText(input?.templateLabel, 120);
   const funnelGoal = cleanText(input?.funnelGoal, 180);
-  const offer = cleanText(input?.offer, 160);
+  const offer = cleanText(input?.offer, 220);
   const primaryCta = cleanText(input?.primaryCta, 120);
   const explicitGoal = funnelGoal && normalizeIntentSentence(funnelGoal) !== normalizeIntentSentence(defaultFunnelGoalForPageType(pageType));
   const explicitOffer = offer && normalizeIntentSentence(offer) !== normalizeIntentSentence(defaultOfferForPageType(pageType));
@@ -542,7 +534,7 @@ export function buildSuggestedPageNaming(input?: {
   const pageType = isIntentType(input?.pageType) ? input.pageType : "landing";
   const fallbackSlug = cleanSlugSeed(input?.fallbackSlug, 64);
   const fallbackTitle = cleanText(input?.fallbackTitle, 160);
-  const offer = cleanText(input?.offer, 160);
+  const offer = cleanText(input?.offer, 220);
   const primaryCta = cleanText(input?.primaryCta, 120);
   const explicitOffer = offer && normalizeIntentSentence(offer) !== normalizeIntentSentence(defaultOfferForPageType(pageType));
   const explicitCta = primaryCta && normalizeIntentSentence(primaryCta) !== normalizeIntentSentence(defaultCtaForPageType(pageType));
@@ -860,7 +852,7 @@ export function inferFunnelBriefProfile(input?: {
   return {
     companyContext: cleanText(existing?.companyContext ?? existing?.businessContext, 480),
     funnelGoal: cleanText(existing?.funnelGoal, 240) || defaultFunnelGoalForPageType(inferredIntentType),
-    offerSummary: cleanText(existing?.offerSummary ?? existing?.offer, 240),
+    offerSummary: cleanText(existing?.offerSummary ?? existing?.offer, 480),
     audienceSummary: cleanText(existing?.audienceSummary ?? existing?.audience, 240),
     qualificationFields: cleanText(existing?.qualificationFields, 240),
     routingDestination: cleanText(existing?.routingDestination, 240) || (funnelSlug ? `Continue through /${funnelSlug}` : ""),
@@ -905,7 +897,7 @@ export function inferFunnelPageIntentProfile(input?: {
     ...(isIntentType(input?.pageType) ? { pageType: input.pageType } : null),
     ...(cleanText(input?.pageGoal, 220) ? { pageGoal: cleanText(input?.pageGoal, 220) } : null),
     ...(cleanText(input?.audience, 180) ? { audience: cleanText(input?.audience, 180) } : null),
-    ...(cleanText(input?.offer, 180) ? { offer: cleanText(input?.offer, 180) } : null),
+    ...(cleanText(input?.offer, 360) ? { offer: cleanText(input?.offer, 360) } : null),
     ...(cleanText(input?.primaryCta, 120) ? { primaryCta: cleanText(input?.primaryCta, 120) } : null),
     ...(cleanText(input?.companyContext, 360) ? { companyContext: cleanText(input?.companyContext, 360) } : null),
     ...(cleanText(input?.qualificationFields, 240) ? { qualificationFields: cleanText(input?.qualificationFields, 240) } : null),
@@ -927,7 +919,8 @@ export function inferFunnelPageIntentProfile(input?: {
   const effectiveExisting: Record<string, unknown> =
     isRecord(mergedExisting.mediaPlan) && Object.keys(mergedExisting.mediaPlan).length === 0
       ? (() => {
-          const { mediaPlan: _mediaPlan, ...rest } = mergedExisting;
+          const rest = { ...mergedExisting };
+          delete rest.mediaPlan;
           return rest;
         })()
       : mergedExisting;
@@ -942,7 +935,7 @@ export function inferFunnelPageIntentProfile(input?: {
   const pageType = isIntentType(effectiveExisting.pageType) ? effectiveExisting.pageType : detectIntentType(source);
   const pageGoal = cleanText(effectiveExisting.pageGoal, 220) || defaultPageGoalForPageType(pageType);
   const audience = cleanText(effectiveExisting.audience, 180) || cleanText(funnelBrief?.audienceSummary, 180) || defaultAudienceForPageType(pageType);
-  const offer = cleanText(effectiveExisting.offer, 180) || cleanText(funnelBrief?.offerSummary, 180) || defaultOfferForPageType(pageType);
+  const offer = cleanText(effectiveExisting.offer, 360) || cleanText(funnelBrief?.offerSummary, 360) || defaultOfferForPageType(pageType);
   const primaryCta = cleanText(effectiveExisting.primaryCta, 120) || defaultCtaForPageType(pageType);
   const companyContext = cleanText(effectiveExisting.companyContext ?? effectiveExisting.businessContext, 360) || cleanText(funnelBrief?.companyContext, 360);
   const formStrategy = isFormStrategy(effectiveExisting.formStrategy) ? effectiveExisting.formStrategy : defaultFormStrategyForPageType(pageType);
@@ -1128,7 +1121,7 @@ export function buildResolvedFunnelFoundation(input: {
     cleanText(input.pageTitle, 120) ||
     (routeSlug === "home" || routeSlug === "page" || routeSlug === "landing" || routeSlug === "test" ? "this page" : routeLabel);
   const audience = cleanText(intent?.audience, 180) || cleanText(brief?.audienceSummary, 180) || defaultAudienceForPageType(pageType);
-  const offer = cleanText(intent?.offer, 180) || cleanText(brief?.offerSummary, 180) || defaultOfferForPageType(pageType);
+  const offer = cleanText(intent?.offer, 260) || cleanText(brief?.offerSummary, 260) || defaultOfferForPageType(pageType);
   const pageGoal = cleanText(intent?.pageGoal, 220) || defaultPageGoalForPageType(pageType);
   const primaryCta = cleanText(intent?.primaryCta, 120) || defaultCtaForPageType(pageType);
   const routingDestination = cleanText(intent?.routingDestination, 240) || cleanText(brief?.routingDestination, 240) || defaultRoutingForPageType(pageType, "", primaryCta);

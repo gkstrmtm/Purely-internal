@@ -24,6 +24,7 @@ import {
   normalizeDraftHtmlList,
   withDraftHtmlSelect,
 } from "@/lib/funnelPageDbCompat";
+import { getBusinessProfileFoundationContext } from "@/lib/businessProfileAiContext.server";
 import { consumeCredits, consumeCreditsOnce } from "@/lib/credits";
 import { addCredits } from "@/lib/credits";
 import { enforceFunnelBuilderRouteRateLimit, readFunnelBuilderRequestId } from "@/lib/funnelBuilderGuardrails";
@@ -49,6 +50,29 @@ function buildAvailablePageSlug(base: string, used: Set<string>) {
     if (candidate && !used.has(candidate)) return candidate;
   }
   return normalizePageSlug(`${normalizedBase}-${Math.random().toString(36).slice(2, 6)}`) || normalizedBase;
+}
+
+function cleanContextText(value: unknown, maxLen: number) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, maxLen) : "";
+}
+
+function buildBusinessProfileContextSeed(profile: Awaited<ReturnType<typeof getBusinessProfileFoundationContext>>) {
+  if (!profile) return "";
+
+  return [
+    profile.businessName ? `Business: ${cleanContextText(profile.businessName, 160)}` : "",
+    profile.industry ? `Industry: ${cleanContextText(profile.industry, 140)}` : "",
+    profile.businessModel ? `Model: ${cleanContextText(profile.businessModel, 180)}` : "",
+    profile.targetCustomer ? `Audience: ${cleanContextText(profile.targetCustomer, 180)}` : "",
+    Array.isArray(profile.primaryGoals) && profile.primaryGoals.length
+      ? `Goals: ${profile.primaryGoals.map((goal) => cleanContextText(goal, 100)).filter(Boolean).slice(0, 6).join("; ")}`
+      : "",
+    profile.brandVoice ? `Voice: ${cleanContextText(profile.brandVoice, 180)}` : "",
+    profile.businessContext ? `Context: ${cleanContextText(profile.businessContext, 320)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 480);
 }
 
 function getGlobalHeaderBlockFromPages(pages: Array<{ blocksJson: unknown }>): CreditFunnelBlock | null {
@@ -191,6 +215,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const globalHeaderBlock = getGlobalHeaderBlockFromPages(pagesForHeader);
 
   const body = (await req.json().catch(() => null)) as any;
+  const businessProfile = await getBusinessProfileFoundationContext(auth.session.user.id).catch(() => null);
   const clientRequestId = typeof body?.requestId === "string" ? body.requestId.trim().slice(0, 120) : "";
   const requestId = readFunnelBuilderRequestId(req, clientRequestId);
   const explicitSlugRaw = typeof body?.slug === "string" ? body.slug : "";
@@ -198,6 +223,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const explicitTitle = typeof body?.title === "string" ? body.title.trim().slice(0, 200) : "";
   const contentMarkdown = typeof body?.contentMarkdown === "string" ? body.contentMarkdown : "";
   const sortOrder = Number.isFinite(Number(body?.sortOrder)) ? Number(body.sortOrder) : 0;
+  const effectiveAudience =
+    cleanContextText(body?.audienceSummary ?? body?.audience, 240) || cleanContextText(businessProfile?.targetCustomer, 240);
+  const effectiveCompanyContext =
+    cleanContextText(body?.companyContext, 480) || buildBusinessProfileContextSeed(businessProfile);
 
   if (explicitSlugRaw.trim() && !explicitSlug) {
     return NextResponse.json({ ok: false, error: "Invalid slug" }, { status: 400 });
@@ -307,10 +336,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         pageSlug: page.slug,
         pageType: body?.pageType,
         pageGoal: body?.pageGoal,
-        audience: body?.audience,
+        audience: effectiveAudience,
         offer: body?.offer,
         primaryCta: body?.primaryCta,
-        companyContext: body?.companyContext,
+        companyContext: effectiveCompanyContext,
         qualificationFields: body?.qualificationFields,
         routingDestination: body?.routingDestination,
         formStrategy: body?.formStrategy,

@@ -16,6 +16,7 @@ import { applyDraftHtmlWriteCompat, dbHasCreditFunnelPageDraftHtmlColumn } from 
 import { buildSuggestedFunnelNaming, buildSuggestedPageNaming, inferFunnelBriefProfile, inferFunnelPageIntentProfile, writeFunnelBrief, writeFunnelPageBrief, type FunnelPageIntentType } from "@/lib/funnelPageIntent";
 import { buildFunnelInitializationScaffold } from "@/lib/funnelStencilRegistry.server";
 import { createFunnelPageMirroredHtmlUpdate } from "@/lib/funnelPageState";
+import { getBusinessProfileFoundationContext } from "@/lib/businessProfileAiContext.server";
 import { consumeCredits, consumeCreditsOnce } from "@/lib/credits";
 import { addCredits } from "@/lib/credits";
 import { enforceFunnelBuilderRouteRateLimit, readFunnelBuilderRequestId } from "@/lib/funnelBuilderGuardrails";
@@ -104,6 +105,29 @@ function hasStructuredInitializationIntent(body: Record<string, unknown> | null)
     const value = body[key];
     return typeof value === "string" ? Boolean(value.trim()) : value != null;
   });
+}
+
+function cleanContextText(value: unknown, maxLen: number) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, maxLen) : "";
+}
+
+function buildBusinessProfileContextSeed(profile: Awaited<ReturnType<typeof getBusinessProfileFoundationContext>>) {
+  if (!profile) return "";
+
+  return [
+    profile.businessName ? `Business: ${cleanContextText(profile.businessName, 160)}` : "",
+    profile.industry ? `Industry: ${cleanContextText(profile.industry, 140)}` : "",
+    profile.businessModel ? `Model: ${cleanContextText(profile.businessModel, 180)}` : "",
+    profile.targetCustomer ? `Audience: ${cleanContextText(profile.targetCustomer, 180)}` : "",
+    Array.isArray(profile.primaryGoals) && profile.primaryGoals.length
+      ? `Goals: ${profile.primaryGoals.map((goal) => cleanContextText(goal, 100)).filter(Boolean).slice(0, 6).join("; ")}`
+      : "",
+    profile.brandVoice ? `Voice: ${cleanContextText(profile.brandVoice, 180)}` : "",
+    profile.businessContext ? `Context: ${cleanContextText(profile.businessContext, 320)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 480);
 }
 
 type FunnelCreatePageSeed = {
@@ -393,6 +417,7 @@ export async function POST(req: Request) {
     const basePath = auth.variant === "credit" ? "/credit" : "";
 
     const body = (await req.json().catch(() => null)) as any;
+    const businessProfile = await getBusinessProfileFoundationContext(ownerId).catch(() => null);
     const clientRequestId = typeof body?.requestId === "string" ? body.requestId.trim().slice(0, 120) : "";
     const requestId = readFunnelBuilderRequestId(req, clientRequestId);
     const explicitSlugRaw = typeof body?.slug === "string" ? body.slug : "";
@@ -433,6 +458,10 @@ export async function POST(req: Request) {
     const themeKey = template ? requestedThemeKey || template.defaultThemeKey : null;
     const theme = themeKey ? getCreditFunnelTheme(themeKey) : null;
     const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
+    const effectiveAudience =
+      cleanContextText(body?.audienceSummary ?? body?.audience, 240) || cleanContextText(businessProfile?.targetCustomer, 240);
+    const effectiveCompanyContext =
+      cleanContextText(body?.companyContext, 480) || buildBusinessProfileContextSeed(businessProfile);
     const blankPageNaming = buildSuggestedPageNaming({
       pageType: body?.pageType,
       primaryCta: body?.primaryCta,
@@ -442,10 +471,10 @@ export async function POST(req: Request) {
     const firstPageIntent = inferFunnelPageIntentProfile({
       pageType: body?.pageType,
       pageGoal: body?.pageGoal,
-      audience: body?.audience,
+      audience: effectiveAudience,
       offer: body?.offerSummary ?? body?.offer,
       primaryCta: body?.primaryCta,
-      companyContext: body?.companyContext,
+      companyContext: effectiveCompanyContext,
       qualificationFields: body?.qualificationFields,
       routingDestination: body?.routingDestination,
       formStrategy: body?.formStrategy,
@@ -472,7 +501,7 @@ export async function POST(req: Request) {
             pageType: body?.pageType,
             funnelGoal: body?.funnelGoal,
             offer: body?.offerSummary ?? body?.offer,
-            audience: body?.audienceSummary ?? body?.audience,
+            audience: effectiveAudience,
             primaryCta: body?.primaryCta,
             name,
             slug,
@@ -547,7 +576,7 @@ export async function POST(req: Request) {
                 funnelSlug: candidate,
                 funnelName: name,
                 pageType: firstPageIntent.pageType,
-                offer: String(body?.offerSummary ?? body?.offer || ""),
+                offer: String(body?.offerSummary ?? (body?.offer || "")),
               })
             : null;
           starterFormSlug = starterForm?.slug || null;
@@ -582,10 +611,10 @@ export async function POST(req: Request) {
             existing: {
               funnelGoal: body?.funnelGoal,
               offerSummary: body?.offerSummary ?? body?.offer,
-              audienceSummary: body?.audienceSummary ?? body?.audience,
+              audienceSummary: effectiveAudience,
               qualificationFields: body?.qualificationFields,
               routingDestination: body?.routingDestination,
-              companyContext: body?.companyContext,
+              companyContext: effectiveCompanyContext,
               integrationPlan: body?.integrationPlan,
             },
             funnelName: created.name,
@@ -631,10 +660,10 @@ export async function POST(req: Request) {
                 pageSlug: starterPage.slug,
                 pageType: body?.pageType,
                 pageGoal: body?.pageGoal,
-                audience: body?.audience,
+                audience: effectiveAudience,
                 offer: body?.offerSummary ?? body?.offer,
                 primaryCta: body?.primaryCta,
-                companyContext: body?.companyContext,
+                companyContext: effectiveCompanyContext,
                 qualificationFields: body?.qualificationFields,
                 routingDestination: body?.routingDestination,
                 formStrategy: body?.formStrategy,
@@ -665,10 +694,10 @@ export async function POST(req: Request) {
                     pageSlug: createdPage.slug,
                     pageType: briefSeed.pageType,
                     pageGoal: briefSeed.pageGoal,
-                    audience: body?.audience,
+                    audience: effectiveAudience,
                     offer: body?.offerSummary ?? body?.offer,
                     primaryCta: body?.primaryCta,
-                    companyContext: body?.companyContext,
+                    companyContext: effectiveCompanyContext,
                     qualificationFields: body?.qualificationFields,
                     routingDestination: body?.routingDestination,
                     formStrategy: body?.formStrategy,
